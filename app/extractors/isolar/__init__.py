@@ -1,0 +1,1 @@
+# İsOlar Portal extractor implementation

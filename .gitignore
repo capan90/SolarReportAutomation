@@ -1,20 +1,27 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+*.egg-info/
+dist/
+build/
 
 # Environment
 .env
+.env.local
+.env.*.local
 
-# Outputs
+# Outputs (Geçici ve indirilen verilerin git'e pushlanmasını önlemek için)
 outputs/pdf/*
 outputs/charts/*
+outputs/raw_exports/*
 logs/*
 
 # Keep folders
 !outputs/pdf/.gitkeep
 !outputs/charts/.gitkeep
+!outputs/raw_exports/.gitkeep
 !logs/.gitkeep
 
 # IDE
@@ -28,3 +35,5 @@ Thumbs.db
 # Playwright
 test-results/
 playwright-report/
+blob-report/
+playwright/.local-browsers/

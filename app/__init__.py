@@ -1,0 +1,1 @@
+# SolarReportAutomation application package
