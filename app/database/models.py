@@ -59,3 +59,36 @@ class DailyGeneration(Base):
     __table_args__ = (
         UniqueConstraint("plant_id", "date", name="uq_plant_date"),
     )
+
+class EtlRun(Base):
+    """
+    Neden: Her ETL pipeline çalışmasının başlangıç/bitiş zamanları, durum bilgileri,
+    üretilen dosya referansları, veritabanı istatistikleri ve hata sayılarını
+    kalıcı olarak saklamak (Run History & Audit Trail).
+    """
+    __tablename__ = "etl_runs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(36), unique=True, nullable=False)
+    started_at = Column(DateTime, nullable=False)
+    finished_at = Column(DateTime, nullable=False)
+    duration_ms = Column(Integer, nullable=False)
+    status = Column(String(50), nullable=False)
+    cli_mode = Column(String(50), nullable=True)
+    target_date = Column(Date, nullable=True)
+    source_file = Column(String(255), nullable=True)
+    profiling_file = Column(String(255), nullable=True)
+    validation_file = Column(String(255), nullable=True)
+    transformed_file = Column(String(255), nullable=True)
+    inserted_records = Column(Integer, default=0)
+    updated_records = Column(Integer, default=0)
+    skipped_stages = Column(Text, nullable=True)
+    issues_count = Column(Integer, default=0)
+    warnings_count = Column(Integer, default=0)
+    errors_count = Column(Integer, default=0)
+    critical_count = Column(Integer, default=0)
+    exit_code = Column(Integer, nullable=True)
+    hostname = Column(String(255), nullable=True)
+    git_commit = Column(String(80), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

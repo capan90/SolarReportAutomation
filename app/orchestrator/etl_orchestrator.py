@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -57,7 +58,8 @@ class ETLOrchestrator:
         return files[0]
 
     def run(self, cli_args: Optional[CliArgs] = None) -> PipelineResult:
-        logger.info("===== ETL Pipeline Başlatılıyor =====")
+        run_id = str(uuid.uuid4())
+        logger.info(f"===== ETL Pipeline Başlatılıyor. Run ID: {run_id} =====")
         start_time = datetime.now()
         
         stages: List[PipelineStage] = []
@@ -411,6 +413,7 @@ class ETLOrchestrator:
 
         result = PipelineResult(
             status=pipeline_status,
+            run_id=run_id,
             started_at=start_time.isoformat(),
             finished_at=finished_time.isoformat(),
             duration_ms=total_duration_ms,

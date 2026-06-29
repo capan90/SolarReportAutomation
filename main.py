@@ -31,6 +31,9 @@ def run():
         print(f"Kritik Hata: Lock dosyası oluşturulamadı: {e}")
         sys.exit(1)  # FAILED
 
+    exit_code = 1  # Varsayılan: FAILED
+    result = None
+
     try:
         # 3. Orchestrator tetikle
         orchestrator = ETLOrchestrator()
@@ -38,6 +41,7 @@ def run():
         
         # Konsola genel durumu yazdır
         print("\n===== Pipeline Run Result =====")
+        print(f"Run ID           : {result.run_id}")
         print(f"Pipeline Status  : {result.status}")
         print(f"Total Duration   : {result.duration_ms} ms")
         print(f"Source File      : {result.source_file}")
@@ -60,23 +64,34 @@ def run():
                 
         if result.status.upper() == "FAILED":
             if validation_failed:
-                sys.exit(2)  # VALIDATION_FAILED
+                exit_code = 2  # VALIDATION_FAILED
             else:
-                sys.exit(1)  # FAILED
+                exit_code = 1  # FAILED
         else:
-            sys.exit(0)  # SUCCESS
+            exit_code = 0  # SUCCESS
             
     except Exception as e:
         print(f"Kritik çalıştırma hatası: {e}")
-        sys.exit(1)  # FAILED
+        exit_code = 1  # FAILED
         
     finally:
-        # 4. Hata olsa bile lock dosyası temizlenir
+        # 4. Audit kaydı yaz (best-effort: başarısız olursa pipeline sonucunu değiştirmez)
+        if result is not None:
+            try:
+                from app.database.audit_repository import AuditRepository
+                audit = AuditRepository()
+                audit.save_pipeline_result(result, args, exit_code)
+            except Exception as e:
+                print(f"Audit kaydı yazılamadı (best-effort): {e}")
+        
+        # 5. Hata olsa bile lock dosyası temizlenir
         if LOCK_FILE.exists():
             try:
                 LOCK_FILE.unlink()
             except Exception as e:
                 print(f"Lock dosyası temizlenirken hata oluştu: {e}")
+        
+        sys.exit(exit_code)
 
 if __name__ == "__main__":
     run()

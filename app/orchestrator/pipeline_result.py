@@ -24,6 +24,7 @@ class PipelineResult:
     veritabanı istatistiklerini ve tüm aşamalardaki detayları bir arada raporlamak.
     """
     status: str  # 'SUCCESS' veya 'FAILED'
+    run_id: str  # UUID
     started_at: str
     finished_at: str
     duration_ms: int
