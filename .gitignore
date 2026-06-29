@@ -20,6 +20,7 @@ outputs/profiles/*
 outputs/validation_reports/*
 outputs/transformed/*
 logs/*
+*.sqlite
 
 # Keep folders
 !outputs/pdf/.gitkeep
