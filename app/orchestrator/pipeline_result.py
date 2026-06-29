@@ -36,6 +36,7 @@ class PipelineResult:
     skipped_stage: List[str] = field(default_factory=list)
     issues: List[str] = field(default_factory=list)
     stages: List[PipelineStage] = field(default_factory=list)
+    target_date: Optional[str] = None
 
     def to_json(self) -> str:
         """

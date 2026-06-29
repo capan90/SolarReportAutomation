@@ -17,6 +17,7 @@ from app.transformation.yield_report_transformer import YieldReportTransformer
 from app.database import create_tables, test_connection, DatabaseLoader
 from app.orchestrator.pipeline_stage import PipelineStage
 from app.orchestrator.pipeline_result import PipelineResult
+from app.cli.cli_models import CliArgs
 
 logger = setup_logger("ETLOrchestrator")
 
@@ -44,7 +45,18 @@ class ETLOrchestrator:
         files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
         return files[0].name
 
-    def run(self) -> PipelineResult:
+    def _get_newest_raw_file(self) -> Path:
+        """
+        Neden: skip-download modu aktif olduğunda, en yeni arşivlenmiş Excel dosyasını seçmek.
+        """
+        raw_dir = settings.download_directory
+        files = list(raw_dir.glob("raw_isolar_*.xlsx"))
+        if not files:
+            raise FileNotFoundError("Raw archive dizininde eşleşen ham rapor dosyası bulunamadı.")
+        files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+        return files[0]
+
+    def run(self, cli_args: Optional[CliArgs] = None) -> PipelineResult:
         logger.info("===== ETL Pipeline Başlatılıyor =====")
         start_time = datetime.now()
         
@@ -60,10 +72,15 @@ class ETLOrchestrator:
         inserted_records = 0
         updated_records = 0
 
-        # Kontrol durum bayrakları
+        # Kontrol durum bayrakları ve CLI yönlendirmeleri
         is_pipeline_aborted = False
         validation_failed = False
         transformation_failed = False
+
+        skip_download = cli_args.skip_download if cli_args else False
+        skip_db_load = (cli_args.skip_db_load or cli_args.mode == "dry-run") if cli_args else False
+        headless = cli_args.headless if cli_args else True
+        target_date_str = cli_args.date if cli_args else None
 
         # Nesneler
         archive_manager = ArchiveManager()
@@ -73,115 +90,124 @@ class ETLOrchestrator:
         transformer = YieldReportTransformer()
         db_loader = DatabaseLoader()
 
-        # Veritabanı tablolarının varlığından emin ol
-        try:
-            test_connection()
-            create_tables()
-        except Exception as e:
-            logger.critical(f"Veritabanı başlatılamadı: {e}")
-            is_pipeline_aborted = True
-            issues.append(f"Veritabanı Başlatma Hatası: {e}")
+        # Veritabanı tablolarının varlığından emin ol (Sadece dry-run veya skip-db-load değilse test edilir)
+        if not skip_db_load:
+            try:
+                test_connection()
+                create_tables()
+            except Exception as e:
+                logger.critical(f"Veritabanı başlatılamadı: {e}")
+                is_pipeline_aborted = True
+                issues.append(f"Veritabanı Başlatma Hatası: {e}")
 
-        # Playwright ve Extractor Akışı
+        # Playwright ve Extractor Akışı (skip-download aktifse tarayıcı hiç açılmaz)
         temp_file_path = None
         final_file_path = None
         profile = None
         val_report = None
         trans_result = None
 
-        with PlaywrightClient() as client:
-            page = client.create_page()
-            extractor = IsolarExtractor(page)
+        if skip_download:
+            # Login, Navigation ve Download atlanır (SKIPPED)
+            for name in ["Login", "Navigation", "Download"]:
+                stages.append(PipelineStage(name=name, status="SKIPPED"))
+                skipped_stage.append(name)
+        else:
+            try:
+                with PlaywrightClient(headless=headless) as client:
+                    page = client.create_page()
+                    extractor = IsolarExtractor(page)
 
-            # --- AŞAMA 1: Login ---
-            stage_name = "Login"
-            stage_start = datetime.now()
-            logger.info(f"Aşama: {stage_name} başlatılıyor...")
-            if is_pipeline_aborted:
-                stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
-                skipped_stage.append(stage_name)
-            else:
-                try:
-                    settings.validate()
-                    extractor.login_and_verify()
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="SUCCESS",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
-                    ))
-                except Exception as e:
-                    is_pipeline_aborted = True
-                    issues.append(f"Login Hatası: {e}")
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="FAILED",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
-                        exception=str(e)
-                    ))
+                    # --- AŞAMA 1: Login ---
+                    stage_name = "Login"
+                    stage_start = datetime.now()
+                    logger.info(f"Aşama: {stage_name} başlatılıyor...")
+                    if is_pipeline_aborted:
+                        stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
+                        skipped_stage.append(stage_name)
+                    else:
+                        try:
+                            settings.validate()
+                            extractor.login_and_verify()
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="SUCCESS",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
+                            ))
+                        except Exception as e:
+                            is_pipeline_aborted = True
+                            issues.append(f"Login Hatası: {e}")
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="FAILED",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
+                                exception=str(e)
+                            ))
 
-            # --- AŞAMA 2: Navigation ---
-            stage_name = "Navigation"
-            stage_start = datetime.now()
-            logger.info(f"Aşama: {stage_name} başlatılıyor...")
-            if is_pipeline_aborted:
-                stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
-                skipped_stage.append(stage_name)
-            else:
-                try:
-                    extractor.navigate_to_daily_report()
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="SUCCESS",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
-                    ))
-                except Exception as e:
-                    is_pipeline_aborted = True
-                    issues.append(f"Navigation Hatası: {e}")
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="FAILED",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
-                        exception=str(e)
-                    ))
+                    # --- AŞAMA 2: Navigation ---
+                    stage_name = "Navigation"
+                    stage_start = datetime.now()
+                    logger.info(f"Aşama: {stage_name} başlatılıyor...")
+                    if is_pipeline_aborted:
+                        stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
+                        skipped_stage.append(stage_name)
+                    else:
+                        try:
+                            extractor.navigate_to_daily_report()
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="SUCCESS",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
+                            ))
+                        except Exception as e:
+                            is_pipeline_aborted = True
+                            issues.append(f"Navigation Hatası: {e}")
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="FAILED",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
+                                exception=str(e)
+                            ))
 
-            # --- AŞAMA 3: Download ---
-            stage_name = "Download"
-            stage_start = datetime.now()
-            logger.info(f"Aşama: {stage_name} başlatılıyor...")
-            if is_pipeline_aborted:
-                stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
-                skipped_stage.append(stage_name)
-            else:
-                try:
-                    temp_file_path = extractor.download_daily_report()
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="SUCCESS",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
-                    ))
-                except Exception as e:
-                    is_pipeline_aborted = True
-                    issues.append(f"Download Hatası: {e}")
-                    stages.append(PipelineStage(
-                        name=stage_name,
-                        status="FAILED",
-                        started_at=stage_start.isoformat(),
-                        finished_at=datetime.now().isoformat(),
-                        duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
-                        exception=str(e)
-                    ))
-
-        # Tarayıcı kapandıktan sonra yerel işlem aşamaları
+                    # --- AŞAMA 3: Download ---
+                    stage_name = "Download"
+                    stage_start = datetime.now()
+                    logger.info(f"Aşama: {stage_name} başlatılıyor...")
+                    if is_pipeline_aborted:
+                        stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
+                        skipped_stage.append(stage_name)
+                    else:
+                        try:
+                            temp_file_path = extractor.download_daily_report()
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="SUCCESS",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000)
+                            ))
+                        except Exception as e:
+                            is_pipeline_aborted = True
+                            issues.append(f"Download Hatası: {e}")
+                            stages.append(PipelineStage(
+                                name=stage_name,
+                                status="FAILED",
+                                started_at=stage_start.isoformat(),
+                                finished_at=datetime.now().isoformat(),
+                                duration_ms=int((datetime.now() - stage_start).total_seconds() * 1000),
+                                exception=str(e)
+                            ))
+            except Exception as e:
+                is_pipeline_aborted = True
+                issues.append(f"Tarayıcı altyapı hatası: {e}")
 
         # --- AŞAMA 4: Archive ---
         stage_name = "Archive"
@@ -190,6 +216,29 @@ class ETLOrchestrator:
         if is_pipeline_aborted:
             stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
             skipped_stage.append(stage_name)
+        elif skip_download:
+            try:
+                final_file_path = self._get_newest_raw_file()
+                source_file = final_file_path.name
+                stages.append(PipelineStage(
+                    name=stage_name,
+                    status="SKIPPED",
+                    started_at=stage_start.isoformat(),
+                    finished_at=datetime.now().isoformat(),
+                    duration_ms=0
+                ))
+                skipped_stage.append(stage_name)
+            except Exception as e:
+                is_pipeline_aborted = True
+                issues.append(f"Archive Hatası (Skip Download): {e}")
+                stages.append(PipelineStage(
+                    name=stage_name,
+                    status="FAILED",
+                    started_at=stage_start.isoformat(),
+                    finished_at=datetime.now().isoformat(),
+                    duration_ms=0,
+                    exception=str(e)
+                ))
         else:
             try:
                 final_file_path = archive_manager.archive_raw_file(temp_file_path)
@@ -318,7 +367,7 @@ class ETLOrchestrator:
         stage_name = "Database Load"
         stage_start = datetime.now()
         logger.info(f"Aşama: {stage_name} başlatılıyor...")
-        if is_pipeline_aborted or validation_failed or transformation_failed:
+        if is_pipeline_aborted or validation_failed or transformation_failed or skip_db_load:
             stages.append(PipelineStage(name=stage_name, status="SKIPPED"))
             skipped_stage.append(stage_name)
         else:
@@ -355,7 +404,10 @@ class ETLOrchestrator:
         
         # Pipeline genel durumunu belirle
         has_failed_stages = any(s.status == "FAILED" for s in stages)
-        pipeline_status = "FAILED" if has_failed_stages else "SUCCESS"
+        
+        # Validation başarısız olduğunda özel exit code standardına uyum sağlamak için FAILED olarak raporlanır.
+        # transformation veya database loader da failed ise FAILED olur.
+        pipeline_status = "FAILED" if (has_failed_stages or validation_failed) else "SUCCESS"
 
         result = PipelineResult(
             status=pipeline_status,
@@ -370,7 +422,8 @@ class ETLOrchestrator:
             updated_records=updated_records,
             skipped_stage=skipped_stage,
             issues=issues,
-            stages=stages
+            stages=stages,
+            target_date=target_date_str
         )
 
         logger.info(f"===== ETL Pipeline Sonlandı. Durum: {pipeline_status}, Süre: {total_duration_ms} ms =====")

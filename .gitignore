@@ -19,6 +19,7 @@ outputs/raw_exports/*
 outputs/profiles/*
 outputs/validation_reports/*
 outputs/transformed/*
+outputs/runtime/*
 logs/*
 *.sqlite
 
