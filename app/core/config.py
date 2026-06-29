@@ -39,6 +39,7 @@ class Settings:
     chart_directory: Path
     app_env: str
     headless: bool
+    database_url: str
 
     def validate(self):
         """
@@ -66,6 +67,7 @@ settings = Settings(
     report_directory=BASE_DIR / Path(os.environ.get("REPORT_OUTPUT_DIR", "outputs/pdf")),
     chart_directory=BASE_DIR / Path(os.environ.get("CHART_OUTPUT_DIR", "outputs/charts")),
     app_env=os.environ.get("APP_ENV", "development"),
-    headless=os.environ.get("ISOLAR_HEADLESS", "true").lower() == "true"
+    headless=os.environ.get("ISOLAR_HEADLESS", "true").lower() == "true",
+    database_url=os.environ.get("DATABASE_URL", "")
 )
 

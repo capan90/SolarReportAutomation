@@ -1,0 +1,140 @@
+from app.canonical.canonical_models import MappingField, WorkbookMapping
+
+isolar_yield_report_mapping = WorkbookMapping(
+    key="isolar_yield_report_v1",
+    name="Isolar Yield Report Canonical Mapping",
+    version="1.0.0",
+    description="iSolarCloud Excel yield report to Canonical Data Model mapping rules.",
+    mappings=[
+        MappingField(
+            source_column="Plant name",
+            source_aliases=["Plant name", "Tesis Adı", "Station Name", "station name", "Plant name "],
+            canonical_field="plant_name",
+            entity="solar_plant",
+            target_db_column="name",
+            expected_type="text",
+            unit="",
+            nullable=False,
+            required=True,
+            transform_rule="trim_text",
+            description="Benzersiz güneş enerjisi tesisi adı."
+        ),
+        MappingField(
+            source_column="Installed power(kWp)",
+            source_aliases=["Installed power(kWp)", "Installed power", "Kurulu Güç", "Güç"],
+            canonical_field="installed_power_kwp",
+            entity="solar_plant",
+            target_db_column="installed_power_kwp",
+            expected_type="float",
+            unit="kWp",
+            nullable=False,
+            required=True,
+            transform_rule="normalize_kwp",
+            description="Tesisin kurulu DC panel gücü."
+        ),
+        MappingField(
+            source_column="Grid connection date",
+            source_aliases=["Grid connection date", "Şebeke Bağlantı Tarihi", "Kabul Tarihi"],
+            canonical_field="grid_connection_date",
+            entity="solar_plant",
+            target_db_column="grid_connection_date",
+            expected_type="date",
+            unit="",
+            nullable=False,
+            required=True,
+            transform_rule="parse_date",
+            description="Tesisin devreye alınma/kabul tarihi."
+        ),
+        MappingField(
+            source_column="Yield today (kWh)",
+            source_aliases=["Yield today (kWh)", "Daily Yield", "Günlük Üretim", "Yield today(kWh)"],
+            canonical_field="yield_today_kwh",
+            entity="daily_generation",
+            target_db_column="yield_today_kwh",
+            expected_type="float",
+            unit="kWh",
+            nullable=False,
+            required=True,
+            transform_rule="normalize_kwh",
+            description="Tesisin günlük toplam AC üretim miktarı."
+        ),
+        MappingField(
+            source_column="Total yield(kWh)",
+            source_aliases=["Total yield(kWh)", "Total Yield", "Toplam Üretim", "Total yield(kWh) "],
+            canonical_field="total_yield_kwh",
+            entity="daily_generation",
+            target_db_column="total_yield_kwh",
+            expected_type="float",
+            unit="kWh",
+            nullable=False,
+            required=True,
+            transform_rule="normalize_kwh",
+            description="Devreye alındığından beri yapılan toplam kümülatif AC üretim."
+        ),
+        MappingField(
+            source_column="Equivalent hours(h)",
+            source_aliases=["Equivalent hours(h)", "Equivalent Hours", "Eşdeğer Çalışma Saati"],
+            canonical_field="equivalent_hours",
+            entity="daily_generation",
+            target_db_column="equivalent_hours",
+            expected_type="float",
+            unit="h",
+            nullable=False,
+            required=True,
+            transform_rule="parse_float",
+            description="Tesisin nominal güçte çalışarak bu üretimi yapması için gereken eşdeğer saat."
+        ),
+        MappingField(
+            source_column="Revenue today",
+            source_aliases=["Revenue today", "Günlük Gelir", "Revenue"],
+            canonical_field="revenue_today",
+            entity="daily_generation",
+            target_db_column="revenue_today",
+            expected_type="float",
+            unit="TRY",
+            nullable=True,
+            required=False,
+            transform_rule="parse_revenue_currency",
+            description="Tesisin günlük ürettiği enerjinin parasal karşılığı."
+        ),
+        MappingField(
+            source_column="Total CO₂ reduction(kg)",
+            source_aliases=["Total CO₂ reduction(kg)", "CO2 Reduction", "Karbon Azaltımı"],
+            canonical_field="co2_reduction_kg",
+            entity="daily_generation",
+            target_db_column="co2_reduction_kg",
+            expected_type="float",
+            unit="kg",
+            nullable=False,
+            required=True,
+            transform_rule="parse_float",
+            description="Önlenen kümülatif CO2 salınım miktarı."
+        ),
+        MappingField(
+            source_column="Plant address",
+            source_aliases=["Plant address", "Tesis Adresi", "Address"],
+            canonical_field="address",
+            entity="solar_plant",
+            target_db_column="address",
+            expected_type="text",
+            unit="",
+            nullable=True,
+            required=False,
+            transform_rule="trim_text",
+            description="Tesisin fiziksel adresi."
+        ),
+        MappingField(
+            source_column="Inverter S/N",
+            source_aliases=["Inverter S/N", "Inverter Serial Number", "İnvertör Seri No"],
+            canonical_field="inverter_serial_numbers",
+            entity="daily_generation",
+            target_db_column="inverter_serial_numbers",
+            expected_type="text",
+            unit="",
+            nullable=True,
+            required=False,
+            transform_rule="trim_text",
+            description="İnvertör seri numaraları."
+        )
+    ]
+)

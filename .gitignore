@@ -18,6 +18,7 @@ outputs/charts/*
 outputs/raw_exports/*
 outputs/profiles/*
 outputs/validation_reports/*
+outputs/transformed/*
 logs/*
 
 # Keep folders
