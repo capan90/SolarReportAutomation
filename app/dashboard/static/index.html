@@ -92,6 +92,7 @@
             gap: 30px;
             max-width: 1400px;
             margin: 0 auto;
+            width: 100%;
         }
 
         /* Header */
@@ -116,6 +117,17 @@
             font-weight: 600;
             font-size: 0.85rem;
             text-transform: uppercase;
+        }
+
+        /* Tabs */
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .tab-content.active {
+            display: flex;
         }
 
         /* KPI Cards Grid */
@@ -152,11 +164,15 @@
             font-weight: 700;
         }
 
-        /* Secondary Grid layout (Charts and Statuses) */
+        /* Row Layout */
         .dashboard-row {
             display: grid;
             grid-template-columns: 2fr 1fr;
             gap: 30px;
+        }
+
+        .dashboard-row.equal-height {
+            grid-template-columns: 1fr 1fr;
         }
 
         .card {
@@ -176,7 +192,7 @@
             align-items: center;
         }
 
-        /* Table Style */
+        /* Tables */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -242,7 +258,6 @@
             font-size: 0.9rem;
         }
 
-        /* System Metrics Charts wrapper */
         .chart-container {
             height: 250px;
             position: relative;
@@ -254,7 +269,8 @@
     <div class="sidebar">
         <div class="logo">iSolar<span>Cloud</span> Monitor</div>
         <ul class="menu-list">
-            <a class="menu-item active">Operational Monitor</a>
+            <a class="menu-item active" onclick="switchTab('op-monitor')">Operational Monitor</a>
+            <a class="menu-item" onclick="switchTab('hist-analytics')">Historical Analytics</a>
         </ul>
     </div>
 
@@ -263,95 +279,201 @@
         <!-- Header -->
         <div class="header">
             <div>
-                <h1>Yönetici İzleme Paneli</h1>
-                <p style="color: var(--text-secondary); margin-top: 5px;">SolarReportAutomation ETL operasyon kontrol merkezi</p>
+                <h1 id="page-title">Yönetici İzleme Paneli</h1>
+                <p style="color: var(--text-secondary); margin-top: 5px;" id="page-subtitle">SolarReportAutomation ETL operasyon kontrol merkezi</p>
             </div>
             <div id="env-badge" class="env-badge">Yükleniyor...</div>
         </div>
 
-        <!-- KPI Cards Grid -->
-        <div class="kpi-grid">
-            <div class="kpi-card">
-                <div class="kpi-title">Başarı Oranı</div>
-                <div id="kpi-success-rate" class="kpi-value">-%</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">Başarısız Pipeline</div>
-                <div id="kpi-failed-runs" class="kpi-value">-</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">Ortalama Süre</div>
-                <div id="kpi-avg-duration" class="kpi-value">- ms</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">Toplam Retry</div>
-                <div id="kpi-total-retries" class="kpi-value">-</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-title">Sağlık Puanı</div>
-                <div id="kpi-health-score" class="kpi-value">-%</div>
-            </div>
-        </div>
-
-        <!-- Grid Row 1 (Runs & Health) -->
-        <div class="dashboard-row">
-            <!-- Pipeline Runs Table -->
-            <div class="card">
-                <div class="card-title">Son Pipeline Koşuları (Audit Trail)</div>
-                <div style="overflow-x: auto;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Run ID</th>
-                                <th>Başlangıç</th>
-                                <th>Süre (ms)</th>
-                                <th>Çıkış Kodu</th>
-                                <th>Hata Sayısı</th>
-                                <th>Durum</th>
-                            </tr>
-                        </thead>
-                        <tbody id="runs-tbody">
-                            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
-                        </tbody>
-                    </table>
+        <!-- ================= OPERATIONAL MONITOR TAB ================= -->
+        <div id="op-monitor" class="tab-content active">
+            <!-- KPI Cards Grid -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Başarı Oranı</div>
+                    <div id="kpi-success-rate" class="kpi-value">-%</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Başarısız Pipeline</div>
+                    <div id="kpi-failed-runs" class="kpi-value">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Ortalama Süre</div>
+                    <div id="kpi-avg-duration" class="kpi-value">- ms</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Toplam Retry</div>
+                    <div id="kpi-total-retries" class="kpi-value">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Sağlık Puanı</div>
+                    <div id="kpi-health-score" class="kpi-value">-%</div>
                 </div>
             </div>
 
-            <!-- Health Status -->
-            <div class="card">
-                <div class="card-title">Sistem Sağlık Arayüzü</div>
-                <div class="health-list" id="health-list-container">
-                    <div style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</div>
+            <!-- Row 1 -->
+            <div class="dashboard-row">
+                <div class="card">
+                    <div class="card-title">Son Pipeline Koşuları (Audit Trail)</div>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Run ID</th>
+                                    <th>Başlangıç</th>
+                                    <th>Süre (ms)</th>
+                                    <th>Çıkış Kodu</th>
+                                    <th>Hata Sayısı</th>
+                                    <th>Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody id="runs-tbody">
+                                <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Sistem Sağlık Arayüzü</div>
+                    <div class="health-list" id="health-list-container">
+                        <div style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 2 -->
+            <div class="dashboard-row">
+                <div class="card">
+                    <div class="card-title">Sistem Performans İzleme (CPU & RAM)</div>
+                    <div class="chart-container">
+                        <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Gönderilen Alarmlar</div>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>Kanal</th>
+                                    <th>Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody id="notifications-tbody">
+                                <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Grid Row 2 (Charts & Notifications) -->
-        <div class="dashboard-row">
-            <!-- Metrics Charts -->
+        <!-- ================= HISTORICAL ANALYTICS TAB ================= -->
+        <div id="hist-analytics" class="tab-content">
+            <!-- Analytics Overview Cards -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Toplam Üretim (kWh)</div>
+                    <div id="anal-total-yield" class="kpi-value">0 kWh</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Günlük Ortalama</div>
+                    <div id="anal-avg-yield" class="kpi-value">0 kWh</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Zirve Üretim</div>
+                    <div id="anal-peak-yield" class="kpi-value">0 kWh</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Eksik Gün Sayısı</div>
+                    <div id="anal-missing-days" class="kpi-value">0</div>
+                </div>
+            </div>
+
+            <!-- Trend Chart -->
             <div class="card">
-                <div class="card-title">Sistem Performans İzleme (CPU & RAM)</div>
+                <div class="card-title">Üretim Trend Analizi (Son 30 Gün) <span id="trend-badge" class="status-badge">Trend</span></div>
                 <div class="chart-container">
-                    <canvas id="performanceChart"></canvas>
+                    <canvas id="trendChart"></canvas>
                 </div>
             </div>
 
-            <!-- Notification History -->
-            <div class="card">
-                <div class="card-title">Gönderilen Alarmlar</div>
-                <div style="overflow-x: auto;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Tarih</th>
-                                <th>Kanal</th>
-                                <th>Durum</th>
-                            </tr>
-                        </thead>
-                        <tbody id="notifications-tbody">
-                            <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
-                        </tbody>
-                    </table>
+            <!-- Weekly / Monthly Summaries -->
+            <div class="dashboard-row equal-height">
+                <div class="card">
+                    <div class="card-title">Haftalık Üretim Analizleri</div>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Yıl</th>
+                                    <th>Hafta</th>
+                                    <th>Toplam Üretim (kWh)</th>
+                                    <th>Tesis Sayısı</th>
+                                </tr>
+                            </thead>
+                            <tbody id="weekly-tbody">
+                                <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Aylık Üretim Analizleri</div>
+                    <div style="overflow-x: auto;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Dönem</th>
+                                    <th>Toplam Üretim (kWh)</th>
+                                    <th>Tesis Sayısı</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthly-tbody">
+                                <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Missing Days & Daily Summary -->
+            <div class="dashboard-row">
+                <div class="card">
+                    <div class="card-title">Günlük Detaylı Üretim Logu</div>
+                    <div style="overflow-x: auto; max-height: 350px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>Santral</th>
+                                    <th>Üretim (kWh)</th>
+                                    <th>Gelir</th>
+                                    <th>CO2 Azaltımı (kg)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="daily-tbody">
+                                <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title" style="color: var(--accent-yellow);">Eksik Gün Taraması (Missing Days)</div>
+                    <div style="overflow-x: auto; max-height: 350px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tarih</th>
+                                    <th>Tesis</th>
+                                </tr>
+                            </thead>
+                            <tbody id="missing-tbody">
+                                <tr><td colspan="2" style="text-align: center; color: var(--text-secondary);">Kayıt aranıyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -359,16 +481,39 @@
 
     <!-- Frontend logic & binding -->
     <script>
+        let perfChartInstance = null;
+        let trendChartInstance = null;
+
+        function switchTab(tabId) {
+            document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
+            document.querySelectorAll(".menu-item").forEach(el => el.classList.remove("active"));
+            
+            document.getElementById(tabId).classList.add("active");
+            event.target.classList.add("active");
+
+            const pageTitle = document.getElementById("page-title");
+            const pageSubtitle = document.getElementById("page-subtitle");
+
+            if (tabId === "op-monitor") {
+                pageTitle.innerText = "Yönetici İzleme Paneli";
+                pageSubtitle.innerText = "SolarReportAutomation ETL operasyon kontrol merkezi";
+                initDashboard();
+            } else {
+                pageTitle.innerText = "Tarihsel Analiz ve Raporlama Motoru";
+                pageSubtitle.innerText = "Güneş enerjisi santralleri üretim ve verimlilik analizleri";
+                initAnalytics();
+            }
+        }
+
         async function fetchJson(url) {
             try {
                 const response = await fetch(url);
                 if (!response.ok) throw new Error("HTTP error " + response.status);
                 const result = await response.json();
                 if (result.success) return result.data;
-                console.error("API error for " + url, result.error);
                 return null;
             } catch (err) {
-                console.error("Fetch failed for " + url, err);
+                console.error("Fetch failed: " + url, err);
                 return null;
             }
         }
@@ -382,15 +527,6 @@
                 document.getElementById("kpi-avg-duration").innerText = kpiData.avg_duration_ms + " ms";
                 document.getElementById("kpi-total-retries").innerText = kpiData.total_retries;
                 document.getElementById("kpi-health-score").innerText = kpiData.health_score + "%";
-            }
-            
-            // set environment badge
-            try {
-                const response = await fetch("/api/kpis");
-                const resJson = await response.json();
-                document.getElementById("env-badge").innerText = resJson.metadata.environment;
-            } catch(e) {
-                document.getElementById("env-badge").innerText = "error";
             }
 
             // runs table
@@ -440,7 +576,7 @@
                 notifsTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
             }
 
-            // charts
+            // performance chart
             const cpuData = await fetchJson("/api/metrics/system.cpu.percent");
             const memData = await fetchJson("/api/metrics/system.memory.percent");
             
@@ -448,8 +584,9 @@
             const cpuValues = (cpuData && cpuData.values) || [];
             const memValues = (memData && memData.values) || [];
 
+            if (perfChartInstance) perfChartInstance.destroy();
             const ctx = document.getElementById('performanceChart').getContext('2d');
-            new Chart(ctx, {
+            perfChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -476,23 +613,134 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        y: {
-                            min: 0,
-                            max: 100,
-                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
-                        },
-                        x: {
-                            grid: { display: false }
-                        }
+                        y: { min: 0, max: 100, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
+                        x: { grid: { display: false } }
                     },
-                    plugins: {
-                        legend: { labels: { color: '#f8fafc' } }
-                    }
+                    plugins: { legend: { labels: { color: '#f8fafc' } } }
                 }
             });
         }
 
-        window.addEventListener("DOMContentLoaded", initDashboard);
+        async function initAnalytics() {
+            // overview
+            const analOver = await fetchJson("/api/analytics/overview");
+            if (analOver) {
+                document.getElementById("anal-total-yield").innerText = analOver.total_yield_kwh.toLocaleString() + " kWh";
+                document.getElementById("anal-avg-yield").innerText = analOver.avg_daily_yield_kwh.toLocaleString() + " kWh";
+                document.getElementById("anal-peak-yield").innerText = analOver.peak_production_kwh.toLocaleString() + " kWh";
+                document.getElementById("anal-missing-days").innerText = analOver.missing_days_count;
+            }
+
+            // daily table
+            const daily = await fetchJson("/api/analytics/daily");
+            const dailyTbody = document.getElementById("daily-tbody");
+            if (daily && daily.length > 0) {
+                // Son 100 kaydı göster
+                dailyTbody.innerHTML = daily.slice(-100).reverse().map(d => `
+                    <tr>
+                        <td>${d.date}</td>
+                        <td>${d.plant_name}</td>
+                        <td>${d.yield_kwh.toLocaleString()} kWh</td>
+                        <td>${d.revenue.toLocaleString()} TL</td>
+                        <td>${d.co2_reduction_kg.toLocaleString()} kg</td>
+                    </tr>
+                `).join("");
+            } else {
+                dailyTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Kayıt bulunamadı.</td></tr>`;
+            }
+
+            // weekly table
+            const weekly = await fetchJson("/api/analytics/weekly");
+            const weeklyTbody = document.getElementById("weekly-tbody");
+            if (weekly && weekly.length > 0) {
+                weeklyTbody.innerHTML = weekly.reverse().map(w => `
+                    <tr>
+                        <td>${w.year}</td>
+                        <td>Hafta ${w.week_number}</td>
+                        <td>${w.yield_kwh.toLocaleString()} kWh</td>
+                        <td>${w.plant_count} Tesis</td>
+                    </tr>
+                `).join("");
+            } else {
+                weeklyTbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
+            }
+
+            // monthly table
+            const monthly = await fetchJson("/api/analytics/monthly");
+            const monthlyTbody = document.getElementById("monthly-tbody");
+            if (monthly && monthly.length > 0) {
+                monthlyTbody.innerHTML = monthly.reverse().map(m => `
+                    <tr>
+                        <td>${m.year_month}</td>
+                        <td>${m.yield_kwh.toLocaleString()} kWh</td>
+                        <td>${m.plant_count} Tesis</td>
+                    </tr>
+                `).join("");
+            } else {
+                monthlyTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
+            }
+
+            // missing days
+            const missing = await fetchJson("/api/analytics/missing-days");
+            const missingTbody = document.getElementById("missing-tbody");
+            if (missing && missing.length > 0) {
+                missingTbody.innerHTML = missing.map(m => `
+                    <tr>
+                        <td style="color: var(--accent-yellow); font-weight: 600;">${m.date}</td>
+                        <td>${m.plant_name}</td>
+                    </tr>
+                `).join("");
+            } else {
+                missingTbody.innerHTML = `<tr><td colspan="2" style="text-align: center; color: var(--accent-green);">Eksik gün kaydı bulunmamaktadır.</td></tr>`;
+            }
+
+            // trend chart
+            const trend = await fetchJson("/api/analytics/trend");
+            if (trend) {
+                const badge = document.getElementById("trend-badge");
+                badge.innerText = `TREND: ${trend.direction} (${trend.change_percent}%)`;
+                badge.className = "status-badge " + (trend.direction === 'INCREASING' ? 'status-success' : trend.direction === 'DECREASING' ? 'status-failed' : 'status-warning');
+
+                if (trendChartInstance) trendChartInstance.destroy();
+                const ctx = document.getElementById('trendChart').getContext('2d');
+                trendChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: trend.labels,
+                        datasets: [{
+                            label: 'Daily Production (kWh)',
+                            data: trend.values,
+                            backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                            borderColor: '#3b82f6',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } },
+                            x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                        },
+                        plugins: { legend: { labels: { color: '#f8fafc' } } }
+                    }
+                });
+            }
+        }
+
+        async function initPage() {
+            // Get initial environment state
+            try {
+                const response = await fetch("/api/kpis");
+                const resJson = await response.json();
+                document.getElementById("env-badge").innerText = resJson.metadata.environment;
+            } catch(e) {
+                document.getElementById("env-badge").innerText = "error";
+            }
+            initDashboard();
+        }
+
+        window.addEventListener("DOMContentLoaded", initPage);
     </script>
 </body>
 </html>

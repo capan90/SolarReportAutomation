@@ -1,0 +1,168 @@
+# SolarReportAutomation — Project Constitution v2.0
+
+## 1. Proje Kimliği
+
+SolarReportAutomation basit bir scraper değildir.
+
+Bu proje; solar portal verilerini toplayan, doğrulayan, dönüştüren, veritabanına işleyen, izleyen, raporlayan ve operasyonel dashboard üzerinden takip edilebilen kurumsal bir ETL & Reporting Platformudur.
+
+## 2. Ana İlke
+
+Önce doğruluk, sonra otomasyon.
+
+Kod yazmak ilk adım değildir. Her geliştirme şu sırayı izler:
+
+Analiz → Mimari → Plan → Implementasyon → Test → Review → Release Readiness → Commit
+
+## 3. Mimari İlkeler
+
+* Clean Architecture korunur.
+* SOLID ihlal edilmez.
+* ETL Pipeline geriye dönük uyumlu kalır.
+* Canonical Data Model izinsiz değiştirilmez.
+* UI katmanı doğrudan ORM veya SQL kullanmaz.
+* Dashboard read-only kalır.
+* Kritik işlemler loglanır.
+* Sessiz hata kabul edilmez.
+* Ham veriler arşivlenir.
+* Secrets loglanmaz.
+* `.env`, `logs/`, `outputs/`, `archive/`, `cache/`, `temp/` Git’e girmez.
+
+## 4. Mevcut Release Durumu
+
+Proje şu anda RC-3 seviyesindedir.
+
+* RC-1: Production Readiness
+* RC-2: Metrics & Observability
+* RC-3: Operational Dashboard Platform
+
+Sprint 14 sonrası dashboard, metrics, health, notification, scheduler, retry ve audit altyapıları aktif kabul edilir.
+
+## 5. Çekirdek Frameworkler
+
+Projenin mevcut çekirdek frameworkleri:
+
+* ETL Orchestrator
+* Validation Framework
+* Health Framework
+* Notification Framework
+* Retry Framework
+* Scheduler Framework
+* Metrics Framework
+* Dashboard Platform
+* Audit Trail
+
+Yeni geliştirmeler bu frameworkleri bozmayacak şekilde yapılır.
+
+## 6. Sprint Çalışma Standardı
+
+Her sprint şu akışla yürütülür:
+
+1. Sprint Planning
+2. Architecture Review
+3. Implementation
+4. Smoke Test
+5. Code Review
+6. Production Verification
+7. Release Readiness Review
+8. Sprint Closure
+9. Git Commit
+10. Tag / Release Notu
+
+## 7. Teknoloji Yaklaşımı
+
+Gereksiz teknoloji eklenmez.
+
+YAGNI prensibi geçerlidir.
+
+Yeni teknoloji ancak şu şartlarda eklenir:
+
+* Mevcut yapı ihtiyacı karşılamıyorsa
+* Bakım maliyeti düşükse
+* Clean Architecture’ı bozmuyorsa
+* ADR veya teknik karar notu ile açıklanıyorsa
+
+## 8. Veri İlkeleri
+
+* Raw data korunur.
+* Validation pipeline atlanmaz.
+* Database load transaction-safe olmalıdır.
+* UPSERT stratejisi korunur.
+* Audit trail bozulmaz.
+* Business veriler dashboard veya analytics için read-model üzerinden tüketilir.
+
+## 9. Dashboard İlkeleri
+
+Dashboard operasyon merkezi olarak konumlandırılır.
+
+Dashboard:
+
+* Read-only çalışır.
+* ETL tetiklemez.
+* Scheduler tetiklemez.
+* Database’e yazmaz.
+* Sadece servis ve repository katmanı üzerinden veri okur.
+* Stack trace veya secret expose etmez.
+
+## 10. Observability İlkeleri
+
+Her operasyonel olay izlenebilir olmalıdır.
+
+Önemli izleme anahtarları:
+
+* run_id
+* stage_name
+* environment
+* status
+* duration
+* retry_count
+* health_score
+* notification_status
+
+Metrics sistemi ana pipeline’ı bozmadan best-effort çalışır.
+
+## 11. Release Disiplini
+
+Her büyük sprint bir Release Candidate seviyesine taşınabilir.
+
+RC seviyesi sadece kod tamamlandığında değil; test, review, dokümantasyon ve release readiness tamamlandığında verilir.
+
+## 12. Sprint 15 Önceliği
+
+Sprint 15’in hedefi Historical Analytics Engine altyapısını kurmaktır.
+
+Ancak bugünkü öncelik:
+
+Çalışan mevcut RC-3 sisteminin bozulmadan korunması ve Historical Analytics’in minimum çalışır ilk sürümünün çıkarılmasıdır.
+
+Kapsam kontrollü tutulacaktır.
+
+Bugün hedef:
+
+* Mevcut sistemi çalışır tutmak
+* Analytics read-model kurmak
+* Günlük / haftalık / aylık üretim özetlerini hesaplamak
+* Dashboard veya raporlara veri sağlayacak servis altyapısını hazırlamak
+* Gereksiz tahmin, ML veya karmaşık anomaly algoritmalarına girmemek
+
+## 13. AI Çalışma Kuralları
+
+AI karar verici değildir.
+
+Roller:
+
+* Product Owner: Kullanıcı
+* Software Architect: ChatGPT
+* AI Developer: Antigravity
+
+Antigravity kod yazmadan önce plan sunar.
+
+Plan onaylanmadan implementasyon yapılmaz.
+
+## 14. Kapanış İlkesi
+
+Bu constitution, projenin mimari ve operasyonel anayasasıdır.
+
+Yeni sprintlerde bu belge referans alınır.
+
+Bu belgeyle çelişen kararlar alınacaksa önce teknik gerekçe yazılır, sonra onay alınır.

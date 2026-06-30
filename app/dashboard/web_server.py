@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from app.core.config import settings, BASE_DIR
 from app.core.logger import setup_logger
 from app.dashboard.service import DashboardService
+from app.analytics.service import AnalyticsService
 
 logger = setup_logger("DashboardWebServer")
 
@@ -18,6 +19,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     sıfır dış bağımlılıkla ve salt-okunur (GET) kurallarına göre sunmak.
     """
     service = DashboardService()
+    analytics_service = AnalyticsService()
     static_dir = Path(__file__).resolve().parent / "static"
 
     def do_POST(self):
@@ -49,7 +51,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         """
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        # Localhost üzerinden çalıştığı için CORS'u sıkı tutabilir veya localhost'a izin verebiliriz
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
@@ -69,6 +70,24 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/notifications":
                 notifs = self.service.get_notification_history(limit=15)
                 response_data = [n.to_dict() for n in notifs]
+            elif path == "/api/analytics/overview":
+                overview = self.analytics_service.get_overview()
+                response_data = overview.to_dict()
+            elif path == "/api/analytics/daily":
+                daily = self.analytics_service.get_daily_summary()
+                response_data = [d.to_dict() for d in daily]
+            elif path == "/api/analytics/weekly":
+                weekly = self.analytics_service.get_weekly_summary()
+                response_data = [w.to_dict() for w in weekly]
+            elif path == "/api/analytics/monthly":
+                monthly = self.analytics_service.get_monthly_summary()
+                response_data = [m.to_dict() for m in monthly]
+            elif path == "/api/analytics/missing-days":
+                missing = self.analytics_service.get_missing_days()
+                response_data = [m.to_dict() for m in missing]
+            elif path == "/api/analytics/trend":
+                trend = self.analytics_service.get_trend()
+                response_data = trend.to_dict()
             elif path.startswith("/api/metrics/"):
                 # URL parametresinden metrik adını al
                 metric_name = path.replace("/api/metrics/", "").strip()
@@ -93,7 +112,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-3"
+                "version": "rc-4"
             }
         }
         self.wfile.write(json.dumps(contract, ensure_ascii=False).encode("utf-8"))
@@ -156,7 +175,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-3"
+                "version": "rc-4"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
@@ -172,7 +191,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-3"
+                "version": "rc-4"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
