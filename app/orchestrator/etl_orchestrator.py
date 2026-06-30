@@ -118,7 +118,7 @@ class ETLOrchestrator:
             try:
                 with PlaywrightClient(headless=headless) as client:
                     page = client.create_page()
-                    extractor = IsolarExtractor(page)
+                    extractor = IsolarExtractor(page, run_id=run_id)
 
                     # --- AŞAMA 1: Login ---
                     stage_name = "Login"

@@ -20,6 +20,8 @@ outputs/profiles/*
 outputs/validation_reports/*
 outputs/transformed/*
 outputs/runtime/*
+outputs/health/*
+outputs/metrics/*
 logs/*
 *.sqlite
 

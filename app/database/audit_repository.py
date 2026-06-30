@@ -109,3 +109,36 @@ class AuditRepository:
 
         finally:
             session.close()
+
+    def save_retry_attempt(
+        self,
+        run_id: str,
+        operation: str,
+        attempt: int,
+        delay_seconds: float,
+        error_message: str
+    ) -> bool:
+        """
+        Neden: Herhangi bir aşamadaki tekrar deneme (retry) adımını
+        veritabanındaki retry_history tablosuna best-effort kaydetmek.
+        """
+        session = SessionLocal()
+        try:
+            from app.database.models import RetryHistory
+            record = RetryHistory(
+                run_id=run_id,
+                operation=operation,
+                attempt=attempt,
+                delay_seconds=delay_seconds,
+                error_message=error_message
+            )
+            session.add(record)
+            session.commit()
+            logger.info(f"Retry deneme kaydı veritabanına yazıldı: {operation} - Deneme: {attempt}")
+            return True
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Retry denetim kaydı veritabanına yazılamadı (best-effort): {e}")
+            return False
+        finally:
+            session.close()

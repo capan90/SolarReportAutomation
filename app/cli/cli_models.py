@@ -12,3 +12,4 @@ class CliArgs:
     skip_download: bool
     skip_db_load: bool
     headless: bool
+    health: bool = False

@@ -4,9 +4,10 @@ from app.database.db_session import (
     create_tables,
     test_connection
 )
-from app.database.models import SolarPlant, DailyGeneration, EtlRun
+from app.database.models import SolarPlant, DailyGeneration, EtlRun, NotificationHistory, RetryHistory, PerformanceMetric
 from app.database.loader import DatabaseLoader, LoadResult
 from app.database.audit_repository import AuditRepository
+from app.database.metric_repository import MetricRepository
 
 __all__ = [
     "Base",
@@ -16,7 +17,11 @@ __all__ = [
     "SolarPlant",
     "DailyGeneration",
     "EtlRun",
+    "NotificationHistory",
+    "RetryHistory",
+    "PerformanceMetric",
     "DatabaseLoader",
     "LoadResult",
-    "AuditRepository"
+    "AuditRepository",
+    "MetricRepository"
 ]

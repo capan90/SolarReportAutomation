@@ -9,7 +9,9 @@ def setup_logger(name: str = "SolarReportAutomation") -> logging.Logger:
     yazacak şekilde loglama yapısını yapılandırmak.
     """
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    log_level_name = getattr(settings, "log_level", "INFO").upper()
+    log_level = getattr(logging, log_level_name, logging.INFO)
+    logger.setLevel(log_level)
 
     # Loggers prevent duplication if setup is called multiple times
     if logger.handlers:

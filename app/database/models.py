@@ -92,3 +92,57 @@ class EtlRun(Base):
     git_commit = Column(String(80), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class NotificationHistory(Base):
+    """
+    Neden: Gönderilen e-posta bildirimlerinin hangi pipeline çalışmasına (run_id) 
+    ait olduğunu, gönderim durumunu, deneme sayılarını ve varsa hata detaylarını
+    veritabanında denetim (audit) amacıyla saklamak.
+    """
+    __tablename__ = "notification_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(36), nullable=False)
+    channel = Column(String(50), nullable=False)
+    recipient = Column(String(255), nullable=False)
+    status = Column(String(50), nullable=False)  # SENT, FAILED
+    attempt_count = Column(Integer, nullable=False, default=1)
+    sent_at = Column(DateTime, default=datetime.utcnow)
+    error_message = Column(Text, nullable=True)
+
+
+class RetryHistory(Base):
+    """
+    Neden: Pipeline veya dış servis operasyonlarında gerçekleşen tekrar deneme (retry)
+    işlemlerini, hangi çalışmada (run_id) ve hangi hata ile kaçıncı kez denendiği bilgileriyle
+    birlikte denetlemek ve Dashboard metrikleri hazırlamak.
+    """
+    __tablename__ = "retry_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(36), nullable=False)
+    operation = Column(String(100), nullable=False)
+    attempt = Column(Integer, nullable=False)
+    delay_seconds = Column(Numeric(6, 2), nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PerformanceMetric(Base):
+    """
+    Neden: Pipeline aşama süreleri, sistem durumları (CPU/RAM/Disk) ve operasyonel metriklerin 
+    canlı ortamlarda izlenebilmesi ve Dashboard'lara veri beslenebilmesi için veritabanında saklanması.
+    """
+    __tablename__ = "performance_metrics"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String(36), nullable=False)
+    stage_name = Column(String(100), nullable=True)
+    metric_category = Column(String(50), nullable=False)  # system, application, business, operational
+    metric_name = Column(String(100), nullable=False)
+    metric_value = Column(Numeric(12, 4), nullable=False)
+    labels = Column(Text, nullable=True)                  # JSON string dimensions
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+

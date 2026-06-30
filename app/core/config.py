@@ -40,6 +40,18 @@ class Settings:
     app_env: str
     headless: bool
     database_url: str
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_from: str
+    alert_email: str
+    
+    # Profil Bazlı Konfigürasyonlar
+    log_level: str
+    timeout_multiplier: float
+    dry_run: bool
+    strict_validation: bool
 
     def validate(self):
         """
@@ -57,6 +69,38 @@ class Settings:
         if missing:
             raise ValueError(f"Kritik ortam değişkenleri eksik: {', '.join(missing)}. Lütfen .env dosyasını kontrol edin.")
 
+# Profil Lojiği
+raw_env = os.environ.get("APP_ENV", "development").lower()
+if raw_env not in ["development", "test", "staging", "production", "ci", "debug"]:
+    raw_env = "development"
+
+# Profile özgü kuralların belirlenmesi
+if raw_env == "production":
+    p_log_level = "INFO"
+    p_timeout_mult = 1.0
+    p_dry_run = False
+    p_strict = True
+elif raw_env in ["staging", "ci"]:
+    p_log_level = "INFO" if raw_env == "staging" else "DEBUG"
+    p_timeout_mult = 2.0  # CI ortamları yavaş olabileceği için toleransı artır
+    p_dry_run = False if raw_env == "staging" else True
+    p_strict = True
+elif raw_env == "test":
+    p_log_level = "WARNING"
+    p_timeout_mult = 1.5
+    p_dry_run = True
+    p_strict = True
+elif raw_env == "debug":
+    p_log_level = "DEBUG"
+    p_timeout_mult = 2.5
+    p_dry_run = True
+    p_strict = False
+else:  # development
+    p_log_level = "DEBUG"
+    p_timeout_mult = 1.0
+    p_dry_run = True
+    p_strict = False
+
 # Global ayar nesnesi
 settings = Settings(
     base_url=os.environ.get("ISOLAR_BASE_URL", "https://www.isolarcloud.com/"),
@@ -66,8 +110,18 @@ settings = Settings(
     log_directory=BASE_DIR / Path(os.environ.get("LOG_DIR", "logs")),
     report_directory=BASE_DIR / Path(os.environ.get("REPORT_OUTPUT_DIR", "outputs/pdf")),
     chart_directory=BASE_DIR / Path(os.environ.get("CHART_OUTPUT_DIR", "outputs/charts")),
-    app_env=os.environ.get("APP_ENV", "development"),
+    app_env=raw_env,
     headless=os.environ.get("ISOLAR_HEADLESS", "true").lower() == "true",
-    database_url=os.environ.get("DATABASE_URL", "")
+    database_url=os.environ.get("DATABASE_URL", ""),
+    smtp_host=os.environ.get("SMTP_HOST", ""),
+    smtp_port=int(os.environ.get("SMTP_PORT", "587")),
+    smtp_username=os.environ.get("SMTP_USERNAME", ""),
+    smtp_password=os.environ.get("SMTP_PASSWORD", ""),
+    smtp_from=os.environ.get("SMTP_FROM", ""),
+    alert_email=os.environ.get("ALERT_EMAIL", ""),
+    log_level=p_log_level,
+    timeout_multiplier=p_timeout_mult,
+    dry_run=p_dry_run,
+    strict_validation=p_strict
 )
 

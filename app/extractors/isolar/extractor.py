@@ -1,9 +1,12 @@
 import re
 from pathlib import Path
+from typing import Optional
 from playwright.sync_api import Page
 from app.core.config import settings
 from app.core.logger import setup_logger
+from app.core.utils import with_retry
 from app.core.exceptions import (
+    IsolarError,
     IsolarAuthenticationError,
     IsolarCredentialsError,
     IsolarServerSelectionError,
@@ -25,9 +28,16 @@ class IsolarExtractor:
     Neden: İsOlar Cloud portalına özgü sayfa etkileşimlerini, login akışını,
     oturum doğrulamayı ve hata yönetimini sarmalayıp yönetmek.
     """
-    def __init__(self, page: Page):
+    def __init__(self, page: Page, run_id: Optional[str] = None):
         self.page = page
+        self.run_id = run_id
 
+    @with_retry(
+        max_retries=3,
+        backoff_factor=2.0,
+        retryable_exceptions=(IsolarTimeoutError, IsolarUnexpectedPageError, IsolarNavigationTimeoutError),
+        non_retryable_exceptions=(IsolarCredentialsError, IsolarServerSelectionError)
+    )
     def login_and_verify(self) -> None:
         """
         Neden: Sprint 1 hedefi olan İsOlar portalına başarılı şekilde giriş yapma
@@ -244,6 +254,11 @@ class IsolarExtractor:
         else:
             raise IsolarUnexpectedPageError(f"Beklenmeyen bir sayfaya yönlendirme yapıldı. URL: {self.page.url}")
 
+    @with_retry(
+        max_retries=3,
+        backoff_factor=2.0,
+        retryable_exceptions=(IsolarError,)
+    )
     def navigate_to_daily_report(self) -> None:
         """
         Neden: Giriş sonrasında global Report menüsü ve Yield Report alt menüsü üzerinden
@@ -323,6 +338,11 @@ class IsolarExtractor:
             
         logger.info("Tüm rapor sayfası başarı kriterleri başarıyla karşılandı.")
 
+    @with_retry(
+        max_retries=3,
+        backoff_factor=2.0,
+        retryable_exceptions=(IsolarError,)
+    )
     def download_daily_report(self) -> Path:
         """
         Neden: Rapor sayfasında gün filtresinin seçildiğinden emin olmak,

@@ -1,0 +1,11 @@
+{
+  "policies": {
+    "SUCCESS": false,
+    "FAILED": true,
+    "VALIDATION_FAILED": true,
+    "LOGIN_FAILED": true,
+    "DOWNLOAD_FAILED": true,
+    "LOCK_EXISTS": false,
+    "CONFIG_ERROR": true
+  }
+}

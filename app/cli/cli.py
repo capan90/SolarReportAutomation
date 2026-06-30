@@ -56,11 +56,18 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         default=True,
         help="True verilirse Playwright tarayıcıyı arka planda (headless) çalıştırır."
     )
+    
+    parser.add_argument(
+        "--health",
+        action="store_true",
+        default=False,
+        help="Sistem sağlık kontrollerini çalıştırır ve rapor üretir."
+    )
 
     parsed = parser.parse_args(args_list)
 
     # Neden: Tarih parametresinin YYYY-MM-DD formatında olmasını zorunlu kılmak (Fail-Fast)
-    if parsed.date:
+    if parsed.date and not parsed.health:
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", parsed.date):
             raise ValueError(f"Hatalı tarih formatı: '{parsed.date}'. Beklenen format: YYYY-MM-DD")
             
@@ -76,5 +83,6 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         date=parsed.date,
         skip_download=parsed.skip_download,
         skip_db_load=parsed.skip_db_load,
-        headless=parsed.headless
+        headless=parsed.headless,
+        health=parsed.health
     )
