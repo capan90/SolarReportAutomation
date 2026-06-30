@@ -82,6 +82,10 @@ class EmailSender:
         Başarısızlık durumunda belirlenen saniyelerle 3 kez tekrar dener.
         Geriye: (Başarı Durumu, Deneme Sayısı, Varsa Hata Mesajı)
         """
+        if not settings.smtp_enabled:
+            logger.info("SMTP_ENABLED=false. Mail gönderimi devre dışı bırakılmıştır.")
+            return False, 0, "SMTP_ENABLED=false"
+
         if not settings.smtp_host or not settings.alert_email:
             logger.warning("SMTP ayarları veya ALERT_EMAIL eksik. Mail gönderimi atlanıyor.")
             return False, 0, "SMTP_HOST veya ALERT_EMAIL eksik."
@@ -108,7 +112,7 @@ class EmailSender:
                 else:
                     server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10.0)
                     server.ehlo()
-                    if server.has_extn("starttls"):
+                    if settings.smtp_use_tls and server.has_extn("starttls"):
                         server.starttls()
                         server.ehlo()
                         

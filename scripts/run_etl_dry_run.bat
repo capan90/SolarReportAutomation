@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0.."
 
-echo ===== CANLI ETL PIPELINE (GERCEK VERI CEKIMI) =====
+echo ===== TEST ETL PIPELINE (DRY-RUN / SKIP DOWNLOAD) =====
 echo Tarih: %date% %time%
 
 if not exist .venv (
@@ -12,10 +12,10 @@ if not exist .venv (
 :: Sanal ortamı aktive et
 call .venv\Scripts\activate.bat
 
-:: ETL Pipeline'ı gerçek veri çekimi ve yükleme modu ile çalıştır
-python main.py --mode daily --skip-download false --skip-db-load false %*
+:: ETL Pipeline'ı test modu (dry-run ve skip-download) ile çalıştır
+python main.py --mode dry-run --skip-download true %*
 
 set EXIT_CODE=%errorlevel%
 echo.
-echo ETL Pipeline tamamlandi. Cikis Kodu: %EXIT_CODE%
+echo Test ETL Pipeline tamamlandi. Cikis Kodu: %EXIT_CODE%
 exit /b %EXIT_CODE%

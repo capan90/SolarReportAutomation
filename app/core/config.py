@@ -46,6 +46,8 @@ class Settings:
     smtp_password: str
     smtp_from: str
     alert_email: str
+    smtp_enabled: bool
+    smtp_use_tls: bool
     dashboard_access_mode: str  # 'localhost' veya 'lan'
     dashboard_port: int
     
@@ -120,7 +122,9 @@ settings = Settings(
     smtp_username=os.environ.get("SMTP_USERNAME", ""),
     smtp_password=os.environ.get("SMTP_PASSWORD", ""),
     smtp_from=os.environ.get("SMTP_FROM", ""),
-    alert_email=os.environ.get("ALERT_EMAIL", ""),
+    alert_email=os.environ.get("SMTP_TO", os.environ.get("ALERT_EMAIL", "")),
+    smtp_enabled=os.environ.get("SMTP_ENABLED", "false").lower() == "true",
+    smtp_use_tls=os.environ.get("SMTP_USE_TLS", "true").lower() == "true",
     dashboard_access_mode=os.environ.get("DASHBOARD_ACCESS_MODE", "localhost").lower(),
     dashboard_port=int(os.environ.get("DASHBOARD_PORT", "8080")),
     log_level=p_log_level,

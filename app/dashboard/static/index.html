@@ -307,7 +307,7 @@
                 <p style="color: var(--text-secondary); margin-top: 5px;" id="page-subtitle">SolarReportAutomation ETL operasyon kontrol merkezi</p>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
-                <button id="btn-print" onclick="window.print()" class="btn" style="background-color: var(--accent-blue); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: 600;">PDF Raporu Çıktısı Al</button>
+                <button id="btn-print" onclick="printReport()" class="btn" style="background-color: var(--accent-blue); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: 600;">PDF Raporu Çıktısı Al</button>
                 <div id="env-badge" class="env-badge">Yükleniyor...</div>
             </div>
         </div>
@@ -335,6 +335,52 @@
                 <div class="kpi-card">
                     <div class="kpi-title">Sağlık Puanı</div>
                     <div id="kpi-health-score" class="kpi-value">-%</div>
+                </div>
+            </div>
+
+            <!-- Son ETL ve Sistem Ayrıntıları (GA Monitor) -->
+            <div class="dashboard-row" style="margin-bottom: 20px;">
+                <div class="card" style="flex: 2;">
+                    <div class="card-title" style="color: var(--accent-blue);">Son ETL Pipeline Çalışma Özeti</div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Çalışma Zamanı</span>
+                            <strong id="last-etl-time" style="font-size: 1rem; color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son ETL Durumu</span>
+                            <span id="last-etl-status" class="status-badge" style="margin-top: 5px;">-</span>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">İşlenen Satır Sayısı</span>
+                            <strong id="last-etl-rows" style="font-size: 1rem; color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">İndirme Atlandı mı?</span>
+                            <strong id="last-etl-skip" style="font-size: 1rem; color: var(--text-primary);">-</strong>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                        <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Karşılaşılan Hata / Sorun</span>
+                        <code id="last-etl-error" style="color: var(--accent-red); font-size: 0.85rem; display: block; margin-top: 5px; word-break: break-all;">YOK</code>
+                    </div>
+                </div>
+                <div class="card" style="flex: 1;">
+                    <div class="card-title" style="color: var(--accent-blue);">Aktif Sistem Servisleri</div>
+                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: var(--text-secondary);">Aktif Kaynak (Active Source)</span>
+                            <strong id="live-active-source" style="color: var(--accent-blue);">-</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: var(--text-secondary);">SMTP Alarm Durumu</span>
+                            <span id="live-smtp-status" class="status-badge">-</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: var(--text-secondary);">Son Mail Gönderimi</span>
+                            <span id="live-last-mail" class="status-badge">-</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -530,7 +576,10 @@
                     </div>
                     <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
                         <div class="kpi-title">Kayıtlı Portallar</div>
-                        <div id="settings-registered" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                        <div id="settings-registered" class="kpi-value" style="font-size: 1.2rem; margin-top: 5px; font-weight: 600;">-</div>
+                        <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 8px; line-height: 1.2;">
+                            * Not: iSolarCloud portalı tam aktiftir. Diğer portallar (Huawei, Growatt, SMA, GoodWe, Fronius) altyapı hazırlığıdır; veri çekmek için ilgili adapter kodunun geliştirilmesi gerekir.
+                        </p>
                     </div>
                     <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
                         <div class="kpi-title">Çalışma Ortamı (APP_ENV)</div>
@@ -547,6 +596,37 @@
                     <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
                         <div class="kpi-title">SMTP Mail Bağlantısı</div>
                         <div id="settings-smtp" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                </div>
+
+                <!-- SMTP Detaylı Bilgiler -->
+                <div style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <div class="card-title" style="color: var(--accent-blue); font-size: 1.1rem; margin-bottom: 15px;">SMTP Sunucu Yapılandırma ve Log Detayları</div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Host</span>
+                            <strong id="settings-smtp-host" style="color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Kullanıcı Adı</span>
+                            <strong id="settings-smtp-user" style="color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Şifre (Maskeli)</span>
+                            <strong id="settings-smtp-pass" style="color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Alıcı E-Posta (ALERT_TO)</span>
+                            <strong id="settings-smtp-to" style="color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Mail Gönderim Durumu</span>
+                            <span id="settings-smtp-last-status" class="status-badge">-</span>
+                        </div>
+                        <div style="grid-column: span 2;">
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Karşılaşılan Mail Hatası</span>
+                            <code id="settings-smtp-last-error" style="color: var(--accent-red); font-size: 0.85rem; display: block; margin-top: 5px; word-break: break-all;">YOK</code>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -593,15 +673,54 @@
                 document.getElementById("settings-env").innerText = data.app_env.toUpperCase();
                 document.getElementById("settings-loglevel").innerText = data.log_level;
                 document.getElementById("settings-retention").innerText = data.backup_retention_days + " Gün";
-                document.getElementById("settings-smtp").innerText = data.smtp_configured ? "YAPILANDIRILMIŞ (AKTİF)" : "YAPILANDIRILMAMIŞ (PASİF)";
+                
+                // SMTP status labels with badges
+                const smtpEl = document.getElementById("settings-smtp");
+                if (data.smtp_status === "aktif") {
+                    smtpEl.innerHTML = `<span class="status-badge status-success">AKTİF (ÇALIŞIYOR)</span>`;
+                } else if (data.smtp_status === "eksik") {
+                    smtpEl.innerHTML = `<span class="status-badge status-warning">EKSİK YAPILANDIRILMIŞ</span>`;
+                } else {
+                    smtpEl.innerHTML = `<span class="status-badge status-failed">PASİF (KAPALI)</span>`;
+                }
+
+                // SMTP details
+                document.getElementById("settings-smtp-host").innerText = data.smtp_host || "-";
+                document.getElementById("settings-smtp-user").innerText = data.smtp_username || "-";
+                document.getElementById("settings-smtp-pass").innerText = data.smtp_password_masked || "-";
+                document.getElementById("settings-smtp-to").innerText = data.smtp_to || "-";
+                
+                const mailStatusEl = document.getElementById("settings-smtp-last-status");
+                mailStatusEl.innerText = data.smtp_last_status;
+                mailStatusEl.className = "status-badge " + (data.smtp_last_status === "SENT" ? "status-success" : data.smtp_last_status === "FAILED" ? "status-failed" : "status-warning");
+                
+                document.getElementById("settings-smtp-last-error").innerText = data.smtp_last_error || "YOK";
             }
         }
 
+        function printReport() {
+            const tbody = document.getElementById("daily-tbody");
+            if (!tbody || tbody.rows.length === 0 || 
+                (tbody.rows.length === 1 && tbody.rows[0].cells[0].innerText.includes("Yükleniyor")) || 
+                (tbody.rows.length === 1 && tbody.rows[0].innerText.includes("Henüz üretim verisi"))) {
+                alert("Uyarı: Yazdırılacak üretim verisi bulunmuyor! Lütfen önce scripts/run_etl.bat betiğini çalıştırarak veri çekin.");
+                return;
+            }
+            window.print();
+        }
+
         function exportAnalyticsToCSV() {
+            const tbody = document.getElementById("daily-tbody");
+            if (!tbody || tbody.rows.length === 0 || 
+                (tbody.rows.length === 1 && tbody.rows[0].cells[0].innerText.includes("Yükleniyor")) || 
+                (tbody.rows.length === 1 && tbody.rows[0].innerText.includes("Henüz üretim verisi"))) {
+                alert("Uyarı: Dışa aktarılacak üretim verisi bulunmuyor! Lütfen önce scripts/run_etl.bat betiğini çalıştırarak veri çekin.");
+                return;
+            }
+            
             const rows = [];
             rows.push(["Tarih", "Santral", "Uretim (kWh)", "Gelir", "CO2 Azaltimi (kg)"]);
             
-            const tbody = document.getElementById("daily-tbody");
             for (let r of tbody.rows) {
                 if (r.cells.length === 5) {
                     rows.push([
@@ -668,8 +787,37 @@
                         <td><span class="status-badge ${r.status === 'SUCCESS' ? 'status-success' : 'status-failed'}">${r.status}</span></td>
                     </tr>
                 `).join("");
+
+                // Son ETL Özeti Kartlarını Doldur
+                const lastRun = runs[0];
+                document.getElementById("last-etl-time").innerText = lastRun.started_at.replace("T", " ").slice(0, 19);
+                
+                const etlStatEl = document.getElementById("last-etl-status");
+                etlStatEl.innerText = lastRun.status;
+                etlStatEl.className = "status-badge " + (lastRun.status === "SUCCESS" ? "status-success" : "status-failed");
+                
+                document.getElementById("last-etl-rows").innerText = lastRun.inserted_records + lastRun.updated_records;
+                
+                const skipDl = (lastRun.skipped_stages && lastRun.skipped_stages.includes("Download")) ? "EVET (Atlandı)" : "HAYIR (İndirildi)";
+                document.getElementById("last-etl-skip").innerText = skipDl;
+                
+                document.getElementById("last-etl-error").innerText = (lastRun.issues && lastRun.issues.length > 0) ? lastRun.issues.join(", ") : "YOK";
             } else {
                 runsTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri yok.</td></tr>`;
+            }
+
+            // Aktif Sistem Servisleri Verilerini Yükle
+            const sysSettings = await fetchJson("/api/settings");
+            if (sysSettings) {
+                document.getElementById("live-active-source").innerText = sysSettings.active_source;
+                
+                const smtpLiveEl = document.getElementById("live-smtp-status");
+                smtpLiveEl.innerText = sysSettings.smtp_status.toUpperCase();
+                smtpLiveEl.className = "status-badge " + (sysSettings.smtp_status === "aktif" ? "status-success" : sysSettings.smtp_status === "eksik" ? "status-warning" : "status-failed");
+                
+                const lastMailEl = document.getElementById("live-last-mail");
+                lastMailEl.innerText = sysSettings.smtp_last_status;
+                lastMailEl.className = "status-badge " + (sysSettings.smtp_last_status === "SENT" ? "status-success" : sysSettings.smtp_last_status === "FAILED" ? "status-failed" : "status-warning");
             }
 
             // health list
@@ -771,7 +919,15 @@
                     </tr>
                 `).join("");
             } else {
-                dailyTbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Kayıt bulunamadı.</td></tr>`;
+                dailyTbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 25px; color: var(--accent-yellow);">
+                            <strong>Henüz üretim verisi bulunmuyor.</strong><br>
+                            Veri çekmek için <code>scripts/run_etl.bat</code> betiğini çalıştırın.<br>
+                            SMTP mail altyapısını test etmek için <code>scripts/test_smtp.bat</code> dosyasını kullanın.
+                        </td>
+                    </tr>
+                `;
             }
 
             // weekly table

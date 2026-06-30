@@ -90,8 +90,31 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 response_data = trend.to_dict()
             elif path == "/api/settings":
                 from app.sources import SourceRegistry
+                from app.database.db_session import SessionLocal
+                from app.database.models import NotificationHistory
+                
                 registry = SourceRegistry()
-                smtp_active = bool(settings.smtp_host and settings.smtp_username)
+                
+                if not settings.smtp_enabled:
+                    smtp_status = "pasif"
+                elif not (settings.smtp_host and settings.smtp_username and settings.smtp_password and settings.alert_email):
+                    smtp_status = "eksik"
+                else:
+                    smtp_status = "aktif"
+                    
+                last_mail_status = "GÖNDERİLMEDİ"
+                last_mail_error = None
+                db_session = SessionLocal()
+                try:
+                    last_notif = db_session.query(NotificationHistory).order_by(NotificationHistory.id.desc()).first()
+                    if last_notif:
+                        last_mail_status = last_notif.status
+                        last_mail_error = last_notif.error_message
+                except Exception:
+                    pass
+                finally:
+                    db_session.close()
+                    
                 response_data = {
                     "dashboard_port": settings.dashboard_port,
                     "dashboard_access_mode": settings.dashboard_access_mode,
@@ -99,7 +122,13 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "registered_sources": registry.list_sources(),
                     "app_env": settings.app_env,
                     "log_level": settings.log_level,
-                    "smtp_configured": smtp_active,
+                    "smtp_status": smtp_status,
+                    "smtp_host": settings.smtp_host,
+                    "smtp_username": settings.smtp_username,
+                    "smtp_password_masked": "********" if settings.smtp_password else "",
+                    "smtp_to": settings.alert_email,
+                    "smtp_last_status": last_mail_status,
+                    "smtp_last_error": last_mail_error,
                     "backup_retention_days": 14
                 }
             elif path.startswith("/api/metrics/"):
@@ -126,7 +155,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-5"
+                "version": "v1.0.0-GA"
             }
         }
         self.wfile.write(json.dumps(contract, ensure_ascii=False).encode("utf-8"))
@@ -189,7 +218,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-5"
+                "version": "v1.0.0-GA"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
@@ -205,7 +234,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-5"
+                "version": "v1.0.0-GA"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
