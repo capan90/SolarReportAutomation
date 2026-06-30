@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.2.0-rc3] - 2026-06-30 (Sprint 14)
+
+### Added
+- Localhost binding (`127.0.0.1`) ve port yapılandırma desteğiyle asenkron çalışan `DashboardWebServer`.
+- Sunucuda salt-okunur (GET-only) güvence ve yazma/güncelleme isteklerini (POST/PUT/DELETE) engelleme lojiği (HTTP 405).
+- Veritabanı sorgularını soyutlayan ve ORM modellerini maskeleyen `DashboardRepository` ile `DashboardService` katmanları.
+- ExecutiveSummary, PipelineRun, HealthStatus ve MetricSeries için tasarlanan DTO modelleri.
+- Responsive, dark-mode ve glassmorphism temalı tek sayfalık HTML5/CSS3 arayüzü (`app/dashboard/static/`).
+- Çevrimdışı çalışmaya hazır yerel vendor `chart.min.js` entegrasyonu.
+
+---
+
+## [1.1.0-rc2] - 2026-06-30 (Sprint 13)
+
+### Added
+- `MetricType` (Counter, Gauge, Histogram, Timer) tanımlarını içeren genel Metrik ve Gözlemlenebilirlik Frameworkü.
+- `MetricsCollector` ile sistem (CPU, RAM, Disk), uygulama, operasyonel ve iş metriklerini toplama yeteneği.
+- `ConsoleMetricExporter` (Prometheus-like), `DatabaseMetricExporter` ve `JsonMetricExporter` ihracatçıları.
+- `@with_retry` decorator üzerinden her tekrar denemede `retry.count` metriğinin toplanması.
+- `PerformanceMetric` ORM veritabanı modeli ve `MetricRepository` soyutlaması.
+
+---
+
 ## [1.0.0-rc1] - 2026-06-30 (Sprint 12)
 
 ### Added

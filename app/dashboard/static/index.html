@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>iSolar ETL Operational Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="/static/js/chart.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-blue: #3b82f6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px;
+            background: rgba(15, 23, 42, 0.95);
+            border-right: 1px solid var(--border-color);
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo span {
+            color: var(--accent-green);
+        }
+
+        .menu-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .menu-item {
+            padding: 12px 15px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .menu-item:hover, .menu-item.active {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        /* Main Content */
+        .main-container {
+            flex: 1;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .env-badge {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .kpi-title {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 10px;
+        }
+
+        .kpi-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        /* Secondary Grid layout (Charts and Statuses) */
+        .dashboard-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Table Style */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .status-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .status-failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
+        .status-warning {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-yellow);
+        }
+
+        /* Health List */
+        .health-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .health-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .health-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        /* System Metrics Charts wrapper */
+        .chart-container {
+            height: 250px;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <div class="logo">iSolar<span>Cloud</span> Monitor</div>
+        <ul class="menu-list">
+            <a class="menu-item active">Operational Monitor</a>
+        </ul>
+    </div>
+
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>Yönetici İzleme Paneli</h1>
+                <p style="color: var(--text-secondary); margin-top: 5px;">SolarReportAutomation ETL operasyon kontrol merkezi</p>
+            </div>
+            <div id="env-badge" class="env-badge">Yükleniyor...</div>
+        </div>
+
+        <!-- KPI Cards Grid -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Başarı Oranı</div>
+                <div id="kpi-success-rate" class="kpi-value">-%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Başarısız Pipeline</div>
+                <div id="kpi-failed-runs" class="kpi-value">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Ortalama Süre</div>
+                <div id="kpi-avg-duration" class="kpi-value">- ms</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Toplam Retry</div>
+                <div id="kpi-total-retries" class="kpi-value">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Sağlık Puanı</div>
+                <div id="kpi-health-score" class="kpi-value">-%</div>
+            </div>
+        </div>
+
+        <!-- Grid Row 1 (Runs & Health) -->
+        <div class="dashboard-row">
+            <!-- Pipeline Runs Table -->
+            <div class="card">
+                <div class="card-title">Son Pipeline Koşuları (Audit Trail)</div>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Run ID</th>
+                                <th>Başlangıç</th>
+                                <th>Süre (ms)</th>
+                                <th>Çıkış Kodu</th>
+                                <th>Hata Sayısı</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="runs-tbody">
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Health Status -->
+            <div class="card">
+                <div class="card-title">Sistem Sağlık Arayüzü</div>
+                <div class="health-list" id="health-list-container">
+                    <div style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Grid Row 2 (Charts & Notifications) -->
+        <div class="dashboard-row">
+            <!-- Metrics Charts -->
+            <div class="card">
+                <div class="card-title">Sistem Performans İzleme (CPU & RAM)</div>
+                <div class="chart-container">
+                    <canvas id="performanceChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Notification History -->
+            <div class="card">
+                <div class="card-title">Gönderilen Alarmlar</div>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tarih</th>
+                                <th>Kanal</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="notifications-tbody">
+                            <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend logic & binding -->
+    <script>
+        async function fetchJson(url) {
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error("HTTP error " + response.status);
+                const result = await response.json();
+                if (result.success) return result.data;
+                console.error("API error for " + url, result.error);
+                return null;
+            } catch (err) {
+                console.error("Fetch failed for " + url, err);
+                return null;
+            }
+        }
+
+        async function initDashboard() {
+            // env meta
+            const kpiData = await fetchJson("/api/kpis");
+            if (kpiData) {
+                document.getElementById("kpi-success-rate").innerText = kpiData.success_rate + "%";
+                document.getElementById("kpi-failed-runs").innerText = kpiData.failed_runs_count;
+                document.getElementById("kpi-avg-duration").innerText = kpiData.avg_duration_ms + " ms";
+                document.getElementById("kpi-total-retries").innerText = kpiData.total_retries;
+                document.getElementById("kpi-health-score").innerText = kpiData.health_score + "%";
+            }
+            
+            // set environment badge
+            try {
+                const response = await fetch("/api/kpis");
+                const resJson = await response.json();
+                document.getElementById("env-badge").innerText = resJson.metadata.environment;
+            } catch(e) {
+                document.getElementById("env-badge").innerText = "error";
+            }
+
+            // runs table
+            const runs = await fetchJson("/api/runs");
+            const runsTbody = document.getElementById("runs-tbody");
+            if (runs && runs.length > 0) {
+                runsTbody.innerHTML = runs.map(r => `
+                    <tr>
+                        <td><code>${r.run_id.slice(0, 8)}</code></td>
+                        <td>${r.started_at.replace("T", " ").slice(0, 19)}</td>
+                        <td>${r.duration_ms} ms</td>
+                        <td><code>${r.exit_code}</code></td>
+                        <td>${r.issues_count}</td>
+                        <td><span class="status-badge ${r.status === 'SUCCESS' ? 'status-success' : 'status-failed'}">${r.status}</span></td>
+                    </tr>
+                `).join("");
+            } else {
+                runsTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri yok.</td></tr>`;
+            }
+
+            // health list
+            const health = await fetchJson("/api/health");
+            const healthContainer = document.getElementById("health-list-container");
+            if (health && health.checks && health.checks.length > 0) {
+                healthContainer.innerHTML = health.checks.map(c => `
+                    <div class="health-item">
+                        <span class="health-name">${c.name}</span>
+                        <span class="status-badge ${c.status === 'SUCCESS' ? 'status-success' : c.status === 'WARNING' ? 'status-warning' : 'status-failed'}">${c.status}</span>
+                    </div>
+                `).join("");
+            } else {
+                healthContainer.innerHTML = `<div style="text-align: center; color: var(--text-secondary);">Sağlık raporu bulunamadı.</div>`;
+            }
+
+            // notifications table
+            const notifs = await fetchJson("/api/notifications");
+            const notifsTbody = document.getElementById("notifications-tbody");
+            if (notifs && notifs.length > 0) {
+                notifsTbody.innerHTML = notifs.map(n => `
+                    <tr>
+                        <td>${n.sent_at.replace("T", " ").slice(0, 19)}</td>
+                        <td>${n.recipient.slice(0, 18)}..</td>
+                        <td><span class="status-badge ${n.status === 'SENT' ? 'status-success' : 'status-failed'}">${n.status}</span></td>
+                    </tr>
+                `).join("");
+            } else {
+                notifsTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
+            }
+
+            // charts
+            const cpuData = await fetchJson("/api/metrics/system.cpu.percent");
+            const memData = await fetchJson("/api/metrics/system.memory.percent");
+            
+            const labels = (cpuData && cpuData.timestamps) || [];
+            const cpuValues = (cpuData && cpuData.values) || [];
+            const memValues = (memData && memData.values) || [];
+
+            const ctx = document.getElementById('performanceChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'CPU Usage (%)',
+                            data: cpuValues,
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Memory Usage (%)',
+                            data: memValues,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#f8fafc' } }
+                    }
+                }
+            });
+        }
+
+        window.addEventListener("DOMContentLoaded", initDashboard);
+    </script>
+</body>
+</html>
