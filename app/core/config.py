@@ -46,6 +46,8 @@ class Settings:
     smtp_password: str
     smtp_from: str
     alert_email: str
+    dashboard_access_mode: str  # 'localhost' veya 'lan'
+    dashboard_port: int
     
     # Profil Bazlı Konfigürasyonlar
     log_level: str
@@ -119,6 +121,8 @@ settings = Settings(
     smtp_password=os.environ.get("SMTP_PASSWORD", ""),
     smtp_from=os.environ.get("SMTP_FROM", ""),
     alert_email=os.environ.get("ALERT_EMAIL", ""),
+    dashboard_access_mode=os.environ.get("DASHBOARD_ACCESS_MODE", "localhost").lower(),
+    dashboard_port=int(os.environ.get("DASHBOARD_PORT", "8080")),
     log_level=p_log_level,
     timeout_multiplier=p_timeout_mult,
     dry_run=p_dry_run,

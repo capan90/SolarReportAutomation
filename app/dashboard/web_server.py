@@ -112,7 +112,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-4"
+                "version": "rc-5"
             }
         }
         self.wfile.write(json.dumps(contract, ensure_ascii=False).encode("utf-8"))
@@ -175,7 +175,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-4"
+                "version": "rc-5"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
@@ -191,7 +191,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "metadata": {
                 "timestamp": datetime.utcnow().isoformat(),
                 "environment": settings.app_env,
-                "version": "rc-4"
+                "version": "rc-5"
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
@@ -203,16 +203,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
 def start_dashboard_server(port: int = None) -> None:
     """
-    Neden: Dashboard web sunucusunu localhost binding ile ayağa kaldırmak.
+    Neden: Dashboard web sunucusunu yapılandırmaya göre localhost veya LAN binding ile ayağa kaldırmak.
     """
     if port is None:
-        # Ortam değişkeninden veya varsayılan 8080'den oku
-        port = int(os.environ.get("DASHBOARD_PORT", "8080"))
+        port = settings.dashboard_port
         
-    server_address = ("127.0.0.1", port)
+    access_mode = settings.dashboard_access_mode
+    host = "0.0.0.0" if access_mode == "lan" else "127.0.0.1"
+    
+    server_address = (host, port)
     httpd = HTTPServer(server_address, DashboardRequestHandler)
     
-    logger.info(f"Dashboard Web Server BAŞLATILDI: http://127.0.0.1:{port}")
+    logger.info(f"Dashboard Web Server BAŞLATILDI: http://{host if host != '0.0.0.0' else 'localhost'}:{port} (Mod: {access_mode})")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

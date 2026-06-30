@@ -32,8 +32,12 @@ def setup_logger(name: str = "SolarReportAutomation") -> logging.Logger:
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        file_handler = logging.FileHandler(
-            log_dir / "app.log", encoding="utf-8"
+        from logging.handlers import RotatingFileHandler
+        file_handler = RotatingFileHandler(
+            log_dir / "app.log",
+            encoding="utf-8",
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=5
         )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
