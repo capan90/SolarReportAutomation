@@ -1,6 +1,7 @@
 import os
 import sys
 import shutil
+import socket
 from pathlib import Path
 
 # Add project root to path
@@ -13,13 +14,13 @@ from app.sources.registry import SourceRegistry
 
 def run_verification():
     print("====================================================")
-    print("   SolarReportAutomation Kurulum Dogrulama Testi    ")
+    print("   SolarReportAutomation Production Health Report   ")
     print("====================================================")
     
-    success = True
+    score = 100
+    checks = {}
     
-    # 1. Klasör Kontrolleri
-    print("\n[1] Dizin Varligi ve Yazma Izinleri Kontrolu...")
+    # 1. Klasör Kontrolleri (Dizin varlığı ve yazma izinleri) - Ağırlık: 15 Puan
     required_dirs = {
         "Base Directory": BASE_DIR,
         "Logs Directory": settings.log_directory,
@@ -27,84 +28,105 @@ def run_verification():
         "Backups Directory": BASE_DIR / "backups"
     }
     
+    dir_errors = 0
     for name, path in required_dirs.items():
         try:
             path.mkdir(parents=True, exist_ok=True)
-            # Yazma testi yap
             test_file = path / ".write_test"
             test_file.write_text("ok", encoding="utf-8")
             test_file.unlink()
-            print(f"  [OK] {name}: ({path})")
-        except Exception as e:
-            print(f"  [FAIL] {name}: ({path}) - Hata: {e}")
-            success = False
+        except Exception:
+            dir_errors += 1
             
-    # 2. Yapılandırma Kontrolü
-    print("\n[2] Yapilandirma ve .env Kontrolu...")
+    if dir_errors == 0:
+        checks["Dizin Yazma Izinleri"] = ("PASS", "Tüm dizinler yazılabilir.")
+    else:
+        checks["Dizin Yazma Izinleri"] = ("FAIL", f"{dir_errors} adet dizinde yazma hatası oluştu.")
+        score -= 15
+        
+    # 2. Yapılandırma Kontrolü - Ağırlık: 10 Puan
     try:
         settings.validate()
-        print(f"  [OK] .env Ayarlari: (Ortam: {settings.app_env})")
-        print(f"  [OK] Dashboard Erisim Modu: {settings.dashboard_access_mode} (Port: {settings.dashboard_port})")
+        checks["Configuration (.env)"] = ("PASS", f"Yapılandırma doğrulandı (Profil: {settings.app_env})")
     except Exception as e:
-        print(f"  [FAIL] Yapilandirma Hatasi: {e}")
-        success = False
+        checks["Configuration (.env)"] = ("FAIL", f"Eksik parametreler: {e}")
+        score -= 10
         
-    # 3. PostgreSQL Bağlantı Kontrolü
-    print("\n[3] Veritabanı Baglanti Kontrolu...")
+    # 3. PostgreSQL Bağlantı Kontrolü - Ağırlık: 30 Puan
     try:
         if test_connection():
-            print("  [OK] Veritabanı Baglantisi")
+            checks["PostgreSQL Database"] = ("PASS", "Veritabanı bağlantısı başarılı.")
         else:
-            print("  [FAIL] Veritabanı Baglantisi (Baglanti kurulamadi)")
-            success = False
+            checks["PostgreSQL Database"] = ("FAIL", "PostgreSQL bağlantısı kurulamadı.")
+            score -= 30
     except Exception as e:
-        print(f"  [FAIL] Veritabanı Baglanti Hatasi: {e}")
-        success = False
+        checks["PostgreSQL Database"] = ("FAIL", f"Veritabanı hatası: {e}")
+        score -= 30
         
-    # 4. Tarayıcı (Playwright) Kontrolü
-    print("\n[4] Chromium Web Browser (Playwright) Kontrolu...")
+    # 4. Tarayıcı (Playwright) Kontrolü - Ağırlık: 15 Puan
     try:
         with PlaywrightClient(headless=True) as client:
             page = client.create_page()
             page.goto("about:blank")
-            print("  [OK] Playwright Browser Motoru")
+            checks["Playwright Browser"] = ("PASS", "Chromium tarayıcı motoru hazır.")
     except Exception as e:
-        print(f"  [FAIL] Playwright Motor Hatasi: {e}")
-        print("    Ipucu: '.venv\\Scripts\\playwright install chromium' komutunu calistirmanız gerekebilir.")
-        success = False
+        checks["Playwright Browser"] = ("FAIL", f"Tarayıcı motoru başlatılamadı: {e}")
+        score -= 15
         
-    # 5. Multi-Source Registry Kontrolü
-    print("\n[5] Multi-Source ve Kayıtli Portallar Kontrolu...")
+    # 5. SMTP Mail Bağlantısı - Ağırlık: 10 Puan (Opsiyonel olduğu için WARNING verip skoru 10 kırar)
+    smtp_configured = bool(settings.smtp_host and settings.smtp_username)
+    if smtp_configured:
+        checks["SMTP Notifications"] = ("PASS", f"SMTP sunucusu yapılandırılmış: {settings.smtp_host}")
+    else:
+        checks["SMTP Notifications"] = ("WARNING", "SMTP mail sunucusu tanımlanmamış. Alarmlar iletilemeyecektir.")
+        score -= 10
+        
+    # 6. Multi-Source Registry Kontrolü - Ağırlık: 10 Puan
     try:
         registry = SourceRegistry()
         sources = registry.list_sources()
-        print(f"  [OK] Kayitli Veri Kaynaklari: {sources}")
-        for s in sources:
-            is_active = registry.validate_source(s)
-            print(f"    - {s}: {'AKTIF' if is_active else 'PASIF'}")
+        checks["Multi-Source Registry"] = ("PASS", f"Kayıtlı veri kaynakları: {sources}")
     except Exception as e:
-        print(f"  [FAIL] Registry Yukleme Hatasi: {e}")
-        success = False
+        checks["Multi-Source Registry"] = ("FAIL", f"Registry yüklenirken hata: {e}")
+        score -= 10
         
-    # 6. Disk Alanı Kontrolü
-    print("\n[6] Disk Alani Kontrolu...")
+    # 7. Disk Alanı Kontrolü - Ağırlık: 10 Puan
     try:
         total, used, free = shutil.disk_usage(BASE_DIR)
         free_gb = free / (1024**3)
-        print(f"  [OK] Bos Disk Alani: {free_gb:.2f} GB")
+        if free_gb > 2.0:  # > 2GB
+            checks["Disk Space"] = ("PASS", f"Boş disk alanı: {free_gb:.2f} GB")
+        else:
+            checks["Disk Space"] = ("WARNING", f"Düşük disk alanı uyarısı: {free_gb:.2f} GB boş.")
+            score -= 5
     except Exception as e:
-        print(f"  [FAIL] Disk Alani Okunamadi: {e}")
+        checks["Disk Space"] = ("FAIL", f"Disk alanı sorgulanamadı: {e}")
+        score -= 10
 
-    # Raporlama
-    print("\n====================================================")
-    if success:
-        print("   SONUC: KURULUM BASARIYLA DOGRULANDI (READY)")
-        print("====================================================")
-        sys.exit(0)
-    else:
-        print("   SONUC: KURULUMDA EKSİKLİKLER BULUNDU (FAILED)")
-        print("====================================================")
+    # Rapor Sonuçlarını Yazdır
+    print("\n----------------------------------------------------")
+    for check_name, (status, detail) in checks.items():
+        print(f"  [{status}] {check_name}: {detail}")
+    print("----------------------------------------------------")
+    
+    # Genel Durum Değerlendirmesi
+    overall_status = "PASS"
+    if score < 70 or any(stat == "FAIL" for stat, _ in checks.values()):
+        overall_status = "FAIL"
+    elif score < 95:
+        overall_status = "WARNING"
+        
+    print(f"\nGENEL DURUM            : {overall_status}")
+    print(f"PRODUCTION READINESS   : {score} / 100")
+    print("====================================================")
+    
+    # 0 = PASS, 1 = WARNING, 2 = FAIL (Zamanlayıcı çıkış uyumluluğu için)
+    if overall_status == "FAIL":
+        sys.exit(2)
+    elif overall_status == "WARNING":
         sys.exit(1)
+    else:
+        sys.exit(0)
 
 if __name__ == "__main__":
     run_verification()

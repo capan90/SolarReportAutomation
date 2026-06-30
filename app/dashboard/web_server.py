@@ -88,6 +88,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/analytics/trend":
                 trend = self.analytics_service.get_trend()
                 response_data = trend.to_dict()
+            elif path == "/api/settings":
+                from app.sources import SourceRegistry
+                registry = SourceRegistry()
+                smtp_active = bool(settings.smtp_host and settings.smtp_username)
+                response_data = {
+                    "dashboard_port": settings.dashboard_port,
+                    "dashboard_access_mode": settings.dashboard_access_mode,
+                    "active_source": registry.default_source(),
+                    "registered_sources": registry.list_sources(),
+                    "app_env": settings.app_env,
+                    "log_level": settings.log_level,
+                    "smtp_configured": smtp_active,
+                    "backup_retention_days": 14
+                }
             elif path.startswith("/api/metrics/"):
                 # URL parametresinden metrik adını al
                 metric_name = path.replace("/api/metrics/", "").strip()

@@ -262,6 +262,29 @@
             height: 250px;
             position: relative;
         }
+
+        /* Print media formatting */
+        @media print {
+            .sidebar, .header #btn-print, .header button, .btn {
+                display: none !important;
+            }
+            .main-container {
+                margin-left: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+            }
+            .card, .kpi-card {
+                box-shadow: none !important;
+                border: 1px solid #ccc !important;
+                background: white !important;
+                color: black !important;
+                page-break-inside: avoid;
+            }
+            body {
+                background: white !important;
+                color: black !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -271,6 +294,7 @@
         <ul class="menu-list">
             <a class="menu-item active" onclick="switchTab('op-monitor')">Operational Monitor</a>
             <a class="menu-item" onclick="switchTab('hist-analytics')">Historical Analytics</a>
+            <a class="menu-item" onclick="switchTab('settings-tab')">System Settings</a>
         </ul>
     </div>
 
@@ -282,7 +306,10 @@
                 <h1 id="page-title">Yönetici İzleme Paneli</h1>
                 <p style="color: var(--text-secondary); margin-top: 5px;" id="page-subtitle">SolarReportAutomation ETL operasyon kontrol merkezi</p>
             </div>
-            <div id="env-badge" class="env-badge">Yükleniyor...</div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <button id="btn-print" onclick="window.print()" class="btn" style="background-color: var(--accent-blue); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: 600;">PDF Raporu Çıktısı Al</button>
+                <div id="env-badge" class="env-badge">Yükleniyor...</div>
+            </div>
         </div>
 
         <!-- ================= OPERATIONAL MONITOR TAB ================= -->
@@ -441,7 +468,10 @@
             <!-- Missing Days & Daily Summary -->
             <div class="dashboard-row">
                 <div class="card">
-                    <div class="card-title">Günlük Detaylı Üretim Logu</div>
+                    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>Günlük Detaylı Üretim Logu</span>
+                        <button onclick="exportAnalyticsToCSV()" class="btn" style="background-color: var(--accent-green); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600;">Excel / CSV İndir</button>
+                    </div>
                     <div style="overflow-x: auto; max-height: 350px;">
                         <table>
                             <thead>
@@ -477,6 +507,50 @@
                 </div>
             </div>
         </div>
+
+        <!-- ================= SYSTEM SETTINGS TAB ================= -->
+        <div id="settings-tab" class="tab-content">
+            <div class="card">
+                <div class="card-title">Sistem Yapılandırma Bilgileri (Read-Only)</div>
+                <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 0.9rem;">
+                    Platformun aktif çalıştığı ortam yapılandırmaları aşağıda gösterilmektedir. Bu parametreler sistem güvenliği gereği sadece sunucudaki .env dosyası üzerinden değiştirilebilir.
+                </p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Dashboard Port Numarası</div>
+                        <div id="settings-port" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Dashboard Erişim Modu</div>
+                        <div id="settings-access" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Aktif Veri Kaynağı</div>
+                        <div id="settings-source" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Kayıtlı Portallar</div>
+                        <div id="settings-registered" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Çalışma Ortamı (APP_ENV)</div>
+                        <div id="settings-env" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Log Seviyesi</div>
+                        <div id="settings-loglevel" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">Yedek Saklama Süresi</div>
+                        <div id="settings-retention" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
+                        <div class="kpi-title">SMTP Mail Bağlantısı</div>
+                        <div id="settings-smtp" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Frontend logic & binding -->
@@ -498,11 +572,62 @@
                 pageTitle.innerText = "Yönetici İzleme Paneli";
                 pageSubtitle.innerText = "SolarReportAutomation ETL operasyon kontrol merkezi";
                 initDashboard();
-            } else {
+            } else if (tabId === "hist-analytics") {
                 pageTitle.innerText = "Tarihsel Analiz ve Raporlama Motoru";
                 pageSubtitle.innerText = "Güneş enerjisi santralleri üretim ve verimlilik analizleri";
                 initAnalytics();
+            } else {
+                pageTitle.innerText = "Sistem Yapılandırma Ayarları";
+                pageSubtitle.innerText = "Salt-okunur üretim profili ve sistem parametreleri";
+                loadSettings();
             }
+        }
+
+        async function loadSettings() {
+            const data = await fetchJson("/api/settings");
+            if (data) {
+                document.getElementById("settings-port").innerText = data.dashboard_port;
+                document.getElementById("settings-access").innerText = data.dashboard_access_mode.toUpperCase();
+                document.getElementById("settings-source").innerText = data.active_source;
+                document.getElementById("settings-registered").innerText = data.registered_sources.join(", ");
+                document.getElementById("settings-env").innerText = data.app_env.toUpperCase();
+                document.getElementById("settings-loglevel").innerText = data.log_level;
+                document.getElementById("settings-retention").innerText = data.backup_retention_days + " Gün";
+                document.getElementById("settings-smtp").innerText = data.smtp_configured ? "YAPILANDIRILMIŞ (AKTİF)" : "YAPILANDIRILMAMIŞ (PASİF)";
+            }
+        }
+
+        function exportAnalyticsToCSV() {
+            const rows = [];
+            rows.push(["Tarih", "Santral", "Uretim (kWh)", "Gelir", "CO2 Azaltimi (kg)"]);
+            
+            const tbody = document.getElementById("daily-tbody");
+            for (let r of tbody.rows) {
+                if (r.cells.length === 5) {
+                    rows.push([
+                        r.cells[0].innerText,
+                        r.cells[1].innerText,
+                        r.cells[2].innerText.replace(" kWh", "").replace(/,/g, ""),
+                        r.cells[3].innerText,
+                        r.cells[4].innerText.replace(" kg", "").replace(/,/g, "")
+                    ]);
+                }
+            }
+            
+            let csvContent = "\uFEFF"; // BOM support for Excel Turkish charset
+            rows.forEach(e => {
+                let rowStr = e.map(val => `"${val.replace(/"/g, '""')}"`).join(";");
+                csvContent += rowStr + "\r\n";
+            });
+            
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "solar_analytics_export_" + new Date().toISOString().slice(0,10) + ".csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
         async function fetchJson(url) {
