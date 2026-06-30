@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -54,8 +55,16 @@ class IsolarCloudExtractor(ISourceExtractor):
                 
                 settings.validate()
                 extractor.login_and_verify()
-                extractor.navigate_to_report_page()
-                return extractor.download_report(output_dir)
+                extractor.navigate_to_daily_report()
+                temp_path = extractor.download_daily_report()
+
+            # Move downloaded file from temp location to the requested output_dir
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = output_dir / temp_path.name
+            shutil.move(str(temp_path), str(dest_path))
+            logger.info(f"Rapor dosyası hedef dizine taşındı: {dest_path}")
+            return dest_path
         except Exception as e:
             logger.error(f"iSolarCloud veri toplama hatası: {e}")
             raise SourceAuthenticationError("isolarcloud") from e
