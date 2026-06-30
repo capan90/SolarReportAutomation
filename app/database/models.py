@@ -90,6 +90,7 @@ class EtlRun(Base):
     exit_code = Column(Integer, nullable=True)
     hostname = Column(String(255), nullable=True)
     git_commit = Column(String(80), nullable=True)
+    source_name = Column(String(100), default="isolarcloud", nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -1,0 +1,22 @@
+{
+  "sources": {
+    "isolarcloud": {
+      "extractor_class": "app.sources.isolarcloud.extractor.IsolarCloudExtractor",
+      "enabled": true,
+      "priority": 1,
+      "timeout": 60,
+      "retry_policy": {
+        "max_retries": 3,
+        "backoff_seconds": 2
+      },
+      "authentication": "credentials",
+      "download_mode": "browser",
+      "capabilities": {
+        "supports_excel_export": true,
+        "supports_api": false,
+        "supports_scheduler": true,
+        "supports_health_check": true
+      }
+    }
+  }
+}

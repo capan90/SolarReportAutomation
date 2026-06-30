@@ -64,6 +64,12 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         help="Sistem sağlık kontrollerini çalıştırır ve rapor üretir."
     )
 
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Veri kaynağı adı (isolarcloud, huawei vb.). Belirtilmezse varsayılan kaynak kullanılır."
+    )
+
     parsed = parser.parse_args(args_list)
 
     # Neden: Tarih parametresinin YYYY-MM-DD formatında olmasını zorunlu kılmak (Fail-Fast)
@@ -84,5 +90,6 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         skip_download=parsed.skip_download,
         skip_db_load=parsed.skip_db_load,
         headless=parsed.headless,
-        health=parsed.health
+        health=parsed.health,
+        source=parsed.source
     )

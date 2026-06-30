@@ -55,6 +55,11 @@ class AuditRepository:
         """
         session = SessionLocal()
         try:
+            # Kaynak bağlamını sorgula (Multi Source context)
+            from app.sources.context import get_source_context
+            context = get_source_context()
+            source_name = context.source_name if context else "isolarcloud"
+
             # Tarih çözümleme
             target_date_val = None
             if result.target_date:
@@ -94,7 +99,8 @@ class AuditRepository:
                 critical_count=critical_count,
                 exit_code=exit_code,
                 hostname=socket.gethostname(),
-                git_commit=_get_git_commit()
+                git_commit=_get_git_commit(),
+                source_name=source_name
             )
 
             session.add(etl_run)
