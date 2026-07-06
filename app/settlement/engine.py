@@ -65,65 +65,53 @@ class SettlementEngine:
 
     def load_gaosb(self, file_path: Path) -> pd.DataFrame:
         """
-        Neden: GAOSB Excel dosyasını okur, Okunan Değer sütunundan
-        delta hesaplar, çarpan uygular → saatlik tüketim.
+        Neden: GAOSB Excel dosyasını okur ve Endeks değeri sütununu (index 5)
+        doğrudan tüketim (consumption_kwh) olarak alır (herhangi bir fark hesaplamadan).
         
         Döndürür: timestamp | consumption_kwh sütunlu DataFrame
-        
-        Notlar:
-        - Dosya OLE2 formatı — xlrd kullan
-        - Tarih sütunu Excel serial number — pd.to_datetime ile çevir
-        - Okunan Değer kümülatif → delta hesapla
-        - delta × 26.400 = consumption_kwh
-        - Negatif delta = 0
-        - Saatlik gruplama: 15dk varsa resample('h').last() ile saat başına al
         """
-        # Neden: GAOSB dosyaları eski Excel (OLE2) biçiminde olduğu için öncelikle xlrd tercih edilir.
+        # 1. Önce openpyxl dene, hata alırsan xlrd kullan
         try:
-            df = pd.read_excel(file_path, engine='xlrd')
-        except Exception:
             df = pd.read_excel(file_path, engine='openpyxl')
+        except Exception:
+            df = pd.read_excel(file_path, engine='xlrd')
 
-        # Neden: Boş veya geçersiz satırları temizleriz.
-        df = df.dropna(subset=['Tarih', 'Okunan Değer'])
+        if df.empty:
+            return pd.DataFrame(columns=['timestamp', 'consumption_kwh'])
 
-        # Neden: Excel seri numarası biçimindeki tarihleri datetime formatına dönüştürürüz.
-        if pd.api.types.is_numeric_dtype(df['Tarih']):
-            df['Tarih'] = pd.to_datetime(df['Tarih'], unit='D', origin='1899-12-30')
-        else:
-            df['Tarih'] = pd.to_datetime(df['Tarih'])
+        # 2. Tarih sütunu (index 0) ve Endeks değeri sütunu (index 5)
+        # Neden: Sütun isimleri farklı karakter kodlamalarına sahip olabileceğinden index ile erişim daha güvenlidir.
+        date_col = df.columns[0]
+        val_col = df.columns[5]
 
-        # Neden: Değer kolonlarını string ise temizleyip float tipine dönüştürürüz.
-        df['Okunan Değer'] = df['Okunan Değer'].astype(str).str.replace(' ', '').str.replace(',', '.')
-        df['Okunan Değer'] = pd.to_numeric(df['Okunan Değer'], errors='coerce').fillna(0.0)
+        # Boş satırları filtrele
+        df = df.dropna(subset=[date_col, val_col])
 
-        # Neden: Çarpan değerini okuruz, kolonda yoksa 26400 varsayılan değerini atarız.
-        if 'Çarpan' in df.columns:
-            df['Çarpan'] = df['Çarpan'].astype(str).str.replace(' ', '').str.replace(',', '.')
-            df['Çarpan'] = pd.to_numeric(df['Çarpan'], errors='coerce').fillna(26400.0)
-        else:
-            df['Çarpan'] = 26400.0
+        # Neden: Excel seri tarih formatını (varsa) standart datetime nesnesine dönüştürmek
+        import numpy as np
+        dates = []
+        for val in df[date_col]:
+            if isinstance(val, (int, float, np.integer, np.floating)) and not isinstance(val, bool):
+                from datetime import datetime, timedelta
+                base_date = datetime(1899, 12, 30)
+                dt_val = base_date + timedelta(days=val)
+                dates.append(dt_val)
+            else:
+                dates.append(pd.to_datetime(val))
 
-        # Neden: Kronolojik sıralama yapar ve Tarih alanını indeks haline getiririz.
-        df = df.sort_values('Tarih')
-        df_indexed = df.set_index('Tarih')
+        df['parsed_date'] = pd.to_datetime(dates)
 
-        # Neden: 15'er dakikalık veri ihtimaline karşı veriyi saatlik resample edip son okunan kümülatif değeri alırız.
-        df_hourly = df_indexed.resample('h').last()
-        df_hourly['Okunan Değer'] = df_hourly['Okunan Değer'].ffill()
-        df_hourly['Çarpan'] = df_hourly['Çarpan'].ffill().fillna(26400.0)
+        # 3. Endeks değeri sütununu (index 5) doğrudan consumption_kwh al
+        df['consumption_kwh'] = pd.to_numeric(df[val_col], errors='coerce').fillna(0.0)
 
-        # Neden: Kümülatif endeks okumasından saatlik delta hesaplarız.
-        df_hourly['delta'] = df_hourly['Okunan Değer'].diff().fillna(0.0)
-        df_hourly.loc[df_hourly['delta'] < 0, 'delta'] = 0.0
+        # 4. timestamp sütununu normalize et: YYYY-MM-DD HH:00:00
+        df['timestamp'] = df['parsed_date'].dt.strftime("%Y-%m-%d %H:00:00")
 
-        # Neden: Delta ile çarpan değerini çarparak saatlik tüketim (consumption_kwh) değerini elde ederiz.
-        df_hourly['consumption_kwh'] = df_hourly['delta'] * df_hourly['Çarpan']
-
-        # Neden: Timestamp alanını standart formata dönüştürerek temiz dataframe oluştururuz.
-        df_hourly = df_hourly.reset_index()
-        df_hourly['timestamp'] = df_hourly['Tarih'].dt.strftime("%Y-%m-%d %H:00:00")
-        result = df_hourly[['timestamp', 'consumption_kwh']]
+        # 5. timestamp | consumption_kwh sütunlu DataFrame döndür
+        result = df[['timestamp', 'consumption_kwh']].copy()
+        
+        # Neden: Aynı saate birden fazla kayıt gelirse birleştiririz
+        result = result.groupby('timestamp', as_index=False).sum()
 
         return result
 
@@ -133,28 +121,15 @@ class SettlementEngine:
         gaosb_file: Path
     ) -> List[HourlySettlement]:
         """
-        Neden: İki kaynağı timestamp üzerinden birleştirip
+        Neden: İki kaynağı timestamp üzerinden birebir eşleştirerek (inner join)
         saatlik mahsup hesaplar.
-        
-        Adımlar:
-        1. load_isolar_curve → production df
-        2. load_gaosb → consumption df
-        3. merge on timestamp (inner join)
-        4. Her satır için HourlySettlement hesapla
-        5. Liste döndür
         """
         # Neden: Üretim ve tüketim verilerini ilgili yükleme metotları ile çekeriz.
         df_prod = self.load_isolar_curve(isolar_file)
         df_cons = self.load_gaosb(gaosb_file)
-        # Neden: Tarih farkını görmezden gelerek sadece SAAT kısmı üzerinden join yaparız.
-        df_prod['hour'] = pd.to_datetime(df_prod['timestamp']).dt.strftime("%H")
-        df_cons['hour'] = pd.to_datetime(df_cons['timestamp']).dt.strftime("%H")
 
-        # Neden: 'hour' kolonu üzerinden birleştiririz. Böylece farklı günlerin verisi olsa da saatler eşleşir.
-        merged = pd.merge(df_prod, df_cons, on='hour', suffixes=('_prod', '_cons'))
-
-        # Neden: Birleştirilmiş veri için timestamp olarak tüketim verisinin asıl tarih/saat bilgisini koruruz.
-        merged['timestamp'] = merged['timestamp_cons']
+        # Neden: 'timestamp' kolonu üzerinden birebir eşleştirerek birleştiririz (inner join).
+        merged = pd.merge(df_prod, df_cons, on='timestamp')
 
         # Neden: Birleştirilmiş verileri kronolojik olarak sıralarız.
         merged = merged.sort_values('timestamp')
