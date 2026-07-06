@@ -23,7 +23,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     static_dir = Path(__file__).resolve().parent / "static"
 
     def do_POST(self):
-        self._send_method_not_allowed()
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+        if path == "/api/settlement/trigger":
+            self._handle_settlement_trigger()
+        else:
+            self._send_method_not_allowed()
 
     def do_PUT(self):
         self._send_method_not_allowed()
@@ -88,6 +93,40 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/analytics/trend":
                 trend = self.analytics_service.get_trend()
                 response_data = trend.to_dict()
+            elif path == "/api/settlement/latest":
+                reports_dir = Path("outputs/reports")
+                files = list(reports_dir.rglob("mahsup_*.xlsx"))
+                if files:
+                    files.sort(key=lambda p: p.name)
+                    latest_file = files[-1]
+                    date_str = latest_file.name.replace("mahsup_", "").replace(".xlsx", "")
+                    formatted_date = f"{date_str[6:8]}.{date_str[4:6]}.{date_str[:4]}"
+                    size_kb = round(latest_file.stat().st_size / 1024, 2)
+                    response_data = {
+                        "filename": latest_file.name,
+                        "date": formatted_date,
+                        "size_kb": size_kb,
+                        "download_url": "/api/settlement/download"
+                    }
+                else:
+                    response_data = None
+            elif path == "/api/settlement/download":
+                reports_dir = Path("outputs/reports")
+                files = list(reports_dir.rglob("mahsup_*.xlsx"))
+                if files:
+                    files.sort(key=lambda p: p.name)
+                    latest_file = files[-1]
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    self.send_header("Content-Disposition", f"attachment; filename={latest_file.name}")
+                    self.send_header("Content-Length", str(latest_file.stat().st_size))
+                    self.end_headers()
+                    with open(latest_file, "rb") as f:
+                        self.wfile.write(f.read())
+                    return
+                else:
+                    self.send_error(404, "Rapor dosyası bulunamadı.")
+                    return
             elif path == "/api/settings":
                 from app.sources import SourceRegistry
                 from app.database.db_session import SessionLocal
@@ -238,6 +277,41 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             }
         }
         self.wfile.write(json.dumps(contract).encode("utf-8"))
+
+    def _handle_settlement_trigger(self) -> None:
+        """
+        Neden: Salt-okunur (read-only) web sunucu kurallarına özel bir istisna 
+        tanımlayarak, manuel mahsuplaşma tetikleme isteğini (POST) karşılamak.
+        """
+        logger.warning("ÖZEL İSTİSNA: Salt-okunur (read-only) kuralı esnetilerek manuel mahsuplaşma tetiklendi.")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        
+        error_message = None
+        response_data = None
+        
+        try:
+            from app.jobs.daily_settlement_job import DailySettlementJob
+            job = DailySettlementJob()
+            result = job.run(target_date=None)
+            response_data = result
+        except Exception as e:
+            logger.error(f"Manuel mahsuplaşma tetikleme hatası: {e}")
+            error_message = str(e)
+
+        contract = {
+            "success": error_message is None,
+            "data": response_data,
+            "error": error_message,
+            "metadata": {
+                "timestamp": datetime.utcnow().isoformat(),
+                "environment": settings.app_env,
+                "version": "v1.0.0-GA"
+            }
+        }
+        self.wfile.write(json.dumps(contract, ensure_ascii=False).encode("utf-8"))
 
     # Log çıktılarının kirlenmesini önlemek için standard log metodunu ez
     def log_message(self, format, *args):

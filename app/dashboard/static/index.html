@@ -384,6 +384,42 @@
                 </div>
             </div>
 
+            <!-- Mahsuplaşma ve Raporlama (Settlement Engine) -->
+            <div class="dashboard-row" style="margin-bottom: 20px;">
+                <div class="card" style="flex: 1;">
+                    <div class="card-title" style="color: var(--accent-green);">Son Mahsuplaşma Raporu</div>
+                    <div id="settlement-info-block" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Rapor Tarihi</span>
+                            <strong id="settlement-report-date" style="font-size: 1rem; color: var(--text-primary);">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Dosya Adı</span>
+                            <strong id="settlement-report-name" style="font-size: 0.95rem; color: var(--text-primary); word-break: break-all;">-</strong>
+                        </div>
+                        <div>
+                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Dosya Boyutu</span>
+                            <strong id="settlement-report-size" style="font-size: 1rem; color: var(--text-primary);">-</strong>
+                        </div>
+                        <div style="margin-top: 5px;">
+                            <a id="settlement-download-link" href="#" class="btn" style="display: inline-block; background-color: var(--accent-green); color: white; border: none; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-weight: 600; text-align: center; pointer-events: none; opacity: 0.5;">Raporu Excel Olarak İndir</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" style="flex: 1;">
+                    <div class="card-title" style="color: var(--accent-green);">Manuel Mahsuplaşma Tetikleme</div>
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 10px; line-height: 1.4;">
+                        En güncel iSolar üretim eğrisi ve GAOSB tüketim verilerini çekerek günlük mahsuplaşma işlemini manuel olarak tetikleyebilirsiniz. Bu işlem arka planda Playwright scraper'larını çalıştırır.
+                    </p>
+                    <div style="margin-top: 20px;">
+                        <button id="btn-trigger-settlement" onclick="triggerSettlement()" class="btn" style="background-color: var(--accent-green); color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%;">Mahsuplaşmayı Tetikle</button>
+                    </div>
+                    <div id="settlement-trigger-status" style="margin-top: 15px; display: none; padding: 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; line-height: 1.4; word-break: break-word;">
+                        -
+                    </div>
+                </div>
+            </div>
+
             <!-- Row 1 -->
             <div class="dashboard-row">
                 <div class="card">
@@ -892,6 +928,70 @@
                     plugins: { legend: { labels: { color: '#f8fafc' } } }
                 }
             });
+            loadSettlementInfo();
+        }
+
+        async function loadSettlementInfo() {
+            const data = await fetchJson("/api/settlement/latest");
+            const dlLink = document.getElementById("settlement-download-link");
+            if (data) {
+                document.getElementById("settlement-report-date").innerText = data.date;
+                document.getElementById("settlement-report-name").innerText = data.filename;
+                document.getElementById("settlement-report-size").innerText = data.size_kb + " KB";
+                
+                dlLink.href = data.download_url;
+                dlLink.style.pointerEvents = "auto";
+                dlLink.style.opacity = "1";
+            } else {
+                document.getElementById("settlement-report-date").innerText = "YOK";
+                document.getElementById("settlement-report-name").innerText = "Henüz mahsuplaşma raporu üretilmedi.";
+                document.getElementById("settlement-report-size").innerText = "-";
+                
+                dlLink.href = "#";
+                dlLink.style.pointerEvents = "none";
+                dlLink.style.opacity = "0.5";
+            }
+        }
+
+        async function triggerSettlement() {
+            const btn = document.getElementById("btn-trigger-settlement");
+            const statusDiv = document.getElementById("settlement-trigger-status");
+            
+            btn.disabled = true;
+            btn.innerText = "Çalıştırılıyor... Lütfen Bekleyin...";
+            btn.style.opacity = "0.7";
+            btn.style.cursor = "not-allowed";
+            
+            statusDiv.style.display = "block";
+            statusDiv.style.background = "rgba(245, 158, 11, 0.15)";
+            statusDiv.style.color = "var(--accent-yellow)";
+            statusDiv.innerText = "Mahsuplaşma görevi başlatıldı. iSolar ve GAOSB verileri indirilip mahsuplaşma hesabı yapılıyor (yaklaşık 30-60 saniye sürebilir)...";
+            
+            try {
+                const response = await fetch("/api/settlement/trigger", { method: "POST" });
+                const result = await response.json();
+                
+                if (result.success && result.data && result.data.status === "SUCCESS") {
+                    statusDiv.style.background = "rgba(16, 185, 129, 0.15)";
+                    statusDiv.style.color = "var(--accent-green)";
+                    statusDiv.innerHTML = `<strong>BAŞARILI!</strong> Mahsuplaşma tamamlandı. ${result.data.settlement_count} kayıt işlendi.<br>Rapor: ${result.data.report_path}`;
+                    loadSettlementInfo();
+                } else {
+                    statusDiv.style.background = "rgba(239, 68, 68, 0.15)";
+                    statusDiv.style.color = "var(--accent-red)";
+                    const err = (result.data && result.data.error) || result.error || "Bilinmeyen hata.";
+                    statusDiv.innerHTML = `<strong>HATA!</strong> Görev başarısız oldu.<br>Hata Detayı: ${err}`;
+                }
+            } catch (e) {
+                statusDiv.style.background = "rgba(239, 68, 68, 0.15)";
+                statusDiv.style.color = "var(--accent-red)";
+                statusDiv.innerHTML = `<strong>BAĞLANTI HATASI!</strong> Sunucuyla iletişim kurulamadı.<br>${e}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Mahsuplaşmayı Tetikle";
+                btn.style.opacity = "1";
+                btn.style.cursor = "pointer";
+            }
         }
 
         async function initAnalytics() {

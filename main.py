@@ -68,6 +68,24 @@ def run():
             print(f"Sağlık kontrolü çalıştırılırken kritik hata: {he}")
             sys.exit(5)
 
+    if args and args.settlement:
+        from app.jobs.daily_settlement_job import DailySettlementJob
+        try:
+            job = DailySettlementJob()
+            result = job.run(
+                target_date=getattr(args, 'settlement_date', None)
+            )
+            print(f"Settlement Job: {result['status']}")
+            print(f"Tarih: {result['date']}")
+            print(f"Rapor: {result['report_path']}")
+            print(f"Mahsup satırı: {result['settlement_count']}")
+            if result['error']:
+                print(f"Hata: {result['error']}")
+            sys.exit(0 if result['status'] == 'SUCCESS' else 1)
+        except Exception as e:
+            print(f"Settlement Job hatası: {e}")
+            sys.exit(1)
+
     # 2. Lock file kontrolü (Uç uca çakışmaları engellemek)
     if LOCK_FILE.exists():
         print(f"Hata: İkinci bir ETL işlemi çalışamaz. Lock dosyası aktif: {LOCK_FILE}")

@@ -14,3 +14,5 @@ class CliArgs:
     headless: bool
     health: bool = False
     source: Optional[str] = None
+    settlement: bool = False
+    settlement_date: Optional[str] = None
