@@ -469,5 +469,248 @@ class IsolarExtractor:
         logger.info(f"Dosya indirme başarıyla tamamlandı: {temp_path.name}")
         return temp_path
 
+    def navigate_to_curve_page(self) -> None:
+        """
+        Neden: Maintenance menüsü ve Curve alt menüsü üzerinden
+        eğri sorgulama (Curve) sayfasına navigasyonu gerçekleştirir.
+        """
+        logger.info("Curve sayfasına navigasyon başlatılıyor...")
+        
+        # 1. Sol menüden Maintenance'a tıkla
+        try:
+            maintenance_menu = self.page.locator("text=Maintenance").first
+            if not maintenance_menu.is_visible(timeout=3000):
+                maintenance_menu = self.page.locator("text=Mainten").first
+            
+            maintenance_menu.wait_for(state="visible", timeout=10000)
+            logger.info("Maintenance menüsü bulundu, tıklanıyor...")
+            maintenance_menu.click()
+        except Exception as e:
+            raise IsolarMenuStructureChangedError(f"Maintenance menüsü bulunamadı veya tıklanamadı: {e}")
+
+        # 2. Curve alt menüsüne tıkla
+        try:
+            curve_submenu = self.page.locator("text=Curve").first
+            curve_submenu.wait_for(state="visible", timeout=10000)
+            logger.info("Curve alt menüsü bulundu, tıklanıyor...")
+            curve_submenu.click()
+        except Exception as e:
+            raise IsolarMenuStructureChangedError(f"Curve alt menüsü bulunamadı veya tıklanamadı: {e}")
+
+        # 3. Yönlendirmeyi ve 'Plant comparison' sekmesinin yüklenmesini bekle
+        try:
+            plant_comparison_tab = self.page.locator("text=Plant comparison").first
+            plant_comparison_tab.wait_for(state="visible", timeout=20000)
+            self.page.wait_for_load_state("networkidle")
+            logger.info(f"Curve (Plant comparison) sayfası başarıyla yüklendi. Mevcut URL: {self.page.url}")
+            self._take_screenshot("01_curve_page_loaded")
+        except Exception as e:
+            self._take_screenshot("error_navigate_curve")
+            raise IsolarNavigationTimeoutError(f"Curve sayfasına navigasyon zaman aşımına uğradı (Plant comparison sekmesi yüklenemedi): {e}")
+
+    def _take_screenshot(self, name: str) -> None:
+        try:
+            screenshot_dir = Path("outputs/test_isolar_curve/screenshots")
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(screenshot_dir / f"{name}.png"))
+            logger.info(f"Ekran görüntüsü kaydedildi: {name}.png")
+        except Exception as e:
+            logger.warning(f"Ekran görüntüsü kaydedilemedi: {e}")
+
+    def download_hourly_curve_report(self, date_str: Optional[str] = None) -> Path:
+        """
+        Neden: Curve sayfasındaki filtreleri ayarlayıp saatlik üretim raporunu Excel olarak indirir.
+        """
+        # 1. Tarih çözümleme
+        if not date_str:
+            import datetime
+            yesterday = datetime.date.today() - datetime.timedelta(days=1)
+            date_str = yesterday.strftime("%Y-%m-%d")
+        
+        logger.info(f"Saatlik Curve raporu indirme işlemi başlatılıyor (Tarih: {date_str})...")
+
+        # 2. Plant comparison sekmesinin aktif olduğundan emin ol
+        try:
+            plant_comparison_tab = self.page.locator("text=Plant comparison").first
+            plant_comparison_tab.click()
+            self.page.wait_for_timeout(500)
+        except Exception as e:
+            logger.warning(f"Plant comparison sekmesine tıklanırken hata (devam ediliyor): {e}")
+
+        # 3. Select plant dropdown'da tüm santralleri seç (GES-2...8)
+        try:
+            # Plant select dropdown genelde placeholder'ında 'plant' veya 'select' içeren ilk select'tir.
+            # Yoksa ilk .el-select'i tıklarız.
+            plant_dropdown = self.page.locator(".el-select").first
+            plant_dropdown.click()
+            self.page.wait_for_timeout(1000)
+
+            plant_ids = ["GES_2", "GES_3", "GES-4", "GES_5", "GES-6", "GES_7", "GES-8"]
+            for pid in plant_ids:
+                try:
+                    # Seçeneği has-text ile bulurken timeout'u düşürelim ki tüm akışı 30 saniye bloke etmesin
+                    option = self.page.locator(f".el-select-dropdown__item:has-text('{pid}')").first
+                    is_selected = option.evaluate("el => el.classList.contains('selected')", timeout=2000)
+                    if not is_selected:
+                        option.click()
+                        self.page.wait_for_timeout(200)
+                        logger.info(f"  Santral seçildi: {pid}")
+                    else:
+                        logger.info(f"  Santral zaten seçili: {pid}")
+                except Exception as ex:
+                    logger.warning(f"  Santral seçilemedi veya bulunamadı ({pid}): {ex}")
+            
+            self.page.keyboard.press("Escape")
+            self.page.wait_for_timeout(500)
+            self._take_screenshot("02_plants_selected")
+        except Exception as e:
+            logger.warning(f"Santral dropdown seçimi yapılamadı (devam ediliyor): {e}")
+
+        # 4. Measuring point: "Plant daily yield" seç
+        try:
+            # Placeholder'a göre veya index'ine göre bul
+            measuring_dropdown = self.page.locator(".el-select").nth(1)
+            measuring_dropdown.click()
+            self.page.wait_for_timeout(500)
+            option = self.page.locator(".el-select-dropdown__item:has-text('Plant daily yield')").first
+            option.click()
+            self.page.wait_for_timeout(500)
+            logger.info("Measuring point 'Plant daily yield' seçildi.")
+        except Exception as e:
+            logger.warning(f"Measuring point (Plant daily yield) seçilemedi: {e}")
+
+        # 5. Day butonu aktif olmalı
+        try:
+            day_btn = self.page.locator("text=Day").first
+            day_btn.click()
+            self.page.wait_for_timeout(500)
+            logger.info("Day butonu tıklandı.")
+        except Exception as e:
+            logger.warning(f"Day butonu tıklanamadı: {e}")
+
+        # 6. 60 min dropdown seçili olmalı
+        try:
+            interval_dropdown = self.page.locator(".el-select").nth(2)
+            interval_dropdown.click()
+            self.page.wait_for_timeout(500)
+            option = self.page.locator(".el-select-dropdown__item").filter(has_text=re.compile("60")).first
+            option.click()
+            self.page.wait_for_timeout(500)
+            logger.info("Interval '60 min' seçildi.")
+        except Exception as e:
+            logger.warning(f"Interval (60 min) seçilemedi: {e}")
+
+        # 7. Hedef tarihe navigasyon
+        try:
+            # JavaScript ile input değerini doğrudan güncelle
+            self.page.evaluate(f"""(dateVal) => {{
+                const input = document.querySelector('.el-date-editor input');
+                if (input) {{
+                    input.value = dateVal;
+                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                }}
+            }}""", date_str)
+            self.page.wait_for_timeout(500)
+            
+            # Klavye ile input üzerine yazarak tetikle (yedek)
+            date_input = self.page.locator(".el-date-editor input").first
+            if date_input.is_visible():
+                date_input.click()
+                self.page.wait_for_timeout(300)
+                self.page.keyboard.press("Control+A")
+                self.page.wait_for_timeout(100)
+                self.page.keyboard.press("Backspace")
+                self.page.wait_for_timeout(100)
+                date_input.type(date_str, delay=50)
+                self.page.wait_for_timeout(200)
+                self.page.keyboard.press("Enter")
+                self.page.wait_for_timeout(1000)
+            logger.info(f"Tarih alanı güncellendi: {date_str}")
+            self._take_screenshot("03_filters_configured")
+        except Exception as e:
+            logger.warning(f"Tarih navigasyonu başarısız (devam ediliyor): {e}")
+
+
+
+        # 7.5. Liste (Tablo) görünümüne geç
+        try:
+            list_view_btn = self.page.locator(".icon-G2_List_24").first
+            list_view_btn.click()
+            self.page.wait_for_timeout(1000)
+            logger.info("List/Table görünümüne geçildi (.icon-G2_List_24 tıklandı).")
+            self._take_screenshot("03c_list_view_active")
+        except Exception as e:
+            logger.warning(f"List görünümüne geçilemedi: {e}")
+
+
+
+        # 8. İndirme (Download / Export Excel) butonuna tıkla
+        # Excel indirme ikonu genelde 'export' veya 'Excel' veya .icon-G2_Export veya .icon-G2_Upload vb.
+        # Download ikonu .icon-G2_Download ise PNG indirir. Excel için olan ikonu arıyoruz.
+        download_btn = None
+        # Excel veya veri indirmek için öncelikli selector listesi (örneğin .icon-G2_Export veya Export)
+        priority_selectors = [
+            ".icon-G2_Export_24", 
+            ".icon-G2_Export", 
+            "button:has-text('Export')", 
+            "button:has-text('Excel')",
+            ".icon-G2_Download", 
+            ".icon-G2_Download_241", 
+            ".icon-G2_Download_24"
+        ]
+        
+        for sel in priority_selectors:
+            try:
+                btn = self.page.locator(sel).first
+                if btn.is_visible(timeout=1000):
+                    download_btn = btn
+                    logger.info(f"Kullanılacak export/download butonu eşleşen selector: {sel}")
+                    break
+            except Exception:
+                continue
+
+        if not download_btn:
+            raise IsolarDownloadError("Curve download/export butonu bulunamadı.")
+
+        logger.info("Download başlatılıyor...")
+        try:
+            # Önce download butonuna basıp dropdown menüsünün açılmasını tetikleyelim
+            download_btn.click()
+            self.page.wait_for_timeout(800)
+            
+            # "Export as Excel" seçeneğini bul ve tıkla
+            excel_option = self.page.locator("text=Export as Excel").first
+            excel_option.wait_for(state="visible", timeout=5000)
+            
+            with self.page.expect_download(timeout=30000) as download_info:
+                excel_option.click()
+            download = download_info.value
+        except Exception as e:
+            try:
+                page_text = self.page.evaluate("el => document.body.innerText")
+                logger.error(f"Hata anında sayfadaki metinler:\n{page_text}")
+            except Exception as ex:
+                logger.warning(f"Sayfa metinleri dump edilemedi: {ex}")
+            self._take_screenshot("error_download_click")
+            raise IsolarDownloadError(f"Curve indirme tetiklenirken hata: {e}")
+
+        if not download:
+            raise IsolarDownloadError("Curve dosya indirme işlemi tetiklendi fakat dosya nesnesi alınamadı.")
+
+        # 9. Dosyayı geçici konuma kaydet
+        temp_dir = settings.download_directory / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_path = temp_dir / download.suggested_filename
+
+        try:
+            download.save_as(str(temp_path))
+            self._take_screenshot("04_download_completed")
+        except Exception as e:
+            raise IsolarDownloadError(f"İndirilen geçici Curve dosyası diske kaydedilemedi: {e}")
+
+        logger.info(f"Curve dosya indirme başarıyla tamamlandı: {temp_path.name}")
+        return temp_path
+
 
 
