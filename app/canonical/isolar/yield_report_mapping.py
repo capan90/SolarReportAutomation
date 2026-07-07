@@ -17,7 +17,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="trim_text",
-            description="Benzersiz güneş enerjisi tesisi adı."
+            description="Benzersiz güneş enerjisi tesisi adı.",
+            display_name_tr="Santral Adı"
         ),
         MappingField(
             source_column="Installed power(kWp)",
@@ -30,7 +31,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="normalize_kwp",
-            description="Tesisin kurulu DC panel gücü."
+            description="Tesisin kurulu DC panel gücü.",
+            display_name_tr="Kurulu Güç (kWp)"
         ),
         MappingField(
             source_column="Grid connection date",
@@ -43,7 +45,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="parse_date",
-            description="Tesisin devreye alınma/kabul tarihi."
+            description="Tesisin devreye alınma/kabul tarihi.",
+            display_name_tr="Şebeke Bağlantı Tarihi"
         ),
         MappingField(
             source_column="Yield today (kWh)",
@@ -56,7 +59,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="normalize_kwh",
-            description="Tesisin günlük toplam AC üretim miktarı."
+            description="Tesisin günlük toplam AC üretim miktarı.",
+            display_name_tr="Bugünkü Üretim (kWh)"
         ),
         MappingField(
             source_column="Total yield(kWh)",
@@ -69,7 +73,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="normalize_kwh",
-            description="Devreye alındığından beri yapılan toplam kümülatif AC üretim."
+            description="Devreye alındığından beri yapılan toplam kümülatif AC üretim.",
+            display_name_tr="Toplam Üretim (kWh)"
         ),
         MappingField(
             source_column="Equivalent hours(h)",
@@ -82,7 +87,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="parse_float",
-            description="Tesisin nominal güçte çalışarak bu üretimi yapması için gereken eşdeğer saat."
+            description="Tesisin nominal güçte çalışarak bu üretimi yapması için gereken eşdeğer saat.",
+            display_name_tr="Eşdeğer Saat (h)"
         ),
         MappingField(
             source_column="Revenue today",
@@ -95,7 +101,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=True,
             required=False,
             transform_rule="parse_revenue_currency",
-            description="Tesisin günlük ürettiği enerjinin parasal karşılığı."
+            description="Tesisin günlük ürettiği enerjinin parasal karşılığı.",
+            display_name_tr="Bugünkü Gelir (TRY)"
         ),
         MappingField(
             source_column="Total CO₂ reduction(kg)",
@@ -108,7 +115,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=False,
             required=True,
             transform_rule="parse_float",
-            description="Önlenen kümülatif CO2 salınım miktarı."
+            description="Önlenen kümülatif CO2 salınım miktarı.",
+            display_name_tr="CO₂ Azaltımı (kg)"
         ),
         MappingField(
             source_column="Plant address",
@@ -121,7 +129,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=True,
             required=False,
             transform_rule="trim_text",
-            description="Tesisin fiziksel adresi."
+            description="Tesisin fiziksel adresi.",
+            display_name_tr="Santral Adresi"
         ),
         MappingField(
             source_column="Inverter S/N",
@@ -134,7 +143,8 @@ isolar_yield_report_mapping = WorkbookMapping(
             nullable=True,
             required=False,
             transform_rule="trim_text",
-            description="İnvertör seri numaraları."
+            description="İnvertör seri numaraları.",
+            display_name_tr="İnvertör Seri No"
         )
     ]
 )

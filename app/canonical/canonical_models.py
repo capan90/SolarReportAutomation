@@ -18,6 +18,7 @@ class MappingField:
     required: bool
     transform_rule: str
     description: str
+    display_name_tr: str = ""  # Kullanıcıya gösterilen raporlardaki Türkçe kolon adı
 
 @dataclass(frozen=True)
 class WorkbookMapping:
