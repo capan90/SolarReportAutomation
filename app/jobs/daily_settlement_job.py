@@ -115,9 +115,11 @@ class DailySettlementJob:
             logger.info("4. Aşama: Excel raporu yazılıyor...")
             formatted_date = dt.strftime("%Y%m%d")
             rapor_path = output_dir / f"mahsup_{formatted_date}.xlsx"
-            
+
+            # Neden: GES bazlı üretim kırılımı sayfası için iSolar DataFrame'i geçilir.
+            isolar_df = engine.load_isolar_curve(isolar_path)
             writer = SettlementReportWriter()
-            writer.write(settlements, rapor_path)
+            writer.write(settlements, rapor_path, isolar_df=isolar_df)
             logger.info(f"4. Aşama BAŞARILI. Rapor üretildi: {rapor_path}")
         except Exception as e:
             err_txt = f"Mahsuplaşma veya rapor yazma aşaması başarısız: {e}"
@@ -136,10 +138,19 @@ class DailySettlementJob:
                 exit_code = 0
                 stage_summary = (
                     f"Daily Settlement Job başarıyla tamamlandı.\n"
-                    f"Hedef Tarih: {target_date}\n"
-                    f"Rapor Dosyası: {rapor_path.name}\n"
-                    f"Rapor Yolu: {rapor_path.absolute()}\n"
-                    f"Mahsuplaşma Kayıt Sayısı: {settlement_count}"
+                    f"Tarih: {target_date} | Mahsup: {settlement_count} saat | Rapor: {rapor_path.name}\n"
+                    f"Rapor Yolu: {rapor_path.absolute()}"
+                )
+                # Neden: Başarılı koşuda mahsup Excel'i ek olarak gönderilir;
+                # SUCCESS politikası kapalı olduğundan force=True ile bypass edilir.
+                notifier.notify_pipeline(
+                    run_id=run_id,
+                    exit_code=exit_code,
+                    duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
+                    stage_summary=stage_summary,
+                    event_type="SUCCESS",
+                    attachment_path=str(rapor_path.absolute()),
+                    force=True
                 )
             else:
                 exit_code = 1
@@ -150,13 +161,12 @@ class DailySettlementJob:
                     f"GAOSB Raporu: {'İndirildi' if gaosb_path else 'BAŞARISIZ'}\n"
                     f"Hata Detayları: {error_msg}"
                 )
-
-            notifier.notify_pipeline(
-                run_id=run_id,
-                exit_code=exit_code,
-                duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
-                stage_summary=stage_summary
-            )
+                notifier.notify_pipeline(
+                    run_id=run_id,
+                    exit_code=exit_code,
+                    duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
+                    stage_summary=stage_summary
+                )
             logger.info("5. Aşama BAŞARILI. Bildirim tamamlandı.")
         except Exception as e:
             logger.error(f"E-Posta bildirimi gönderilirken hata oluştu: {e}")

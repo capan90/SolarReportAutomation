@@ -28,16 +28,19 @@ class NotificationService:
         self.queue = queue or InMemoryNotificationQueue()
         self.email_sender = email_sender or EmailSender()
 
-    def notify(self, event: NotificationEvent) -> None:
+    def notify(self, event: NotificationEvent, force: bool = False) -> None:
         """
         Neden: ETL Pipeline veya CLI seviyesinden tetiklenen olay bildirim isteğini karşılamak.
         Politika uygunsa kuyruğa alır ve best-effort olarak gönderimi başlatır.
+        force=True ise politika kontrolü atlanır (ör. başarı raporunun ekli gönderimi).
         """
         try:
-            # 1. Politika Uygunluk Kontrolü
-            if not self.policy_evaluator.should_notify(event.event_type):
+            # 1. Politika Uygunluk Kontrolü (force ile atlanabilir)
+            if not force and not self.policy_evaluator.should_notify(event.event_type):
                 logger.info(f"Bildirim politikası gereği '{event.event_type}' olay tipi için mail gönderimi atlandı.")
                 return
+            if force:
+                logger.info(f"Bildirim politikası atlandı (force=True): '{event.event_type}' gönderilecek.")
 
             logger.info(f"Bildirim politikası onaylandı. Olay kuyruğa ekleniyor: {event.event_type} (Run ID: {event.run_id})")
             
@@ -58,7 +61,9 @@ class NotificationService:
         duration_ms: int,
         stage_summary: str,
         validation_summary: Optional[str] = None,
-        event_type: Optional[str] = None
+        event_type: Optional[str] = None,
+        attachment_path: Optional[str] = None,
+        force: bool = False
     ) -> None:
         """
         Neden: Pipeline sonuçlarına göre uygun olay tipini belirlemek, Git/Sunucu metriklerini toplamak
@@ -107,9 +112,10 @@ class NotificationService:
             machine_name=machine_name,
             git_commit=git_commit,
             stage_summary=stage_summary,
-            validation_summary=validation_summary
+            validation_summary=validation_summary,
+            attachment_path=attachment_path
         )
-        self.notify(event)
+        self.notify(event, force=force)
 
     def process_queue(self) -> None:
         """

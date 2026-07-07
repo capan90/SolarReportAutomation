@@ -2,6 +2,7 @@ import time
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from pathlib import Path
 from string import Template
 
@@ -57,11 +58,23 @@ class EmailSender:
         şekilde değiştirmek (string.Template kullanarak sıfır bağımlılıklı şablonlama).
         """
         raw_template = self._get_template_content(event.event_type)
-        
+
         # None olan alanları boş dizeye dönüştür
         stage_summary = event.stage_summary if event.stage_summary else ""
         validation_summary = event.validation_summary if event.validation_summary else ""
-        
+
+        # Neden: Çok satırlı özetlerin HTML gövdede satır satır görünmesi için.
+        stage_summary = stage_summary.replace("\n", "<br>")
+
+        # Neden: Ek varsa kullanıcıya "rapor ekte" notunu göster; yoksa boş bırak.
+        attachment_note = ""
+        if event.attachment_path:
+            attachment_note = (
+                '<p style="background-color: #e8f5e9; padding: 10px; border-radius: 4px;">'
+                f"&#128206; Mahsuplaşma raporu (<strong>{Path(event.attachment_path).name}</strong>) "
+                "bu e-postaya ektedir.</p>"
+            )
+
         template_data = {
             "RUN_ID": event.run_id,
             "STATUS": event.event_type,
@@ -70,7 +83,8 @@ class EmailSender:
             "MACHINE_NAME": event.machine_name,
             "GIT_COMMIT": event.git_commit,
             "STAGE_SUMMARY": stage_summary,
-            "VALIDATION_SUMMARY": validation_summary
+            "VALIDATION_SUMMARY": validation_summary,
+            "ATTACHMENT_NOTE": attachment_note
         }
         
         # string.Template kullanarak placeholderları değiştir (safe_substitute hata vermesini önler)
@@ -98,6 +112,24 @@ class EmailSender:
         msg["To"] = settings.alert_email
         msg["Subject"] = f"Solar ETL Alert - {event.event_type} (Run ID: {event.run_id[:8]})"
         msg.attach(MIMEText(body, "html", "utf-8"))
+
+        # Neden: Olayda ek dosya (ör. mahsup Excel raporu) tanımlıysa e-postaya iliştir.
+        if event.attachment_path:
+            att_path = Path(event.attachment_path)
+            if att_path.exists():
+                try:
+                    part = MIMEApplication(
+                        att_path.read_bytes(),
+                        _subtype="vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                    part.add_header("Content-Disposition", "attachment", filename=att_path.name)
+                    msg.attach(part)
+                    logger.info(f"E-posta eki iliştirildi: {att_path.name} ({att_path.stat().st_size} bayt)")
+                except Exception as e:
+                    # Ek iliştirilemese bile gövde gönderilmeye devam eder (best-effort).
+                    logger.error(f"E-posta eki iliştirilemedi ({att_path}): {e}")
+            else:
+                logger.warning(f"E-posta eki bulunamadı, eksiz gönderilecek: {att_path}")
 
         max_attempts = len(self.retry_delays) + 1
         last_error = ""

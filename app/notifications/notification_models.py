@@ -16,3 +16,4 @@ class NotificationEvent:
     stage_summary: str
     validation_summary: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+    attachment_path: Optional[str] = None  # E-postaya eklenecek dosyanın yolu (ör. mahsup raporu)
