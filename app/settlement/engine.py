@@ -31,14 +31,26 @@ class SettlementEngine:
         except Exception:
             df = pd.read_excel(file_path, header=1, engine='xlrd')
 
-        # Neden: Boş satırları veya Time kolonu boş olan satırları filtreleriz.
-        df = df.dropna(subset=['Time'])
+        # Neden: Curve dosyası TurkishExcelWriter ile Türkçeleştirilmiş olabilir;
+        # zaman kolonu "Time" (ham) veya "Zaman" (çevrilmiş) adıyla gelebilir.
+        time_col = next(
+            (col for col in df.columns if str(col).strip().lower() in ("time", "zaman")),
+            None,
+        )
+        if time_col is None:
+            raise ValueError(
+                f"Zaman kolonu bulunamadı ('Time' veya 'Zaman' bekleniyordu). "
+                f"Mevcut kolonlar: {list(df.columns)}"
+            )
+
+        # Neden: Boş satırları veya zaman kolonu boş olan satırları filtreleriz.
+        df = df.dropna(subset=[time_col])
 
         # Neden: Tarih alanını datetime tipine dönüştürürüz.
-        df['Time'] = pd.to_datetime(df['Time'])
+        df[time_col] = pd.to_datetime(df[time_col])
 
-        # Neden: Time kolonu haricindeki tüm GES/üretim sütunlarını buluruz.
-        plant_cols = [col for col in df.columns if col != 'Time' and not str(col).startswith('Unnamed')]
+        # Neden: Zaman kolonu haricindeki tüm GES/üretim sütunlarını buluruz.
+        plant_cols = [col for col in df.columns if col != time_col and not str(col).startswith('Unnamed')]
 
         # Neden: Değerleri string ise temizleyip float tipine dönüştürürüz.
         for col in plant_cols:
@@ -49,7 +61,7 @@ class SettlementEngine:
         df['production_cumulative'] = df[plant_cols].sum(axis=1)
 
         # Neden: Doğru delta hesabı için verileri zamana göre sıralarız.
-        df = df.sort_values('Time')
+        df = df.sort_values(time_col)
 
         # Neden: Kümülatif üretim değerlerinden saatlik üretim deltalarını hesaplarız.
         df['production_kwh'] = df['production_cumulative'].diff().fillna(0.0)
@@ -74,7 +86,7 @@ class SettlementEngine:
         ges_out_cols.sort(key=lambda c: int(c.split('_')[1]))
 
         # Neden: Çıktıyı istenen formata (YYYY-MM-DD HH:00:00) getirip gruplarız.
-        df['timestamp'] = df['Time'].dt.strftime("%Y-%m-%d %H:00:00")
+        df['timestamp'] = df[time_col].dt.strftime("%Y-%m-%d %H:00:00")
         result = df[['timestamp', 'production_kwh'] + ges_out_cols].groupby('timestamp', as_index=False).sum()
 
         return result
