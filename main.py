@@ -68,6 +68,24 @@ def run():
             print(f"Sağlık kontrolü çalıştırılırken kritik hata: {he}")
             sys.exit(5)
 
+    if args and getattr(args, 'settlement_monthly', False):
+        from app.jobs.monthly_settlement_job import MonthlySettlementJob
+        try:
+            job = MonthlySettlementJob()
+            result = job.run(
+                target_month=getattr(args, 'settlement_month', None)
+            )
+            print(f"Monthly Settlement Job: {result['status']}")
+            print(f"Ay: {result['month']}")
+            print(f"Rapor: {result['report_path']}")
+            print(f"Mahsup satırı: {result['settlement_count']}")
+            if result['error']:
+                print(f"Hata: {result['error']}")
+            sys.exit(0 if result['status'] == 'SUCCESS' else 1)
+        except Exception as e:
+            print(f"Monthly Settlement Job hatası: {e}")
+            sys.exit(1)
+
     if args and args.settlement:
         from app.jobs.daily_settlement_job import DailySettlementJob
         try:

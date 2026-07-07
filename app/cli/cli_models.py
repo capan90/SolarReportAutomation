@@ -16,3 +16,5 @@ class CliArgs:
     source: Optional[str] = None
     settlement: bool = False
     settlement_date: Optional[str] = None
+    settlement_monthly: bool = False
+    settlement_month: Optional[str] = None  # 'YYYY-MM'

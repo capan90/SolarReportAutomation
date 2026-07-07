@@ -60,6 +60,7 @@ class DailySettlementJob:
         isolar_path: Optional[Path] = None
         gaosb_path: Optional[Path] = None
         rapor_path: Optional[Path] = None
+        settlements = []
         settlement_count = 0
         error_msg: Optional[str] = None
 
@@ -112,6 +113,16 @@ class DailySettlementJob:
             settlement_count = len(settlements)
             logger.info(f"Mahsuplaşma hesabı tamamlandı. Kayıt sayısı: {settlement_count}")
 
+            # 3b. Sonuçları veritabanına yaz (Best-effort: DB hatası raporu engellemez)
+            try:
+                from app.database.settlement_repository import SettlementRepository
+                repo = SettlementRepository()
+                repo.upsert_hourly(settlements)
+                repo.upsert_daily(target_date, settlements)
+                logger.info("Mahsuplaşma sonuçları veritabanına yazıldı (hourly + daily).")
+            except Exception as db_err:
+                logger.error(f"Mahsuplaşma DB yazımı başarısız (rapor üretimine devam ediliyor): {db_err}")
+
             logger.info("4. Aşama: Excel raporu yazılıyor...")
             formatted_date = dt.strftime("%Y%m%d")
             rapor_path = output_dir / f"mahsup_{formatted_date}.xlsx"
@@ -136,10 +147,30 @@ class DailySettlementJob:
             
             if rapor_path and rapor_path.exists():
                 exit_code = 0
+
+                # Neden: E-posta yöneticiye gider; teknik detay (run id, dosya yolu)
+                # yerine Türkçe tarih ve mahsup istatistikleri gösterilir.
+                ay_adlari = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+                             "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
+                tarih_str = f"{dt.day:02d} {ay_adlari[dt.month - 1]} {dt.year}"
+
+                def _fmt_kwh(value: float) -> str:
+                    # Neden: Türkçe sayı biçimi (binlik ayracı nokta, ondalık virgül).
+                    return f"{value:,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                toplam_uretim = sum(s.production_kwh for s in settlements)
+                toplam_tuketim = sum(s.consumption_kwh for s in settlements)
+                toplam_mahsup = sum(s.settled_kwh for s in settlements)
+                toplam_cekis = sum(s.grid_import_kwh for s in settlements)
+                toplam_satis = sum(s.grid_export_kwh for s in settlements)
+
                 stage_summary = (
-                    f"Daily Settlement Job başarıyla tamamlandı.\n"
-                    f"Tarih: {target_date} | Mahsup: {settlement_count} saat | Rapor: {rapor_path.name}\n"
-                    f"Rapor Yolu: {rapor_path.absolute()}"
+                    f"{tarih_str} tarihine ait günlük mahsuplaşma raporu otomatik olarak hazırlanmıştır.\n\n"
+                    f"Toplam Üretim: {_fmt_kwh(toplam_uretim)} kWh\n"
+                    f"Toplam Tüketim: {_fmt_kwh(toplam_tuketim)} kWh\n"
+                    f"Toplam Mahsup: {_fmt_kwh(toplam_mahsup)} kWh\n"
+                    f"Şebekeden Çekiş: {_fmt_kwh(toplam_cekis)} kWh\n"
+                    f"Fazla Satış: {_fmt_kwh(toplam_satis)} kWh"
                 )
                 # Neden: Başarılı koşuda mahsup Excel'i ek olarak gönderilir;
                 # SUCCESS politikası kapalı olduğundan force=True ile bypass edilir.

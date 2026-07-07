@@ -517,17 +517,29 @@ class IsolarExtractor:
         except Exception as e:
             logger.warning(f"Ekran görüntüsü kaydedilemedi: {e}")
 
-    def download_hourly_curve_report(self, date_str: Optional[str] = None) -> Path:
+    def download_hourly_curve_report(self, date_str: Optional[str] = None, mode: str = "day") -> Path:
         """
-        Neden: Curve sayfasındaki filtreleri ayarlayıp saatlik üretim raporunu Excel olarak indirir.
+        Neden: Curve sayfasındaki filtreleri ayarlayıp üretim raporunu Excel olarak indirir.
+
+        mode="day"  : Günlük görünüm, saatlik veri. date_str formatı YYYY-MM-DD (yoksa dün).
+        mode="month": Aylık görünüm. date_str formatı YYYY-MM (yoksa geçen ay);
+                      tarih navigasyonu ay bazında ok butonuyla yapılır.
         """
+        if mode not in ("day", "month"):
+            raise ValueError(f"Geçersiz mode: '{mode}' ('day' veya 'month' bekleniyor).")
+
         # 1. Tarih çözümleme
+        import datetime
         if not date_str:
-            import datetime
-            yesterday = datetime.date.today() - datetime.timedelta(days=1)
-            date_str = yesterday.strftime("%Y-%m-%d")
-        
-        logger.info(f"Saatlik Curve raporu indirme işlemi başlatılıyor (Tarih: {date_str})...")
+            if mode == "month":
+                first_of_month = datetime.date.today().replace(day=1)
+                prev_month = first_of_month - datetime.timedelta(days=1)
+                date_str = prev_month.strftime("%Y-%m")
+            else:
+                yesterday = datetime.date.today() - datetime.timedelta(days=1)
+                date_str = yesterday.strftime("%Y-%m-%d")
+
+        logger.info(f"Curve raporu indirme işlemi başlatılıyor (mode={mode}, Tarih: {date_str})...")
 
         # 2. Plant comparison sekmesinin aktif olduğundan emin ol
         try:
@@ -579,16 +591,19 @@ class IsolarExtractor:
         except Exception as e:
             logger.warning(f"Measuring point (Plant daily yield) seçilemedi: {e}")
 
-        # 5. Day butonu aktif olmalı
+        # 5. Dönem butonu aktif olmalı (day -> Day, month -> Month)
+        period_label = "Month" if mode == "month" else "Day"
         try:
-            day_btn = self.page.locator("text=Day").first
-            day_btn.click()
+            period_btn = self.page.locator(f"text={period_label}").first
+            period_btn.click()
             self.page.wait_for_timeout(500)
-            logger.info("Day butonu tıklandı.")
+            logger.info(f"{period_label} butonu tıklandı.")
         except Exception as e:
-            logger.warning(f"Day butonu tıklanamadı: {e}")
+            logger.warning(f"{period_label} butonu tıklanamadı: {e}")
 
         # 6. 60 min dropdown seçili olmalı
+        # Neden: Month görünümünde varsayılan '1 day' aralığı günlük satır üretir;
+        # saatlik (744 satır) veri için burada da '60 min' seçilmelidir.
         try:
             interval_dropdown = self.page.locator(".el-select").nth(2)
             interval_dropdown.click()
@@ -641,35 +656,95 @@ class IsolarExtractor:
                     continue
             return False
 
-        target_dt = _dt.strptime(date_str, "%Y-%m-%d")
-        current_dt = _read_current_date()
-        diff_days = (current_dt.date() - target_dt.date()).days
-        logger.info(f"Tarih navigasyonu: mevcut={current_dt.date()}, hedef={target_dt.date()}, fark={diff_days} gün")
+        def _read_current_month() -> tuple:
+            """
+            Neden: Month görünümünde tarih alanı 'May/2026', '2026-05', '05/2026' gibi
+            farklı biçimlerde gelebilir; yıl regex'le, ay ise ad veya sayı olarak çözülür.
+            (yıl, ay) döner.
+            """
+            raw_val = self.page.locator(".el-date-editor input").first.input_value().strip()
+            m_year = re.search(r"(\d{4})", raw_val)
+            if not m_year:
+                raise ValueError(f"Ay alanında yıl bulunamadı: '{raw_val}'")
+            year = int(m_year.group(1))
+            rest = raw_val.replace(m_year.group(1), "")
+            m_name = re.search(r"([A-Za-z]{3,})", rest)
+            if m_name and m_name.group(1)[:3].lower() in _AYLAR:
+                return year, _AYLAR[m_name.group(1)[:3].lower()]
+            m_num = re.search(r"(\d{1,2})", rest)
+            if m_num and 1 <= int(m_num.group(1)) <= 12:
+                return year, int(m_num.group(1))
+            raise ValueError(f"Ay alanı değeri çözümlenemedi: '{raw_val}'")
 
-        if diff_days < 0:
-            raise ValueError(
-                f"Hedef tarih ({target_dt.date()}) sayfadaki tarihten ({current_dt.date()}) ileride; "
-                f"ileri navigasyon desteklenmiyor."
+        if mode == "month":
+            # Ay bazlı navigasyon: mevcut aydan hedef aya ok butonuyla ay ay geri git.
+            target_dt = _dt.strptime(date_str, "%Y-%m")
+            cur_year, cur_month = _read_current_month()
+            diff_months = (cur_year - target_dt.year) * 12 + (cur_month - target_dt.month)
+            logger.info(
+                f"Ay navigasyonu: mevcut={cur_year}-{cur_month:02d}, "
+                f"hedef={target_dt.year}-{target_dt.month:02d}, fark={diff_months} ay"
             )
 
-        for i in range(diff_days):
-            before = _read_current_date()
-            if not _click_prev_candidates():
-                raise ValueError("Önceki gün (<) butonu sayfada bulunamadı.")
-            self.page.wait_for_timeout(800)
-            after = _read_current_date()
-            if (before.date() - after.date()).days != 1:
+            if diff_months < 0:
                 raise ValueError(
-                    f"Önceki gün tıklaması beklenen etkiyi yapmadı: {before.date()} -> {after.date()}"
+                    f"Hedef ay ({target_dt.year}-{target_dt.month:02d}) sayfadaki aydan "
+                    f"({cur_year}-{cur_month:02d}) ileride; ileri navigasyon desteklenmiyor."
                 )
-            logger.info(f"  Önceki gün tıklandı ({i + 1}/{diff_days}): {after.date()}")
 
-        final_dt = _read_current_date()
-        if final_dt.date() != target_dt.date():
-            raise ValueError(
-                f"Tarih doğrulaması başarısız: alan {final_dt.date()} gösteriyor, hedef {target_dt.date()}."
-            )
-        logger.info(f"Tarih alanı doğrulandı: {final_dt.date()}")
+            for i in range(diff_months):
+                before = _read_current_month()
+                if not _click_prev_candidates():
+                    raise ValueError("Önceki ay (<) butonu sayfada bulunamadı.")
+                self.page.wait_for_timeout(800)
+                after = _read_current_month()
+                expected = (before[0], before[1] - 1) if before[1] > 1 else (before[0] - 1, 12)
+                if after != expected:
+                    raise ValueError(
+                        f"Önceki ay tıklaması beklenen etkiyi yapmadı: {before} -> {after}"
+                    )
+                logger.info(f"  Önceki ay tıklandı ({i + 1}/{diff_months}): {after[0]}-{after[1]:02d}")
+
+            final_year, final_month = _read_current_month()
+            if (final_year, final_month) != (target_dt.year, target_dt.month):
+                raise ValueError(
+                    f"Ay doğrulaması başarısız: alan {final_year}-{final_month:02d} gösteriyor, "
+                    f"hedef {target_dt.year}-{target_dt.month:02d}."
+                )
+            logger.info(f"Ay alanı doğrulandı: {final_year}-{final_month:02d}")
+            # Neden: Aylık saatlik seri (744 nokta) günlük veriden belirgin şekilde
+            # daha ağır yüklenir; export'un boş dosya vermemesi için veri beklenir.
+            self.page.wait_for_timeout(3000)
+        else:
+            target_dt = _dt.strptime(date_str, "%Y-%m-%d")
+            current_dt = _read_current_date()
+            diff_days = (current_dt.date() - target_dt.date()).days
+            logger.info(f"Tarih navigasyonu: mevcut={current_dt.date()}, hedef={target_dt.date()}, fark={diff_days} gün")
+
+            if diff_days < 0:
+                raise ValueError(
+                    f"Hedef tarih ({target_dt.date()}) sayfadaki tarihten ({current_dt.date()}) ileride; "
+                    f"ileri navigasyon desteklenmiyor."
+                )
+
+            for i in range(diff_days):
+                before = _read_current_date()
+                if not _click_prev_candidates():
+                    raise ValueError("Önceki gün (<) butonu sayfada bulunamadı.")
+                self.page.wait_for_timeout(800)
+                after = _read_current_date()
+                if (before.date() - after.date()).days != 1:
+                    raise ValueError(
+                        f"Önceki gün tıklaması beklenen etkiyi yapmadı: {before.date()} -> {after.date()}"
+                    )
+                logger.info(f"  Önceki gün tıklandı ({i + 1}/{diff_days}): {after.date()}")
+
+            final_dt = _read_current_date()
+            if final_dt.date() != target_dt.date():
+                raise ValueError(
+                    f"Tarih doğrulaması başarısız: alan {final_dt.date()} gösteriyor, hedef {target_dt.date()}."
+                )
+            logger.info(f"Tarih alanı doğrulandı: {final_dt.date()}")
         self._take_screenshot("03_filters_configured")
 
 

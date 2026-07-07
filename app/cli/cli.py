@@ -83,6 +83,19 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         help="Opsiyonel tarih (Format: YYYY-MM-DD), yoksa dün"
     )
 
+    parser.add_argument(
+        "--settlement-monthly",
+        action="store_true",
+        default=False,
+        help="Aylık settlement job'u çalıştır"
+    )
+
+    parser.add_argument(
+        "--settlement-month",
+        default=None,
+        help="Aylık job için hedef ay (Format: YYYY-MM), yoksa geçen ay"
+    )
+
     parsed = parser.parse_args(args_list)
 
     # Neden: Tarih parametresinin YYYY-MM-DD formatında olmasını zorunlu kılmak (Fail-Fast)
@@ -107,6 +120,16 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         except ValueError:
             raise ValueError(f"Geçersiz tarih değeri: '{parsed.settlement_date}'")
 
+    # Neden: Aylık settlement ay parametresinin YYYY-MM formatında olmasını zorunlu kılmak (Fail-Fast)
+    if parsed.settlement_month:
+        if not re.match(r"^\d{4}-\d{2}$", parsed.settlement_month):
+            raise ValueError(f"Hatalı ay formatı: '{parsed.settlement_month}'. Beklenen format: YYYY-MM")
+        try:
+            from datetime import datetime
+            datetime.strptime(parsed.settlement_month, "%Y-%m")
+        except ValueError:
+            raise ValueError(f"Geçersiz ay değeri: '{parsed.settlement_month}'")
+
     return CliArgs(
         mode=parsed.mode,
         date=parsed.date,
@@ -116,5 +139,7 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         health=parsed.health,
         source=parsed.source,
         settlement=parsed.settlement,
-        settlement_date=parsed.settlement_date
+        settlement_date=parsed.settlement_date,
+        settlement_monthly=parsed.settlement_monthly,
+        settlement_month=parsed.settlement_month
     )

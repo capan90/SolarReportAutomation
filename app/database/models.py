@@ -5,6 +5,7 @@ from sqlalchemy import (
     String,
     Numeric,
     Date,
+    Float,
     Text,
     DateTime,
     ForeignKey,
@@ -127,6 +128,68 @@ class RetryHistory(Base):
     delay_seconds = Column(Numeric(6, 2), nullable=False)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SettlementHourly(Base):
+    """
+    Neden: Saatlik mahsuplaşma (üretim/tüketim/mahsup) kayıtlarını kalıcı tutmak;
+    günlük ve aylık job'lar aynı tabloya upsert eder (date+hour benzersizdir).
+    """
+    __tablename__ = "settlement_hourly"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    hour = Column(Integer, nullable=False)  # 0-23
+    timestamp = Column(DateTime, nullable=False)
+    production_kwh = Column(Float, default=0)
+    consumption_kwh = Column(Float, default=0)
+    settled_kwh = Column(Float, default=0)
+    grid_import_kwh = Column(Float, default=0)
+    grid_export_kwh = Column(Float, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('date', 'hour', name='uq_settlement_hourly'),
+    )
+
+
+class SettlementDaily(Base):
+    """
+    Neden: Gün bazında toplanmış mahsuplaşma metriklerini tutmak (rapor ve
+    ay içi karşılaştırmalar için hazır agregat).
+    """
+    __tablename__ = "settlement_daily"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False, unique=True)
+    production_kwh = Column(Float, default=0)
+    consumption_kwh = Column(Float, default=0)
+    settled_kwh = Column(Float, default=0)
+    grid_import_kwh = Column(Float, default=0)
+    grid_export_kwh = Column(Float, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SettlementMonthly(Base):
+    """
+    Neden: Ay bazında toplanmış mahsuplaşma metriklerini tutmak; aylık raporun
+    'önceki ay karşılaştırması' bu tablodan beslenir (year+month benzersizdir).
+    """
+    __tablename__ = "settlement_monthly"
+
+    id = Column(Integer, primary_key=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    production_kwh = Column(Float, default=0)
+    consumption_kwh = Column(Float, default=0)
+    settled_kwh = Column(Float, default=0)
+    grid_import_kwh = Column(Float, default=0)
+    grid_export_kwh = Column(Float, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('year', 'month', name='uq_settlement_monthly'),
+    )
 
 
 class PerformanceMetric(Base):
