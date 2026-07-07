@@ -41,6 +41,7 @@ import shutil  # noqa: E402
 
 from app.infrastructure.browser.playwright_client import PlaywrightClient  # noqa: E402
 from app.extractors.isolar.extractor import IsolarExtractor  # noqa: E402
+from app.transformation.turkish_excel_writer import TurkishExcelWriter  # noqa: E402
 
 output_dir = ROOT / "outputs" / "manual_tests" / "01_isolar_daily"
 output_dir.mkdir(parents=True, exist_ok=True)
@@ -67,6 +68,11 @@ try:
         shutil.move(str(temp_path), str(dest))
         print(f"   [OK] Dosya indirildi: {dest.name}")
         print(f"   Boyut: {dest.stat().st_size} bytes")
+
+        print("4. Kolon adları Türkçeleştiriliyor...")
+        writer = TurkishExcelWriter(mapping_key="isolar_yield_report_v1")
+        writer.save_turkish_copy(dest, output_path=dest)
+        print(f"   [OK] Dosya kaydedildi: {dest}")
 
     print()
     print("SONUÇ: TEST 1 GEÇTİ [OK]")

@@ -3,6 +3,7 @@ from dataclasses import asdict
 from typing import Dict, List, Optional
 from app.canonical.canonical_models import WorkbookMapping
 from app.canonical.isolar.yield_report_mapping import isolar_yield_report_mapping
+from app.canonical.isolar.curve_mapping import isolar_curve_mapping
 
 class MappingRegistry:
     """
@@ -13,6 +14,7 @@ class MappingRegistry:
         self._registry: Dict[str, WorkbookMapping] = {}
         # Varsayılan İsOlar Mapping Tanımını Yükle
         self.register_mapping("isolar_yield_report_v1", isolar_yield_report_mapping)
+        self.register_mapping("isolar_curve_v1", isolar_curve_mapping)
 
     def register_mapping(self, key: str, mapping: WorkbookMapping) -> None:
         """

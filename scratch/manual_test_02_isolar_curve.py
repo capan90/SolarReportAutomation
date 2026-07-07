@@ -46,6 +46,8 @@ import shutil  # noqa: E402
 
 from app.infrastructure.browser.playwright_client import PlaywrightClient  # noqa: E402
 from app.extractors.isolar.extractor import IsolarExtractor  # noqa: E402
+from app.transformation.turkish_excel_writer import TurkishExcelWriter  # noqa: E402
+from app.canonical.isolar.curve_mapping import CURVE_HEADER_PATTERNS  # noqa: E402
 
 TARGET_DATE = "2026-07-06"  # dün
 output_dir = ROOT / "outputs" / "manual_tests" / "02_isolar_curve"
@@ -74,6 +76,11 @@ try:
         shutil.move(str(temp_path), str(dest))
         print(f"   [OK] Dosya indirildi: {dest.name}")
         print(f"   Boyut: {dest.stat().st_size} bytes")
+
+        print("   Kolon adları Türkçeleştiriliyor...")
+        writer = TurkishExcelWriter(mapping_key="isolar_curve_v1", pattern_rules=CURVE_HEADER_PATTERNS)
+        writer.save_turkish_copy(dest, output_path=dest)
+        print(f"   [OK] Dosya kaydedildi: {dest}")
 except Exception as e:
     print(f"\nSONUÇ: TEST 2 KALDI [FAIL] — {type(e).__name__}: {e}")
     sys.exit(1)
@@ -96,10 +103,10 @@ print(f"   Ham boyut (satır x sütun): {raw.shape[0]} x {raw.shape[1]}")
 print("   İlk 5 satır:")
 print(raw.head(5).to_string())
 
-# Başlık satırını bul: ilk hücresi 'Time' olan satır (satır 0 dosya adı başlığıdır)
+# Başlık satırını bul: ilk hücresi 'Time'/'Zaman' olan satır (satır 0 dosya adı başlığıdır)
 header_idx = None
 for i in range(min(10, len(raw))):
-    if str(raw.iloc[i, 0]).strip().lower() == "time":
+    if str(raw.iloc[i, 0]).strip().lower() in ("time", "zaman"):
         header_idx = i
         break
 
