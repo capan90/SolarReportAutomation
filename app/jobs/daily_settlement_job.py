@@ -82,10 +82,14 @@ class DailySettlementJob:
         try:
             logger.info(f"2. Aşama: GAOSB raporu indirme başlatılıyor (Tarih: {target_date})...")
             extractor = GaosbExtractor()
+            # Neden: GAOSB portalı Date1==Date2 sorgusunda boş döndürüyor.
+            # Bitiş tarihine +1 gün eklenerek açık aralık sorgusu yapılır.
+            gaosb_date_to = (datetime.datetime.strptime(target_date, "%Y-%m-%d")
+                             + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
             gaosb_path = extractor.download_report(
                 output_dir=output_dir,
                 date_from=target_date,
-                date_to=target_date,
+                date_to=gaosb_date_to,
                 headless=headless
             )
             logger.info(f"2. Aşama BAŞARILI. İndirilen dosya: {gaosb_path}")

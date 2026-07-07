@@ -113,6 +113,12 @@ class SettlementEngine:
         # Neden: Aynı saate birden fazla kayıt gelirse birleştiririz
         result = result.groupby('timestamp', as_index=False).sum()
 
+        # Neden: GAOSB'ye +1 gün gönderildiği için iki günün verisi
+        # gelebilir. Sadece başlangıç gününe ait satırları filtrele.
+        if len(result) > 0:
+            first_date = result['timestamp'].iloc[0][:10]  # YYYY-MM-DD
+            result = result[result['timestamp'].str.startswith(first_date)].reset_index(drop=True)
+
         return result
 
     def calculate(

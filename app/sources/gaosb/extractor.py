@@ -559,6 +559,76 @@ class GaosbExtractor(ISourceExtractor):
                 time.sleep(1)
                 take_screenshot("04_dates_filled")
 
+                # Neden: Portal varsayılan endeks kodu P.01.1.9 olmayabilir.
+                # Mahsuplaşma için Aktif enerji çekiş LoadProfile seçilmeli.
+                logger.info("Endeks kodu seçiliyor: P.01.1.9...")
+                try:
+                    indexer = page.locator("#ctl00_ContentPlaceHolder1_cIndexer_I").first
+                    if indexer.is_visible(timeout=3000):
+                        # Mevcut değeri logla
+                        current_val = indexer.input_value()
+                        logger.info(f"Mevcut endeks: {current_val}")
+
+                        # Neden: DevExpress ComboBox'ta input'a tıklamak listeyi açmaz;
+                        # açılır ok butonuna (B-1) tıklamak, olmazsa Alt+Down göndermek gerekir.
+                        dropdown_opened = False
+                        for btn_sel in ["#ctl00_ContentPlaceHolder1_cIndexer_B-1",
+                                        "[id*='cIndexer_B-1']",
+                                        "[id*='cIndexer_B']"]:
+                            try:
+                                btn = page.locator(btn_sel).first
+                                if btn.is_visible(timeout=1000):
+                                    btn.click()
+                                    dropdown_opened = True
+                                    logger.info(f"Dropdown butonu tıklandı: {btn_sel}")
+                                    break
+                            except Exception:
+                                continue
+                        if not dropdown_opened:
+                            indexer.click()
+                            time.sleep(0.3)
+                            page.keyboard.press("Alt+ArrowDown")
+                            logger.info("Dropdown Alt+Down ile açılmaya çalışıldı.")
+                        time.sleep(0.8)
+
+                        # P.01.1.9 içeren option'ı bul ve tıkla
+                        # Neden: DevExpress liste öğeleri td.dxeListBoxItem olarak render edilir.
+                        option_selector = (
+                            "[id*='cIndexer_DDD'] td[class*='dxeListBoxItem'], "
+                            "td.dxeListBoxItem, .dxeListBoxItemRow, li[class*='dxe']"
+                        )
+                        page.wait_for_selector(option_selector, timeout=5000)
+                        options = page.locator(option_selector).all()
+
+                        selected = False
+                        for opt in options:
+                            try:
+                                text = (opt.inner_text() or "").strip()
+                            except Exception:
+                                continue
+                            if not text:
+                                continue
+                            logger.info(f"  Option: {text}")
+                            if "P.01" in text or "01.1.9" in text or "loadprofile" in text.lower():
+                                opt.click()
+                                selected = True
+                                logger.info(f"Endeks seçildi: {text}")
+                                break
+
+                        if not selected:
+                            logger.warning("P.01.1.9 option bulunamadı, varsayılan kullanılıyor")
+
+                        # Neden: Seçim DevExpress callback tetikleyebilir; kısa bekleme ile
+                        # değerin input'a yerleşmesini garanti altına al.
+                        time.sleep(1)
+                        try:
+                            logger.info(f"Seçim sonrası endeks değeri: {indexer.input_value()}")
+                        except Exception:
+                            pass
+                        take_screenshot("04b_indexer_selected")
+                except Exception as e:
+                    logger.warning(f"Endeks seçimi atlandı: {e}")
+
                 # Neden: Önce sayfadaki tüm butonları logla, sorgu butonunun
                 # gerçek ID/name değerini tespit etmek için.
                 all_buttons = page.evaluate("""() => {
