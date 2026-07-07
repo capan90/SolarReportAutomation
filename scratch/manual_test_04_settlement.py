@@ -81,14 +81,37 @@ result_path = writer.write(settlements, output_path)
 excel_ok = Path(result_path).exists() and Path(result_path).stat().st_size > 0
 print(f"   Rapor: {result_path} ({Path(result_path).stat().st_size if excel_ok else 0} bayt)")
 
+# v2: GES Kırılımı sayfalı rapor
+print("\n2b. GES Kırılımı sayfalı rapor (v2) yazılıyor...")
+output_path_v2 = output_dir / "mahsup_20260706_v2.xlsx"
+isolar_df = engine.load_isolar_curve(isolar_file)
+result_path_v2 = writer.write(settlements, output_path_v2, isolar_df=isolar_df)
+
+import openpyxl
+wb = openpyxl.load_workbook(result_path_v2)
+sheets = wb.sheetnames
+print(f"   Rapor: {result_path_v2.name} ({result_path_v2.stat().st_size} bayt)")
+print(f"   Sayfalar: {sheets}")
+two_sheets_ok = sheets == ["Mahsuplaşma Raporu", "GES Kırılımı"]
+if "GES Kırılımı" in sheets:
+    ws2 = wb["GES Kırılımı"]
+    header_row = [c.value for c in ws2[1]]
+    print(f"   GES Kırılımı başlıkları: {header_row}")
+    print(f"   GES Kırılımı satır sayısı (başlık+veri+toplam): {ws2.max_row}")
+    print("   İlk veri satırı:", [c.value for c in ws2[2]][:5], "...")
+    print("   TOPLAM satırı:", [c.value for c in ws2[ws2.max_row]][:4], "...")
+wb.close()
+
 k1 = n == 24
 k2 = gunduz_uretim > 0
 k3 = tutarli
 k4 = excel_ok
+k5 = two_sheets_ok
 
 print("\nBAŞARI KRİTERLERİ:")
 print(f"  24 satır eşleşme ({n}):        " + ("GECTI [OK]" if k1 else "KALDI [FAIL]"))
 print("  Gündüz üretim > 0:            " + ("GECTI [OK]" if k2 else "KALDI [FAIL]"))
 print("  Mahsup mantığı tutarlı:       " + ("GECTI [OK]" if k3 else "KALDI [FAIL]"))
 print("  Excel dosyası oluştu:         " + ("GECTI [OK]" if k4 else "KALDI [FAIL]"))
-print("\nSONUÇ: TEST 4 " + ("GEÇTİ [OK]" if (k1 and k2 and k3 and k4) else "KALDI [FAIL]"))
+print("  v2: iki sayfa (GES Kırılımı): " + ("GECTI [OK]" if k5 else "KALDI [FAIL]"))
+print("\nSONUÇ: TEST 4 " + ("GEÇTİ [OK]" if (k1 and k2 and k3 and k4 and k5) else "KALDI [FAIL]"))
