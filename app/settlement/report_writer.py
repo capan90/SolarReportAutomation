@@ -11,10 +11,38 @@ class SettlementReportWriter:
     Neden: Mahsuplaşma sonuçlarını Excel dosyasına standart şablon ve biçimlendirme kurallarına göre yazar.
     """
 
-    def write(self, settlements: List[HourlySettlement], output_path: Path) -> Path:
+    @staticmethod
+    def _parse_timestamp(timestamp: str) -> tuple:
+        """
+        Neden: 'YYYY-MM-DD HH:00:00' timestamp'ını rapor formatına
+        (DD.MM.YYYY, 'HH:00-HH+1:00') dönüştürmek — iki sayfada da kullanılır.
+        """
+        try:
+            date_part, time_part = timestamp.split(' ')
+            saat = int(time_part.split(':')[0])
+        except Exception:
+            normalized = timestamp.replace("T", " ")
+            date_part, time_part = normalized.split(' ')
+            saat = int(time_part.split(':')[0])
+
+        try:
+            dt_obj = datetime.datetime.strptime(date_part, "%Y-%m-%d")
+            tarih_str = dt_obj.strftime("%d.%m.%Y")
+        except Exception:
+            tarih_str = date_part
+
+        saat_araligi = f"{saat:02d}:00-{(saat + 1):02d}:00"
+        if saat == 23:
+            saat_araligi = "23:00-24:00"
+        return tarih_str, saat_araligi
+
+    def write(self, settlements: List[HourlySettlement], output_path: Path, isolar_df=None) -> Path:
         """
         Neden: HourlySettlement listesini alır ve belirtilen output_path konumunda
         şekillendirilmiş bir Excel raporu üretir.
+
+        isolar_df: load_isolar_curve()'den gelen DataFrame (opsiyonel).
+        Verilirse "GES Kırılımı" ikinci sayfası eklenir.
         """
         # Neden: Yeni bir openpyxl çalışma kitabı oluşturup aktif sayfayı seçeriz.
         wb = openpyxl.Workbook()
@@ -64,23 +92,7 @@ class SettlementReportWriter:
         current_row = 2
         for s in settlements:
             # Neden: Timestamp alanından tarih ve saat aralığını ayrıştırırız.
-            try:
-                date_part, time_part = s.timestamp.split(' ')
-                saat = int(time_part.split(':')[0])
-            except Exception:
-                normalized = s.timestamp.replace("T", " ")
-                date_part, time_part = normalized.split(' ')
-                saat = int(time_part.split(':')[0])
-
-            try:
-                dt_obj = datetime.datetime.strptime(date_part, "%Y-%m-%d")
-                tarih_str = dt_obj.strftime("%d.%m.%Y")
-            except Exception:
-                tarih_str = date_part
-
-            saat_araligi = f"{saat:02d}:00-{(saat + 1):02d}:00"
-            if saat == 23:
-                saat_araligi = "23:00-24:00"
+            tarih_str, saat_araligi = self._parse_timestamp(s.timestamp)
 
             row_data = [
                 tarih_str,
@@ -168,6 +180,76 @@ class SettlementReportWriter:
 
         # Başlık satır yüksekliğini ayarla
         ws.row_dimensions[1].height = 24
+
+        # Neden: iSolar DataFrame verilmişse santral bazlı üretim kırılımını
+        # ikinci sayfaya yazarız — kullanıcı hangi GES'in ne ürettiğini görmek ister.
+        if isolar_df is not None and len(isolar_df) > 0:
+            ges_cols = sorted(
+                [c for c in isolar_df.columns if c.startswith("ges_") and c.endswith("_kwh")],
+                key=lambda c: int(c.split('_')[1])
+            )
+            if ges_cols:
+                ws2 = wb.create_sheet(title="GES Kırılımı")
+                ws2.views.sheetView[0].showGridLines = True
+
+                # Başlıklar: TARİH | SAAT ARALIĞI | GES 2 | ... | TOPLAM ÜRETİM
+                ges_headers = [f"GES {c.split('_')[1]}" for c in ges_cols]
+                headers2 = ["TARİH", "SAAT ARALIĞI"] + ges_headers + ["TOPLAM ÜRETİM"]
+
+                for col_idx, h_text in enumerate(headers2, start=1):
+                    cell = ws2.cell(row=1, column=col_idx, value=h_text)
+                    cell.font = font_header
+                    cell.fill = fill_gray
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                    cell.border = thin_border
+
+                # Saatlik delta üretim satırları
+                current_row = 2
+                for _, row in isolar_df.iterrows():
+                    tarih_str, saat_araligi = self._parse_timestamp(str(row['timestamp']))
+                    row_data = [tarih_str, saat_araligi]
+                    row_data += [float(row[c]) for c in ges_cols]
+                    row_data.append(float(row['production_kwh']))
+
+                    for col_idx, val in enumerate(row_data, start=1):
+                        cell = ws2.cell(row=current_row, column=col_idx, value=val)
+                        cell.font = font_data
+                        cell.border = thin_border
+                        if col_idx in [1, 2]:
+                            cell.alignment = Alignment(horizontal="center")
+                        else:
+                            cell.alignment = Alignment(horizontal="right")
+                            cell.number_format = '0.00'
+                    current_row += 1
+
+                # TOPLAM satırı (her sayısal sütun için SUM formülü)
+                total_row_idx = current_row
+                ws2.cell(row=total_row_idx, column=1, value="TOPLAM").font = font_bold
+                ws2.cell(row=total_row_idx, column=1).border = double_bottom_border
+                ws2.cell(row=total_row_idx, column=2).border = double_bottom_border
+
+                for col_idx in range(3, len(headers2) + 1):
+                    col_letter = get_column_letter(col_idx)
+                    formula = f"=SUM({col_letter}2:{col_letter}{total_row_idx - 1})"
+                    cell = ws2.cell(row=total_row_idx, column=col_idx, value=formula)
+                    cell.font = font_bold
+                    cell.number_format = '0.00'
+                    cell.alignment = Alignment(horizontal="right")
+                    cell.border = double_bottom_border
+
+                # Sütun genişlikleri (birinci sayfayla aynı yaklaşım)
+                for col in ws2.columns:
+                    col_letter = get_column_letter(col[0].column)
+                    if col[0].column <= len(headers2):
+                        max_len = 0
+                        for cell in col:
+                            val = str(cell.value or '')
+                            if cell.number_format == '0.00' and isinstance(cell.value, (int, float)):
+                                val = f"{cell.value:.2f}"
+                            max_len = max(max_len, len(val))
+                        ws2.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+                ws2.row_dimensions[1].height = 24
 
         # Neden: Oluşturulan çalışma kitabını diskte hedef konuma kaydederiz.
         output_path.parent.mkdir(parents=True, exist_ok=True)

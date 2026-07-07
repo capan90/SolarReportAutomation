@@ -57,9 +57,25 @@ class SettlementEngine:
         # Neden: Gece sıfırlanması veya sayaç resetlenmesi gibi durumlarda negatif deltayı 0.0 yaparız.
         df.loc[df['production_kwh'] < 0, 'production_kwh'] = 0.0
 
+        # Neden: Kullanıcı raporda hangi GES'in ne kadar ürettiğini görmek ister.
+        # Uzun kolon adını ("ERDEMSOFT-GES_2(88133)/Plant daily yield(kWh)") kısa
+        # forma indirgeyip ("GES 2") her santral için ayrı saatlik delta sütunu üretiriz.
+        ges_out_cols = []
+        for col in plant_cols:
+            match = re.search(r'GES[_-](\d+)', str(col))
+            if not match:
+                continue
+            out_col = f"ges_{match.group(1)}_kwh"
+            delta = df[col].diff().fillna(0.0)
+            delta[delta < 0] = 0.0
+            df[out_col] = delta
+            ges_out_cols.append(out_col)
+        # Neden: Rapor okunabilirliği için GES numarasına göre sıralarız.
+        ges_out_cols.sort(key=lambda c: int(c.split('_')[1]))
+
         # Neden: Çıktıyı istenen formata (YYYY-MM-DD HH:00:00) getirip gruplarız.
         df['timestamp'] = df['Time'].dt.strftime("%Y-%m-%d %H:00:00")
-        result = df[['timestamp', 'production_kwh']].groupby('timestamp', as_index=False).sum()
+        result = df[['timestamp', 'production_kwh'] + ges_out_cols].groupby('timestamp', as_index=False).sum()
 
         return result
 
