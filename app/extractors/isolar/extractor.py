@@ -600,36 +600,77 @@ class IsolarExtractor:
         except Exception as e:
             logger.warning(f"Interval (60 min) seçilemedi: {e}")
 
-        # 7. Hedef tarihe navigasyon
-        try:
-            # JavaScript ile input değerini doğrudan güncelle
-            self.page.evaluate(f"""(dateVal) => {{
-                const input = document.querySelector('.el-date-editor input');
-                if (input) {{
-                    input.value = dateVal;
-                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                }}
-            }}""", date_str)
-            self.page.wait_for_timeout(500)
-            
-            # Klavye ile input üzerine yazarak tetikle (yedek)
-            date_input = self.page.locator(".el-date-editor input").first
-            if date_input.is_visible():
-                date_input.click()
-                self.page.wait_for_timeout(300)
-                self.page.keyboard.press("Control+A")
-                self.page.wait_for_timeout(100)
-                self.page.keyboard.press("Backspace")
-                self.page.wait_for_timeout(100)
-                date_input.type(date_str, delay=50)
-                self.page.wait_for_timeout(200)
-                self.page.keyboard.press("Enter")
-                self.page.wait_for_timeout(1000)
-            logger.info(f"Tarih alanı güncellendi: {date_str}")
-            self._take_screenshot("03_filters_configured")
-        except Exception as e:
-            logger.warning(f"Tarih navigasyonu başarısız (devam ediliyor): {e}")
+        # 7. Hedef tarihe navigasyon — ok butonuyla gün gün geri git.
+        # Neden: Tarih alanına string yazmak çalışmıyor; Element Plus bileşeni
+        # beklediği DD/MMM/YYYY dışındaki formatı sessizce bugüne geri alıyor.
+        # Ok butonu format ve locale bağımsızdır. Doğrulama başarısızsa hata
+        # fırlatılır — yanlış günün verisiyle sessizce devam edilmez.
+        from datetime import datetime as _dt
+
+        _AYLAR = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+                  "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+        def _read_current_date() -> "_dt":
+            raw_val = self.page.locator(".el-date-editor input").first.input_value().strip()
+            for fmt in ("%d/%b/%Y", "%Y-%m-%d", "%d/%m/%Y", "%d.%m.%Y"):
+                try:
+                    return _dt.strptime(raw_val, fmt)
+                except ValueError:
+                    continue
+            # Neden: %b locale'e bağlı olabilir; ay kısaltmasını manuel çözümle.
+            parts = raw_val.replace("-", "/").replace(".", "/").split("/")
+            if len(parts) == 3 and parts[1][:3].lower() in _AYLAR:
+                return _dt(int(parts[2]), _AYLAR[parts[1][:3].lower()], int(parts[0]))
+            raise ValueError(f"Tarih alanı değeri çözümlenemedi: '{raw_val}'")
+
+        def _click_prev_candidates() -> bool:
+            """Önceki gün oku için aday selector'ları dener; tıklama yaptıysa True."""
+            # Neden: iSolarCloud'da ok ikonu ".tool-date" içinde
+            # "iconfont icon-a-G2_Leftarrow_20" span'ıdır (DOM keşfiyle doğrulandı).
+            for sel in (".tool-date .icon-a-G2_Leftarrow_20",
+                        ".icon-a-G2_Leftarrow_20",
+                        "[class*='Leftarrow']",
+                        "[class*='arrow-left']",
+                        "[aria-label*='prev' i]"):
+                try:
+                    btn = self.page.locator(sel).first
+                    if btn.is_visible(timeout=500):
+                        btn.click()
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        target_dt = _dt.strptime(date_str, "%Y-%m-%d")
+        current_dt = _read_current_date()
+        diff_days = (current_dt.date() - target_dt.date()).days
+        logger.info(f"Tarih navigasyonu: mevcut={current_dt.date()}, hedef={target_dt.date()}, fark={diff_days} gün")
+
+        if diff_days < 0:
+            raise ValueError(
+                f"Hedef tarih ({target_dt.date()}) sayfadaki tarihten ({current_dt.date()}) ileride; "
+                f"ileri navigasyon desteklenmiyor."
+            )
+
+        for i in range(diff_days):
+            before = _read_current_date()
+            if not _click_prev_candidates():
+                raise ValueError("Önceki gün (<) butonu sayfada bulunamadı.")
+            self.page.wait_for_timeout(800)
+            after = _read_current_date()
+            if (before.date() - after.date()).days != 1:
+                raise ValueError(
+                    f"Önceki gün tıklaması beklenen etkiyi yapmadı: {before.date()} -> {after.date()}"
+                )
+            logger.info(f"  Önceki gün tıklandı ({i + 1}/{diff_days}): {after.date()}")
+
+        final_dt = _read_current_date()
+        if final_dt.date() != target_dt.date():
+            raise ValueError(
+                f"Tarih doğrulaması başarısız: alan {final_dt.date()} gösteriyor, hedef {target_dt.date()}."
+            )
+        logger.info(f"Tarih alanı doğrulandı: {final_dt.date()}")
+        self._take_screenshot("03_filters_configured")
 
 
 
