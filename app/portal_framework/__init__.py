@@ -29,6 +29,16 @@ from app.portal_framework.models import (
 from app.portal_framework.driver import BrowserDriver, MockDriver, NetworkRecord, WaitState
 from app.portal_framework.registry import PortalRegistry
 from app.portal_framework.adapter import BasePortalAdapter, PortalRunner
+from app.portal_framework.strategies import (
+    AuthenticationStrategy,
+    NavigationStrategy,
+    DateSelectionStrategy,
+    ExportStrategy,
+    PollingStrategy,
+    DownloadStrategy,
+    ParsingStrategy,
+    StrategySet,
+)
 from app.portal_framework.exceptions import (
     PortalFrameworkError,
     UnknownPortalError,
@@ -60,6 +70,14 @@ __all__ = [
     "PortalRegistry",
     "BasePortalAdapter",
     "PortalRunner",
+    "AuthenticationStrategy",
+    "NavigationStrategy",
+    "DateSelectionStrategy",
+    "ExportStrategy",
+    "PollingStrategy",
+    "DownloadStrategy",
+    "ParsingStrategy",
+    "StrategySet",
     "PortalFrameworkError",
     "UnknownPortalError",
     "PortalRegistrationError",
