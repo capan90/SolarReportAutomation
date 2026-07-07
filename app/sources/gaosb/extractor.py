@@ -346,6 +346,71 @@ class GaosbExtractor(ISourceExtractor):
                 pass
 
     # ------------------------------------------------------------------
+    # Format dönüştürme yardımcıları
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _is_ole2_file(path: Path) -> bool:
+        """
+        Neden: Portal, eski OLE2/BIFF (.xls) formatındaki dosyayı .xlsx uzantısıyla
+        gönderiyor; uzantıya güvenilemez, dosya imzasından (magic bytes) tespit edilir.
+        """
+        try:
+            with open(path, "rb") as f:
+                return f.read(8) == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        except Exception:
+            return False
+
+    def _convert_to_xlsx(self, ole2_path: Path) -> Path:
+        """
+        Neden: OLE2 (.xls/BIFF) içerikli dosya .xlsx uzantısıyla geldiğinde Excel ve
+        openpyxl açamıyor. xlrd ile okunup gerçek OOXML (.xlsx) olarak yeniden yazılır;
+        orijinal OLE2 dosya kaybolmasın diye yanına .xls uzantısıyla taşınır.
+        Dönüş: gerçek .xlsx dosyasının yolu (orijinal ad korunur).
+        """
+        import xlrd
+        import openpyxl
+
+        ole2_path = Path(ole2_path)
+        book = xlrd.open_workbook(str(ole2_path))
+
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        for sheet in book.sheets():
+            # Neden: xlsx sayfa adı en fazla 31 karakter olabilir.
+            ws = wb.create_sheet(title=(sheet.name or "Sheet1")[:31])
+            for r in range(sheet.nrows):
+                for c in range(sheet.ncols):
+                    cell = sheet.cell(r, c)
+                    value = cell.value
+                    if cell.ctype == xlrd.XL_CELL_DATE:
+                        # Neden: BIFF tarihleri float seri numarasıdır; datetime'a çevrilmezse
+                        # xlsx'te anlamsız sayı olarak görünür.
+                        try:
+                            value = xlrd.xldate.xldate_as_datetime(cell.value, book.datemode)
+                        except Exception:
+                            pass
+                    elif cell.ctype == xlrd.XL_CELL_BOOLEAN:
+                        value = bool(cell.value)
+                    elif cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK, xlrd.XL_CELL_ERROR):
+                        value = None
+                    if value is not None and value != "":
+                        ws.cell(row=r + 1, column=c + 1, value=value)
+
+        # Orijinal OLE2 dosyayı .xls olarak sakla, gerçek xlsx'i aynı adla yaz.
+        xls_backup = ole2_path.with_suffix(".xls")
+        if xls_backup.exists():
+            xls_backup.unlink()
+        ole2_path.rename(xls_backup)
+
+        wb.save(str(ole2_path))
+        wb.close()
+        logger.info(
+            "OLE2 (.xls) içerik gerçek xlsx'e dönüştürüldü: %s (orijinal: %s)",
+            ole2_path, xls_backup.name,
+        )
+        return ole2_path
+
+    # ------------------------------------------------------------------
     # Ana rapor indirme akışı
     # ------------------------------------------------------------------
     def download_report(self, output_dir: Path, date_from: Optional[str] = None, date_to: Optional[str] = None, **kwargs) -> Path:
@@ -745,6 +810,13 @@ class GaosbExtractor(ISourceExtractor):
                 download.save_as(str(dest_path))
                 logger.info(f"Excel başarıyla indirildi ve kaydedildi: {dest_path}")
                 take_screenshot("07_export_completed")
+
+                # Neden: Portal OLE2 (.xls) içeriği .xlsx uzantısıyla gönderiyor;
+                # Excel/openpyxl açabilsin diye gerçek xlsx'e dönüştürülür.
+                if self._is_ole2_file(dest_path):
+                    logger.info("OLE2 (.xls) formatı tespit edildi, gerçek xlsx'e dönüştürülüyor...")
+                    dest_path = self._convert_to_xlsx(dest_path)
+
                 return dest_path
             except Exception as e:
                 logger.error(f"Excel export veya indirme adımı başarısız oldu: {e}")
