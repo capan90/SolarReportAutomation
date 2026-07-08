@@ -24,6 +24,9 @@ class SettlementEngine:
         - Tüm GES sütunlarını topla → toplam üretim
         - Delta: değer[t] - değer[t-1], ilk satır 0
         - Negatif delta = 0 (gece sıfırlanma)
+        - Dosyanın başında bir önceki dönemin son saati "referans satırı" olarak
+          bulunabilir (extractor ekler); bu satır ilk delta hesabında kullanılır
+          ancak çıktıya dahil edilmez. Böylece 00:00 saatinin üretimi kaybolmaz.
         """
         # Neden: Dosya uzantısı xlsx olsa da OLE2 formatında olabileceğinden hem openpyxl hem de xlrd ile okumayı deneriz.
         try:
@@ -84,6 +87,19 @@ class SettlementEngine:
             ges_out_cols.append(out_col)
         # Neden: Rapor okunabilirliği için GES numarasına göre sıralarız.
         ges_out_cols.sort(key=lambda c: int(c.split('_')[1]))
+
+        # Neden: Dosyanın başındaki "önceki dönem son saati" referans satırı yalnızca
+        # ilk deltanın doğru hesaplanması içindir; kendisi hedef döneme ait değildir.
+        # Kural: İlk takvim gününe ait en fazla 2 satır varsa ve dosyada daha sonraki
+        # günlere ait satırlar da varsa, bu baştaki satırlar referans kabul edilip
+        # (deltalar hesaplandıktan SONRA) çıktıdan çıkarılır. Normal günlük dosyada
+        # ilk gün 24 satırdır, aylık dosyada ilk gün 24 satırdır — bu kural onları
+        # etkilemez; referanssız eski dosyalar da aynen çalışır (ilk delta = 0).
+        row_dates = df[time_col].dt.date
+        first_date = row_dates.iloc[0]
+        first_date_rows = int((row_dates == first_date).sum())
+        if first_date_rows <= 2 and bool((row_dates != first_date).any()):
+            df = df[row_dates != first_date]
 
         # Neden: Çıktıyı istenen formata (YYYY-MM-DD HH:00:00) getirip gruplarız.
         df['timestamp'] = df[time_col].dt.strftime("%Y-%m-%d %H:00:00")

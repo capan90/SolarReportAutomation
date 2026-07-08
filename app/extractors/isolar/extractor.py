@@ -761,72 +761,155 @@ class IsolarExtractor:
 
 
 
-        # 8. İndirme (Download / Export Excel) butonuna tıkla
-        # Excel indirme ikonu genelde 'export' veya 'Excel' veya .icon-G2_Export veya .icon-G2_Upload vb.
-        # Download ikonu .icon-G2_Download ise PNG indirir. Excel için olan ikonu arıyoruz.
-        download_btn = None
-        # Excel veya veri indirmek için öncelikli selector listesi (örneğin .icon-G2_Export veya Export)
-        priority_selectors = [
-            ".icon-G2_Export_24", 
-            ".icon-G2_Export", 
-            "button:has-text('Export')", 
-            "button:has-text('Excel')",
-            ".icon-G2_Download", 
-            ".icon-G2_Download_241", 
-            ".icon-G2_Download_24"
-        ]
-        
-        for sel in priority_selectors:
-            try:
-                btn = self.page.locator(sel).first
-                if btn.is_visible(timeout=1000):
-                    download_btn = btn
-                    logger.info(f"Kullanılacak export/download butonu eşleşen selector: {sel}")
-                    break
-            except Exception:
-                continue
-
-        if not download_btn:
-            raise IsolarDownloadError("Curve download/export butonu bulunamadı.")
-
-        logger.info("Download başlatılıyor...")
-        try:
-            # Önce download butonuna basıp dropdown menüsünün açılmasını tetikleyelim
-            download_btn.click()
-            self.page.wait_for_timeout(800)
-            
-            # "Export as Excel" seçeneğini bul ve tıkla
-            excel_option = self.page.locator("text=Export as Excel").first
-            excel_option.wait_for(state="visible", timeout=5000)
-            
-            with self.page.expect_download(timeout=30000) as download_info:
-                excel_option.click()
-            download = download_info.value
-        except Exception as e:
-            try:
-                page_text = self.page.evaluate("el => document.body.innerText")
-                logger.error(f"Hata anında sayfadaki metinler:\n{page_text}")
-            except Exception as ex:
-                logger.warning(f"Sayfa metinleri dump edilemedi: {ex}")
-            self._take_screenshot("error_download_click")
-            raise IsolarDownloadError(f"Curve indirme tetiklenirken hata: {e}")
-
-        if not download:
-            raise IsolarDownloadError("Curve dosya indirme işlemi tetiklendi fakat dosya nesnesi alınamadı.")
-
-        # 9. Dosyayı geçici konuma kaydet
+        # 8-9. Excel export + geçici konuma kaydetme (iki kez kullanılır: hedef dönem
+        # ve referans için bir önceki dönem), bu yüzden yerel fonksiyona alınmıştır.
         temp_dir = settings.download_directory / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = temp_dir / download.suggested_filename
 
-        try:
-            download.save_as(str(temp_path))
-            self._take_screenshot("04_download_completed")
-        except Exception as e:
-            raise IsolarDownloadError(f"İndirilen geçici Curve dosyası diske kaydedilemedi: {e}")
+        def _export_excel(name_suffix: str = "") -> Path:
+            # Excel indirme ikonu genelde 'export' veya 'Excel' veya .icon-G2_Export vb.
+            download_btn = None
+            priority_selectors = [
+                ".icon-G2_Export_24",
+                ".icon-G2_Export",
+                "button:has-text('Export')",
+                "button:has-text('Excel')",
+                ".icon-G2_Download",
+                ".icon-G2_Download_241",
+                ".icon-G2_Download_24"
+            ]
+            for sel in priority_selectors:
+                try:
+                    btn = self.page.locator(sel).first
+                    if btn.is_visible(timeout=1000):
+                        download_btn = btn
+                        logger.info(f"Kullanılacak export/download butonu eşleşen selector: {sel}")
+                        break
+                except Exception:
+                    continue
 
+            if not download_btn:
+                raise IsolarDownloadError("Curve download/export butonu bulunamadı.")
+
+            logger.info("Download başlatılıyor...")
+            try:
+                # Önce download butonuna basıp dropdown menüsünün açılmasını tetikleyelim
+                download_btn.click()
+                self.page.wait_for_timeout(800)
+
+                # "Export as Excel" seçeneğini bul ve tıkla
+                excel_option = self.page.locator("text=Export as Excel").first
+                excel_option.wait_for(state="visible", timeout=5000)
+
+                with self.page.expect_download(timeout=30000) as download_info:
+                    excel_option.click()
+                download = download_info.value
+            except Exception as e:
+                try:
+                    page_text = self.page.evaluate("el => document.body.innerText")
+                    logger.error(f"Hata anında sayfadaki metinler:\n{page_text}")
+                except Exception as ex:
+                    logger.warning(f"Sayfa metinleri dump edilemedi: {ex}")
+                self._take_screenshot("error_download_click")
+                raise IsolarDownloadError(f"Curve indirme tetiklenirken hata: {e}")
+
+            if not download:
+                raise IsolarDownloadError("Curve dosya indirme işlemi tetiklendi fakat dosya nesnesi alınamadı.")
+
+            filename = download.suggested_filename
+            if name_suffix:
+                p = Path(filename)
+                filename = f"{p.stem}{name_suffix}{p.suffix}"
+            dest = temp_dir / filename
+            try:
+                download.save_as(str(dest))
+            except Exception as e:
+                raise IsolarDownloadError(f"İndirilen geçici Curve dosyası diske kaydedilemedi: {e}")
+            return dest
+
+        temp_path = _export_excel()
+        self._take_screenshot("04_download_completed")
         logger.info(f"Curve dosya indirme başarıyla tamamlandı: {temp_path.name}")
+
+        # 10. Delta düzeltmesi için önceki dönemin (gün/ay) SON kümülatif satırını
+        # referans olarak dosyanın başına ekle.
+        # Neden: Kümülatif seri gün başında sıfırlanmaz; 00:00 satırının deltası
+        # ancak bir önceki günün 23:00 değeri bilinirse hesaplanabilir. Aksi halde
+        # günün ilk saat üretimi kaybolur. Bu adım best-effort'tur: başarısız
+        # olursa mevcut davranışa (ilk delta = 0) düşülür, akış bozulmaz.
+        try:
+            self._prepend_prev_period_reference(temp_path, mode, _click_prev_candidates, _export_excel)
+        except Exception as e:
+            logger.warning(
+                f"Önceki dönem referans satırı eklenemedi (günün ilk saati 0 sayılabilir): {e}"
+            )
+
         return temp_path
+
+    def _prepend_prev_period_reference(self, target_path: Path, mode: str, click_prev, export_excel) -> None:
+        """
+        Neden: Sayfada bir dönem (gün/ay) daha geriye gidip export alınır ve o
+        dosyanın SON veri satırı (önceki dönemin son saati) hedef dosyanın ilk
+        veri satırı olarak eklenir. SettlementEngine bu satırı yalnızca ilk
+        delta hesabı için referans alır, çıktıya dahil etmez.
+        """
+        import openpyxl
+
+        if not click_prev():
+            raise ValueError("Önceki dönem (<) butonu sayfada bulunamadı.")
+        # Neden: Aylık saatlik seri belirgin şekilde ağır yüklenir.
+        self.page.wait_for_timeout(3000 if mode == "month" else 1500)
+        logger.info("Referans için önceki dönem görünümüne geçildi, export alınıyor...")
+
+        prev_path = None
+        try:
+            # Neden: '_prev' son eki — hedef dosyayla aynı isim üretilirse çakışmasın.
+            prev_path = export_excel("_prev")
+
+            wb_prev = openpyxl.load_workbook(prev_path, data_only=True)
+            try:
+                rows = list(wb_prev.active.iter_rows(values_only=True))
+            finally:
+                wb_prev.close()
+
+            # Dosya düzeni: satır1 etiket (Curve_...), satır2 başlık, satır3+ veri.
+            if len(rows) < 3:
+                raise ValueError(f"Önceki dönem dosyasında veri satırı yok ({prev_path.name}).")
+            prev_header = rows[1]
+            last_row = next(
+                (r for r in reversed(rows[2:]) if r and r[0] not in (None, "")),
+                None,
+            )
+            if last_row is None:
+                raise ValueError(f"Önceki dönem dosyasında dolu veri satırı bulunamadı ({prev_path.name}).")
+
+            wb_t = openpyxl.load_workbook(target_path)
+            try:
+                ws_t = wb_t.active
+                target_header = tuple(next(ws_t.iter_rows(min_row=2, max_row=2, values_only=True)))
+                # Neden: Kolon sırası/santral seti farklıysa yanlış hizalanmış referans
+                # tüm santral deltalarını bozar; eşleşmiyorsa eklenmez.
+                if tuple(prev_header) != target_header:
+                    raise ValueError(
+                        "Önceki dönem dosyasının başlıkları hedef dosyayla eşleşmiyor; referans eklenmedi."
+                    )
+                ws_t.insert_rows(3)
+                for col_idx, value in enumerate(last_row, start=1):
+                    ws_t.cell(row=3, column=col_idx, value=value)
+                wb_t.save(str(target_path))
+            finally:
+                wb_t.close()
+
+            logger.info(
+                f"Önceki dönemin son satırı ({last_row[0]}) referans olarak eklendi: {target_path.name}"
+            )
+        finally:
+            # Neden: Referans dosyası tek kullanımlıktır; geçici dizini kirletmesin.
+            if prev_path is not None:
+                try:
+                    prev_path.unlink()
+                except Exception:
+                    pass
 
 
 
