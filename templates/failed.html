@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>ETL Pipeline Failed</title>
+    <title>GES Mahsuplaşma Raporu — Hata</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 5px; }
@@ -18,27 +18,22 @@
 <body>
     <div class="container">
         <div class="header">
-            <h2>Solar ETL Pipeline: FAILED</h2>
+            <h2>GES Mahsuplaşma Raporu — Hata</h2>
         </div>
         <div class="content">
             <p>Merhaba,</p>
-            <p>SolarReportAutomation ETL Pipeline çalışması sırasında bir hata meydana gelmiştir.</p>
+            <p>Günlük mahsuplaşma raporu hazırlanırken bir sorun oluştu. Teknik ekip bilgilendirilmiştir.</p>
             <table>
-                <tr><th>Metrik</th><th>Değer</th></tr>
-                <tr><td>Run ID</td><td>$RUN_ID</td></tr>
-                <tr><td>Durum</td><td>$STATUS</td></tr>
-                <tr><td>Süre</td><td>$DURATION_MS ms</td></tr>
-                <tr><td>Exit Code</td><td>$EXIT_CODE</td></tr>
-                <tr><td>Sunucu</td><td>$MACHINE_NAME</td></tr>
-                <tr><td>Git Commit</td><td>$GIT_COMMIT</td></tr>
+                <tr><td>Durum</td><td><strong style="color: #f44336;">Başarısız</strong></td></tr>
+                <tr><td>Tarih</td><td>$REPORT_DATE</td></tr>
             </table>
             <div class="error-box">
-                <strong>Hata Detayları:</strong><br>
-                $STAGE_SUMMARY
+                <strong>Hata Özeti:</strong><br>
+                $ERROR_SUMMARY
             </div>
         </div>
         <div class="footer">
-            Bu e-posta SolarReportAutomation sistemi tarafından otomatik olarak oluşturulmuştur.
+            Bu e-posta GES Enerji Yönetim Sistemi tarafından otomatik olarak oluşturulmuştur.
         </div>
     </div>
 </body>
