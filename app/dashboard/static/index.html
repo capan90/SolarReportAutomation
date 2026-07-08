@@ -3,1125 +3,925 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iSolar ETL Operational Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <title>GES Enerji Yönetim Sistemi</title>
     <script src="/static/js/chart.min.js"></script>
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --border-color: rgba(255, 255, 255, 0.08);
-            --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --accent-yellow: #f59e0b;
-            --accent-blue: #3b82f6;
+            --bg: #0f172a;
+            --card: #1e293b;
+            --border: #334155;
+            --text: #f1f5f9;
+            --muted: #94a3b8;
+            --green: #22c55e;
+            --blue: #3b82f6;
+            --yellow: #f59e0b;
+            --red: #ef4444;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', sans-serif;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            background-color: var(--bg-color);
-            color: var(--text-primary);
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
             display: flex;
-            overflow-x: hidden;
+            /* Neden: Captcha banner'ı tam genişlikte ilk satırı kaplasın diye. */
+            flex-wrap: wrap;
         }
 
-        /* Sidebar */
-        .sidebar {
-            width: 260px;
-            background: rgba(15, 23, 42, 0.95);
-            border-right: 1px solid var(--border-color);
-            padding: 30px 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 40px;
-        }
-
-        .logo {
-            font-size: 1.25rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo span {
-            color: var(--accent-green);
-        }
-
-        .menu-list {
-            list-style: none;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .menu-item {
-            padding: 12px 15px;
-            border-radius: 8px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .menu-item:hover, .menu-item.active {
-            background: rgba(255, 255, 255, 0.05);
-            color: var(--text-primary);
-        }
-
-        /* Main Content */
-        .main-container {
-            flex: 1;
-            padding: 40px;
-            display: flex;
-            flex-direction: column;
-            gap: 30px;
-            max-width: 1400px;
-            margin: 0 auto;
-            width: 100%;
-        }
-
-        /* Header */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-color);
-            padding-bottom: 20px;
-        }
-
-        .header h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-        }
-
-        .env-badge {
-            background: rgba(59, 130, 246, 0.15);
-            color: var(--accent-blue);
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-weight: 600;
-            font-size: 0.85rem;
-            text-transform: uppercase;
-        }
-
-        /* Tabs */
-        .tab-content {
+        /* ---------- Captcha uyarı bandı ---------- */
+        .captcha-banner {
             display: none;
-            flex-direction: column;
-            gap: 30px;
-        }
-
-        .tab-content.active {
-            display: flex;
-        }
-
-        /* KPI Cards Grid */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-        }
-
-        .kpi-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 24px;
-            backdrop-filter: blur(10px);
-            transition: transform 0.3s ease;
-        }
-
-        .kpi-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .kpi-title {
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 10px;
-        }
-
-        .kpi-value {
-            font-size: 1.8rem;
-            font-weight: 700;
-        }
-
-        /* Row Layout */
-        .dashboard-row {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 30px;
-        }
-
-        .dashboard-row.equal-height {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 25px;
-            backdrop-filter: blur(10px);
-        }
-
-        .card-title {
-            font-size: 1.1rem;
-            font-weight: 700;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        /* Tables */
-        table {
             width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-        }
-
-        th, td {
-            padding: 12px 15px;
-            border-bottom: 1px solid var(--border-color);
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            padding: 13px 22px;
+            background: linear-gradient(90deg, #b45309, #d97706);
+            color: #fffbeb;
             font-size: 0.9rem;
-        }
-
-        th {
-            color: var(--text-secondary);
             font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.75rem;
-            letter-spacing: 0.05em;
+            border-bottom: 1px solid rgba(0,0,0,0.25);
+        }
+        .captcha-banner.visible { display: flex; }
+        .captcha-banner .btn { width: auto; padding: 9px 18px; background: #fffbeb; color: #92400e; flex-shrink: 0; }
+
+        /* ---------- Modal ---------- */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(2,6,23,0.72); align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal {
+            background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+            padding: 26px; width: 100%; max-width: 480px;
+        }
+        .modal h3 { font-size: 1.1rem; margin-bottom: 14px; }
+        .modal ol { margin: 0 0 18px 20px; color: var(--muted); font-size: 0.9rem; line-height: 1.9; }
+        .modal-close {
+            float: right; background: none; border: none; color: var(--muted);
+            font-size: 1.2rem; cursor: pointer; font-family: inherit; line-height: 1;
         }
 
-        .status-badge {
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-        }
-
-        .status-success {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--accent-green);
-        }
-
-        .status-failed {
-            background: rgba(239, 68, 68, 0.15);
-            color: var(--accent-red);
-        }
-
-        .status-warning {
-            background: rgba(245, 158, 11, 0.15);
-            color: var(--accent-yellow);
-        }
-
-        /* Health List */
-        .health-list {
+        /* ---------- Sidebar ---------- */
+        .sidebar {
+            width: 240px;
+            min-height: 100vh;
+            background: #0b1220;
+            border-right: 1px solid var(--border);
+            padding: 24px 16px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 28px;
+            flex-shrink: 0;
         }
+        .logo { font-size: 0.78rem; font-weight: 700; line-height: 1.3; white-space: nowrap; letter-spacing: 0.01em; }
+        .logo .sun { color: var(--yellow); margin-right: 6px; }
+        .logo small { display: block; color: var(--muted); font-weight: 500; font-size: 0.68rem; margin-top: 4px; }
 
-        .health-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 15px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
+        .menu { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+        .menu-item {
+            padding: 11px 14px; border-radius: 8px; color: var(--muted);
+            font-weight: 600; font-size: 0.92rem; cursor: pointer; border: 1px solid transparent;
         }
+        .menu-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+        .menu-item.active { background: rgba(34,197,94,0.12); color: var(--green); border-color: rgba(34,197,94,0.25); }
 
-        .health-name {
-            font-weight: 600;
-            font-size: 0.9rem;
+        .sidebar-footer { margin-top: auto; color: var(--muted); font-size: 0.72rem; line-height: 1.5; }
+
+        /* ---------- Main ---------- */
+        .main { flex: 1; padding: 28px 32px; max-width: 1500px; width: 100%; margin: 0 auto; }
+        .page-header { margin-bottom: 22px; }
+        .page-header h1 { font-size: 1.45rem; font-weight: 700; }
+        .page-header p { color: var(--muted); font-size: 0.88rem; margin-top: 4px; }
+
+        .page { display: none; flex-direction: column; gap: 22px; }
+        .page.active { display: flex; }
+
+        /* ---------- Cards ---------- */
+        .card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 12px; padding: 20px;
         }
+        .card-title { font-size: 0.98rem; font-weight: 700; margin-bottom: 14px; }
+        .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        /* Neden: Grid hücresindeki Chart.js canvas'ı min-width:0 olmadan sonsuz
+           büyüme (resize loop) döngüsüne girer ve sayfayı kilitler. */
+        .grid-2 > *, .grid-4 > *, .grid-5 > * { min-width: 0; }
 
-        .chart-container {
-            height: 250px;
-            position: relative;
+        .kpi .kpi-date { color: var(--muted); font-size: 0.7rem; font-weight: 600; margin-bottom: 8px; }
+        .kpi .label { color: var(--muted); font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+        .kpi .value { font-size: 1.45rem; font-weight: 700; margin-top: 8px; }
+        .kpi .unit { color: var(--muted); font-size: 0.85rem; font-weight: 600; }
+        .kpi.green .value { color: var(--green); }
+        .kpi.blue .value { color: var(--blue); }
+        .kpi.orange .value { color: #f97316; }
+        .kpi.lightgreen .value { color: #86efac; }
+
+        .badge {
+            display: inline-block; padding: 4px 10px; border-radius: 6px;
+            font-weight: 700; font-size: 0.74rem;
         }
+        .badge.ok { background: rgba(34,197,94,0.14); color: var(--green); }
+        .badge.warn { background: rgba(245,158,11,0.14); color: var(--yellow); }
+        .badge.bad { background: rgba(239,68,68,0.14); color: var(--red); }
 
-        /* Print media formatting */
-        @media print {
-            .sidebar, .header #btn-print, .header button, .btn {
-                display: none !important;
-            }
-            .main-container {
-                margin-left: 0 !important;
-                padding: 0 !important;
-                width: 100% !important;
-            }
-            .card, .kpi-card {
-                box-shadow: none !important;
-                border: 1px solid #ccc !important;
-                background: white !important;
-                color: black !important;
-                page-break-inside: avoid;
-            }
-            body {
-                background: white !important;
-                color: black !important;
-            }
+        .status-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+        .status-row:last-child { border-bottom: none; }
+        .status-row .name { color: var(--muted); font-size: 0.9rem; }
+
+        /* ---------- Buttons ---------- */
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            border: none; border-radius: 8px; padding: 11px 18px; font-weight: 700;
+            font-size: 0.9rem; cursor: pointer; text-decoration: none; color: white;
+            font-family: inherit; width: 100%;
+        }
+        .btn.green { background: var(--green); color: #052e16; }
+        .btn.blue { background: var(--blue); }
+        .btn.outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { filter: brightness(1.08); }
+
+        .spinner {
+            width: 15px; height: 15px; border: 2px solid rgba(255,255,255,0.35);
+            border-top-color: currentColor; border-radius: 50%;
+            animation: spin 0.8s linear infinite; display: inline-block;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .msg { margin-top: 12px; padding: 11px 13px; border-radius: 8px; font-size: 0.84rem; font-weight: 600; line-height: 1.45; display: none; }
+        .msg.info { display: block; background: rgba(59,130,246,0.12); color: var(--blue); }
+        .msg.ok { display: block; background: rgba(34,197,94,0.12); color: var(--green); }
+        .msg.bad { display: block; background: rgba(239,68,68,0.12); color: var(--red); }
+
+        /* ---------- Tables ---------- */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 10px 13px; border-bottom: 1px solid var(--border); font-size: 0.86rem; white-space: nowrap; }
+        th { color: var(--muted); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+        td.num { font-variant-numeric: tabular-nums; }
+
+        .chart-box { height: 280px; position: relative; overflow: hidden; }
+
+        /* ---------- Filtre butonları ---------- */
+        .filters { display: inline-flex; gap: 6px; margin-left: 12px; vertical-align: middle; }
+        .filter-btn {
+            border: 1px solid var(--border); background: transparent; color: var(--muted);
+            border-radius: 6px; padding: 5px 12px; font-size: 0.76rem; font-weight: 700;
+            cursor: pointer; font-family: inherit;
+        }
+        .filter-btn:hover { color: var(--text); }
+        .filter-btn.active { background: rgba(34,197,94,0.14); color: var(--green); border-color: rgba(34,197,94,0.3); }
+
+        /* ---------- Rapor kartları ---------- */
+        .rep-date { font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; }
+        .rep-file { color: var(--muted); font-size: 0.8rem; margin-bottom: 14px; }
+
+        /* ---------- Forms ---------- */
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .field label { display: block; color: var(--muted); font-size: 0.78rem; font-weight: 600; margin-bottom: 6px; }
+        .field input {
+            width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+            background: #0b1220; color: var(--text); font-size: 0.9rem; font-family: inherit;
+        }
+        .field input:focus { outline: 2px solid var(--blue); border-color: transparent; }
+
+        .info-line { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 0.88rem; }
+        .info-line:last-child { border-bottom: none; }
+        .info-line .k { color: var(--muted); }
+
+        .muted { color: var(--muted); }
+        .small { font-size: 0.8rem; }
+
+        /* ---------- Responsive ---------- */
+        @media (max-width: 1250px) {
+            .grid-5 { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 1000px) {
+            .grid-4 { grid-template-columns: repeat(2, 1fr); }
+            .grid-5 { grid-template-columns: repeat(2, 1fr); }
+            .grid-2, .form-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 720px) {
+            body { flex-direction: column; }
+            .sidebar { width: 100%; min-height: auto; flex-direction: row; align-items: center; gap: 12px; padding: 12px 16px; overflow-x: auto; }
+            .sidebar-footer, .logo small { display: none; }
+            .menu { flex-direction: row; }
+            .main { padding: 18px; }
+            .grid-4, .grid-5 { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <div class="sidebar">
-        <div class="logo">iSolar<span>Cloud</span> Monitor</div>
-        <ul class="menu-list">
-            <a class="menu-item active" onclick="switchTab('op-monitor')">Operational Monitor</a>
-            <a class="menu-item" onclick="switchTab('hist-analytics')">Historical Analytics</a>
-            <a class="menu-item" onclick="switchTab('settings-tab')">System Settings</a>
+    <!-- ================= CAPTCHA BANNER ================= -->
+    <div id="captcha-banner" class="captcha-banner">
+        <div>
+            &#9888;&#65039; <strong>GAOSB Güvenlik Doğrulaması Gerekiyor</strong> —
+            Otomatik raporlama duraklatıldı. Doğrulamayı tamamlamak için tıklayın.
+        </div>
+        <button class="btn" onclick="openCaptchaModal()">Doğrulamayı Yap</button>
+    </div>
+
+    <!-- ================= CAPTCHA MODAL ================= -->
+    <div id="captcha-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeCaptchaModal()">&#10005;</button>
+            <h3>GAOSB Güvenlik Doğrulaması</h3>
+            <ol>
+                <li>Aşağıdaki butona tıklayarak GAOSB'ye gidin</li>
+                <li>Güvenlik doğrulamasını (captcha) tamamlayın</li>
+                <li>Giriş yaptıktan sonra "Tamamladım" deyin</li>
+            </ol>
+            <a class="btn blue" style="margin-bottom:18px;" href="https://elk.gaosb.org/" target="_blank" rel="noopener">GAOSB Portalını Aç &#8594;</a>
+            <p class="muted small" style="margin-bottom:10px;">Doğrulamayı tamamladınız mı?</p>
+            <button id="btn-captcha-done" class="btn green" onclick="resolveCaptcha()">Tamamladım — Raporu Yeniden Hazırla</button>
+            <div id="captcha-msg" class="msg"></div>
+            <a id="captcha-download" class="btn outline" style="display:none; margin-top:10px;" href="#">&#10003; Rapor hazır — İndir</a>
+        </div>
+    </div>
+
+    <!-- ================= SIDEBAR ================= -->
+    <nav class="sidebar">
+        <div class="logo"><span class="sun">&#9728;</span>Erdemsoft GES Enerji Yönetim Sistemi<small>Üretim &amp; Mahsuplaşma Takibi</small></div>
+        <ul class="menu">
+            <li class="menu-item active" data-page="page-home">Ana Sayfa</li>
+            <li class="menu-item" data-page="page-settlements">Mahsuplaşmalarım</li>
+            <li class="menu-item" data-page="page-analytics">Analitik</li>
+            <li class="menu-item" data-page="page-settings">Sistem Ayarları</li>
         </ul>
-    </div>
+        <div class="sidebar-footer">Veriler otomatik olarak her gün güncellenir.<br><span id="side-last-update">-</span></div>
+    </nav>
 
-    <!-- Main Container -->
-    <div class="main-container">
-        <!-- Header -->
-        <div class="header">
-            <div>
-                <h1 id="page-title">Yönetici İzleme Paneli</h1>
-                <p style="color: var(--text-secondary); margin-top: 5px;" id="page-subtitle">SolarReportAutomation ETL operasyon kontrol merkezi</p>
-            </div>
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <button id="btn-print" onclick="printReport()" class="btn" style="background-color: var(--accent-blue); color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; font-weight: 600;">PDF Raporu Çıktısı Al</button>
-                <div id="env-badge" class="env-badge">Yükleniyor...</div>
-            </div>
-        </div>
+    <!-- ================= MAIN ================= -->
+    <main class="main">
 
-        <!-- ================= OPERATIONAL MONITOR TAB ================= -->
-        <div id="op-monitor" class="tab-content active">
-            <!-- KPI Cards Grid -->
-            <div class="kpi-grid">
-                <div class="kpi-card">
-                    <div class="kpi-title">Başarı Oranı</div>
-                    <div id="kpi-success-rate" class="kpi-value">-%</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Başarısız Pipeline</div>
-                    <div id="kpi-failed-runs" class="kpi-value">-</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Ortalama Süre</div>
-                    <div id="kpi-avg-duration" class="kpi-value">- ms</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Toplam Retry</div>
-                    <div id="kpi-total-retries" class="kpi-value">-</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Sağlık Puanı</div>
-                    <div id="kpi-health-score" class="kpi-value">-%</div>
-                </div>
+        <!-- ============ ANA SAYFA ============ -->
+        <section id="page-home" class="page active">
+            <div class="page-header">
+                <h1>Erdemsoft GES Enerji Yönetim Sistemi</h1>
+                <p>Santrallerinizin üretim, tüketim ve mahsuplaşma durumu <span id="home-date-note" class="muted"></span></p>
             </div>
 
-            <!-- Son ETL ve Sistem Ayrıntıları (GA Monitor) -->
-            <div class="dashboard-row" style="margin-bottom: 20px;">
-                <div class="card" style="flex: 2;">
-                    <div class="card-title" style="color: var(--accent-blue);">Son ETL Pipeline Çalışma Özeti</div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Çalışma Zamanı</span>
-                            <strong id="last-etl-time" style="font-size: 1rem; color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son ETL Durumu</span>
-                            <span id="last-etl-status" class="status-badge" style="margin-top: 5px;">-</span>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">İşlenen Satır Sayısı</span>
-                            <strong id="last-etl-rows" style="font-size: 1rem; color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">İndirme Atlandı mı?</span>
-                            <strong id="last-etl-skip" style="font-size: 1rem; color: var(--text-primary);">-</strong>
-                        </div>
-                    </div>
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
-                        <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Karşılaşılan Hata / Sorun</span>
-                        <code id="last-etl-error" style="color: var(--accent-red); font-size: 0.85rem; display: block; margin-top: 5px; word-break: break-all;">YOK</code>
-                    </div>
-                </div>
-                <div class="card" style="flex: 1;">
-                    <div class="card-title" style="color: var(--accent-blue);">Aktif Sistem Servisleri</div>
-                    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: var(--text-secondary);">Aktif Kaynak (Active Source)</span>
-                            <strong id="live-active-source" style="color: var(--accent-blue);">-</strong>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: var(--text-secondary);">SMTP Alarm Durumu</span>
-                            <span id="live-smtp-status" class="status-badge">-</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="color: var(--text-secondary);">Son Mail Gönderimi</span>
-                            <span id="live-last-mail" class="status-badge">-</span>
-                        </div>
-                    </div>
-                </div>
+            <div class="grid-5">
+                <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
+                <div class="card kpi blue"><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
+                <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
+                <div class="card kpi orange"><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
+                <div class="card kpi lightgreen"><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
             </div>
 
-            <!-- Mahsuplaşma ve Raporlama (Settlement Engine) -->
-            <div class="dashboard-row" style="margin-bottom: 20px;">
-                <div class="card" style="flex: 1;">
-                    <div class="card-title" style="color: var(--accent-green);">Son Mahsuplaşma Raporu</div>
-                    <div id="settlement-info-block" style="display: flex; flex-direction: column; gap: 10px; margin-top: 15px;">
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Rapor Tarihi</span>
-                            <strong id="settlement-report-date" style="font-size: 1rem; color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Dosya Adı</span>
-                            <strong id="settlement-report-name" style="font-size: 0.95rem; color: var(--text-primary); word-break: break-all;">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Dosya Boyutu</span>
-                            <strong id="settlement-report-size" style="font-size: 1rem; color: var(--text-primary);">-</strong>
-                        </div>
-                        <div style="margin-top: 5px;">
-                            <a id="settlement-download-link" href="#" class="btn" style="display: inline-block; background-color: var(--accent-green); color: white; border: none; padding: 8px 15px; border-radius: 4px; text-decoration: none; font-weight: 600; text-align: center; pointer-events: none; opacity: 0.5;">Raporu Excel Olarak İndir</a>
-                        </div>
-                    </div>
-                </div>
-                <div class="card" style="flex: 1;">
-                    <div class="card-title" style="color: var(--accent-green);">Manuel Mahsuplaşma Tetikleme</div>
-                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 10px; line-height: 1.4;">
-                        En güncel iSolar üretim eğrisi ve GAOSB tüketim verilerini çekerek günlük mahsuplaşma işlemini manuel olarak tetikleyebilirsiniz. Bu işlem arka planda Playwright scraper'larını çalıştırır.
-                    </p>
-                    <div style="margin-top: 20px;">
-                        <button id="btn-trigger-settlement" onclick="triggerSettlement()" class="btn" style="background-color: var(--accent-green); color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; width: 100%;">Mahsuplaşmayı Tetikle</button>
-                    </div>
-                    <div id="settlement-trigger-status" style="margin-top: 15px; display: none; padding: 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; line-height: 1.4; word-break: break-word;">
-                        -
-                    </div>
-                </div>
-            </div>
-
-            <!-- Row 1 -->
-            <div class="dashboard-row">
+            <div class="grid-2">
                 <div class="card">
-                    <div class="card-title">Son Pipeline Koşuları (Audit Trail)</div>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Run ID</th>
-                                    <th>Başlangıç</th>
-                                    <th>Süre (ms)</th>
-                                    <th>Çıkış Kodu</th>
-                                    <th>Hata Sayısı</th>
-                                    <th>Durum</th>
-                                </tr>
-                            </thead>
-                            <tbody id="runs-tbody">
-                                <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <div class="card-title">Sistem Durumu</div>
+                    <div class="status-row"><span class="name">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
+                    <div class="status-row"><span class="name">Tüketim Verisi (GAOSB)</span><span id="st-gaosb" class="badge warn">-</span></div>
+                    <div class="status-row"><span class="name">E-Posta Bildirimi</span><span id="st-mail" class="badge warn">-</span></div>
+                    <div class="status-row"><span class="name">Son Çalışma</span><span id="st-lastrun" class="muted small">-</span></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Sistem Sağlık Arayüzü</div>
-                    <div class="health-list" id="health-list-container">
-                        <div style="text-align: center; color: var(--text-secondary);">Veri çekiliyor...</div>
-                    </div>
+                    <div class="card-title" id="mtd-title">Bu Ay Özeti</div>
+                    <div class="status-row"><span class="name">Toplam Üretim</span><strong id="ay-uretim" class="num">-</strong></div>
+                    <div class="status-row"><span class="name">Toplam Tüketim</span><strong id="ay-tuketim">-</strong></div>
+                    <div class="status-row"><span class="name">Toplam Mahsup</span><strong id="ay-mahsup">-</strong></div>
+                    <div class="status-row"><span class="name">Toplam Şebekeden Çekiş</span><strong id="ay-cekis">-</strong></div>
+                    <div class="status-row"><span class="name">Toplam Fazla Satış</span><strong id="ay-satis">-</strong></div>
                 </div>
             </div>
 
-            <!-- Row 2 -->
-            <div class="dashboard-row">
+            <div class="grid-2">
                 <div class="card">
-                    <div class="card-title">Sistem Performans İzleme (CPU & RAM)</div>
-                    <div class="chart-container">
-                        <canvas id="performanceChart"></canvas>
-                    </div>
+                    <div class="card-title">Son Günlük Rapor</div>
+                    <div class="rep-date" id="rep-daily-date">-</div>
+                    <div class="rep-file" id="rep-daily-file">-</div>
+                    <a id="rep-daily-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
                 </div>
                 <div class="card">
-                    <div class="card-title">Gönderilen Alarmlar</div>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Tarih</th>
-                                    <th>Kanal</th>
-                                    <th>Durum</th>
-                                </tr>
-                            </thead>
-                            <tbody id="notifications-tbody">
-                                <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= HISTORICAL ANALYTICS TAB ================= -->
-        <div id="hist-analytics" class="tab-content">
-            <!-- Analytics Overview Cards -->
-            <div class="kpi-grid">
-                <div class="kpi-card">
-                    <div class="kpi-title">Toplam Üretim (kWh)</div>
-                    <div id="anal-total-yield" class="kpi-value">0 kWh</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Günlük Ortalama</div>
-                    <div id="anal-avg-yield" class="kpi-value">0 kWh</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Zirve Üretim</div>
-                    <div id="anal-peak-yield" class="kpi-value">0 kWh</div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-title">Eksik Gün Sayısı</div>
-                    <div id="anal-missing-days" class="kpi-value">0</div>
+                    <div class="card-title">Son Aylık Rapor</div>
+                    <div class="rep-date" id="rep-monthly-date">-</div>
+                    <div class="rep-file" id="rep-monthly-file">-</div>
+                    <a id="rep-monthly-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
                 </div>
             </div>
 
-            <!-- Trend Chart -->
             <div class="card">
-                <div class="card-title">Üretim Trend Analizi (Son 30 Gün) <span id="trend-badge" class="status-badge">Trend</span></div>
-                <div class="chart-container">
-                    <canvas id="trendChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Weekly / Monthly Summaries -->
-            <div class="dashboard-row equal-height">
-                <div class="card">
-                    <div class="card-title">Haftalık Üretim Analizleri</div>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Yıl</th>
-                                    <th>Hafta</th>
-                                    <th>Toplam Üretim (kWh)</th>
-                                    <th>Tesis Sayısı</th>
-                                </tr>
-                            </thead>
-                            <tbody id="weekly-tbody">
-                                <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-title">Aylık Üretim Analizleri</div>
-                    <div style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Dönem</th>
-                                    <th>Toplam Üretim (kWh)</th>
-                                    <th>Tesis Sayısı</th>
-                                </tr>
-                            </thead>
-                            <tbody id="monthly-tbody">
-                                <tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Missing Days & Daily Summary -->
-            <div class="dashboard-row">
-                <div class="card">
-                    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
-                        <span>Günlük Detaylı Üretim Logu</span>
-                        <button onclick="exportAnalyticsToCSV()" class="btn" style="background-color: var(--accent-green); color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600;">Excel / CSV İndir</button>
-                    </div>
-                    <div style="overflow-x: auto; max-height: 350px;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Tarih</th>
-                                    <th>Santral</th>
-                                    <th>Üretim (kWh)</th>
-                                    <th>Gelir</th>
-                                    <th>CO2 Azaltımı (kg)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="daily-tbody">
-                                <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">Yükleniyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-title" style="color: var(--accent-yellow);">Eksik Gün Taraması (Missing Days)</div>
-                    <div style="overflow-x: auto; max-height: 350px;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Tarih</th>
-                                    <th>Tesis</th>
-                                </tr>
-                            </thead>
-                            <tbody id="missing-tbody">
-                                <tr><td colspan="2" style="text-align: center; color: var(--text-secondary);">Kayıt aranıyor...</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= SYSTEM SETTINGS TAB ================= -->
-        <div id="settings-tab" class="tab-content">
-            <div class="card">
-                <div class="card-title">Sistem Yapılandırma Bilgileri (Read-Only)</div>
-                <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 0.9rem;">
-                    Platformun aktif çalıştığı ortam yapılandırmaları aşağıda gösterilmektedir. Bu parametreler sistem güvenliği gereği sadece sunucudaki .env dosyası üzerinden değiştirilebilir.
+                <div class="card-title">Manuel Çalıştırma</div>
+                <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
+                    Raporlar her gün otomatik hazırlanır. Gerekirse aşağıdaki butonlarla hemen yeni bir rapor oluşturabilirsiniz (birkaç dakika sürebilir).
                 </p>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Dashboard Port Numarası</div>
-                        <div id="settings-port" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button id="btn-daily" class="btn green" style="width:auto;" onclick="triggerJob('daily')">Günlük Mahsuplaşma Çalıştır</button>
+                    <button id="btn-monthly" class="btn blue" style="width:auto;" onclick="triggerJob('monthly')">Aylık Mahsuplaşma Çalıştır</button>
+                </div>
+                <div id="trigger-msg" class="msg"></div>
+                <a id="trigger-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
+            </div>
+        </section>
+
+        <!-- ============ MAHSUPLAŞMALARIM ============ -->
+        <section id="page-settlements" class="page">
+            <div class="page-header">
+                <h1>Mahsuplaşmalarım</h1>
+                <p>Günlük mahsuplaşma kayıtlarınız ve aylık özetiniz</p>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><span id="tbl-title">Son 7 Günlük Mahsuplaşma</span>
+                    <span class="filters">
+                        <button class="filter-btn active" data-range="7" onclick="setDailyFilter('7', this)">Son 7 Gün</button>
+                        <button class="filter-btn" data-range="30" onclick="setDailyFilter('30', this)">Son 30 Gün</button>
+                        <button class="filter-btn" data-range="month" onclick="setDailyFilter('month', this)">Bu Ay</button>
+                    </span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Tarih</th><th>Üretim (kWh)</th><th>Tüketim (kWh)</th><th>Mahsup (kWh)</th><th>Şebekeden Çekiş (kWh)</th><th>Fazla Satış (kWh)</th></tr></thead>
+                        <tbody id="tbl-daily7"><tr><td colspan="6" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title" id="ms-title">Son Aylık Özet</div>
+                    <div class="status-row"><span class="name">Üretim</span><strong id="ms-uretim">-</strong></div>
+                    <div class="status-row"><span class="name">Tüketim</span><strong id="ms-tuketim">-</strong></div>
+                    <div class="status-row"><span class="name">Mahsup</span><strong id="ms-mahsup">-</strong></div>
+                    <div class="status-row"><span class="name">Şebekeden Çekiş</span><strong id="ms-cekis">-</strong></div>
+                    <div class="status-row"><span class="name">Fazla Satış</span><strong id="ms-satis">-</strong></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Son 30 Gün: Üretim ve Tüketim</div>
+                    <div class="chart-box"><canvas id="chart-30d"></canvas></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============ ANALİTİK ============ -->
+        <section id="page-analytics" class="page">
+            <div class="page-header">
+                <h1>Analitik</h1>
+                <p>Üretim ve tüketim eğilimleriniz</p>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Haftalık Üretim ve Tüketim</div>
+                    <div class="chart-box"><canvas id="chart-weekly"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Aylık Üretim ve Tüketim</div>
+                    <div class="chart-box"><canvas id="chart-monthly"></canvas></div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Üretim ve Tüketim Karşılaştırması (Son 30 Gün)</div>
+                    <div class="chart-box"><canvas id="chart-compare"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Mahsup Oranı Trendi (Son 30 Gün) <span class="muted small">— yüksek oran, şebekeden daha az çekiş demektir</span></div>
+                    <div class="chart-box"><canvas id="chart-ratio"></canvas></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Santral Bazlı Üretim Dağılımı (Son 30 Gün)</div>
+                <div class="chart-box"><canvas id="chart-ges"></canvas></div>
+            </div>
+        </section>
+
+        <!-- ============ SİSTEM AYARLARI ============ -->
+        <section id="page-settings" class="page">
+            <div class="page-header">
+                <h1>Sistem Ayarları</h1>
+                <p>E-posta ayarları ve sistem bilgileri</p>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">E-Posta (Mail) Ayarları</div>
+                    <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Boş bırakılan alanlar değiştirilmez.</p>
+                    <div class="form-grid">
+                        <div class="field"><label>Mail Sunucusu</label><input id="f-host" type="text" placeholder="smtp.ornek.com"></div>
+                        <div class="field"><label>Port</label><input id="f-port" type="number" placeholder="587"></div>
+                        <div class="field"><label>Kullanıcı Adı</label><input id="f-user" type="text" placeholder="rapor@ornek.com"></div>
+                        <div class="field"><label>Mail Şifresi</label><input id="f-pass" type="password" placeholder="********"></div>
+                        <div class="field"><label>Alıcı E-Posta</label><input id="f-to" type="email" placeholder="yonetici@ornek.com"></div>
+                        <div class="field"><label>Yönetici Şifresi *</label><input id="f-admin" type="password" placeholder="Zorunlu"></div>
                     </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Dashboard Erişim Modu</div>
-                        <div id="settings-access" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Aktif Veri Kaynağı</div>
-                        <div id="settings-source" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Kayıtlı Portallar</div>
-                        <div id="settings-registered" class="kpi-value" style="font-size: 1.2rem; margin-top: 5px; font-weight: 600;">-</div>
-                        <p style="color: var(--text-secondary); font-size: 0.75rem; margin-top: 8px; line-height: 1.2;">
-                            * Not: iSolarCloud portalı tam aktiftir. Diğer portallar (Huawei, Growatt, SMA, GoodWe, Fronius) altyapı hazırlığıdır; veri çekmek için ilgili adapter kodunun geliştirilmesi gerekir.
-                        </p>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Çalışma Ortamı (APP_ENV)</div>
-                        <div id="settings-env" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Log Seviyesi</div>
-                        <div id="settings-loglevel" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">Yedek Saklama Süresi</div>
-                        <div id="settings-retention" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--accent-blue);">
-                        <div class="kpi-title">SMTP Mail Bağlantısı</div>
-                        <div id="settings-smtp" class="kpi-value" style="font-size: 1.5rem; margin-top: 5px;">-</div>
-                    </div>
+                    <div style="margin-top:16px;"><button id="btn-smtp" class="btn blue" onclick="saveSmtp()">Ayarları Kaydet</button></div>
+                    <div id="smtp-msg" class="msg"></div>
                 </div>
 
-                <!-- SMTP Detaylı Bilgiler -->
-                <div style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px;">
-                    <div class="card-title" style="color: var(--accent-blue); font-size: 1.1rem; margin-bottom: 15px;">SMTP Sunucu Yapılandırma ve Log Detayları</div>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Host</span>
-                            <strong id="settings-smtp-host" style="color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Kullanıcı Adı</span>
-                            <strong id="settings-smtp-user" style="color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">SMTP Şifre (Maskeli)</span>
-                            <strong id="settings-smtp-pass" style="color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Alıcı E-Posta (ALERT_TO)</span>
-                            <strong id="settings-smtp-to" style="color: var(--text-primary);">-</strong>
-                        </div>
-                        <div>
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Mail Gönderim Durumu</span>
-                            <span id="settings-smtp-last-status" class="status-badge">-</span>
-                        </div>
-                        <div style="grid-column: span 2;">
-                            <span style="color: var(--text-secondary); font-size: 0.85rem; display: block;">Son Karşılaşılan Mail Hatası</span>
-                            <code id="settings-smtp-last-error" style="color: var(--accent-red); font-size: 0.85rem; display: block; margin-top: 5px; word-break: break-all;">YOK</code>
-                        </div>
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div class="card">
+                        <div class="card-title">Sistem Bilgileri</div>
+                        <div class="info-line"><span class="k">Sürüm</span><span id="si-version">-</span></div>
+                        <div class="info-line"><span class="k">Yazılım Kodu</span><span id="si-commit">-</span></div>
+                        <div class="info-line"><span class="k">Mevcut Mail Sunucusu</span><span id="si-smtp-host">-</span></div>
+                        <div class="info-line"><span class="k">Mevcut Alıcı</span><span id="si-smtp-to">-</span></div>
+                        <div class="info-line"><span class="k">Son Mail Durumu</span><span id="si-mail-status" class="badge warn">-</span></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Otomatik Çalışma Planı</div>
+                        <div id="si-schedules"><div class="muted small">Yükleniyor...</div></div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
+        </section>
+    </main>
 
-    <!-- Frontend logic & binding -->
     <script>
-        let perfChartInstance = null;
-        let trendChartInstance = null;
+        // ------------------------------------------------------------
+        // Yardımcılar
+        // ------------------------------------------------------------
+        const fmt = (v) => (v === null || v === undefined) ? "-" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+        const fmtDateTr = (iso) => {
+            if (!iso) return "-";
+            const [y, m, d] = iso.slice(0, 10).split("-");
+            return `${d}.${m}.${y}`;
+        };
+        const AYLAR = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran","Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+        const fmtDonem = (donem) => {
+            if (!donem) return "-";
+            const [y, m] = donem.split("-");
+            return `${AYLAR[parseInt(m, 10) - 1]} ${y}`;
+        };
+        // "05.2026" (aylık rapor tarihi) -> "Mayıs 2026"
+        const fmtAyNokta = (s) => {
+            if (!s || !s.includes(".")) return s || "-";
+            const [m, y] = s.split(".");
+            const idx = parseInt(m, 10) - 1;
+            return (idx >= 0 && idx < 12) ? `${AYLAR[idx]} ${y}` : s;
+        };
+        // KPI kartı tarih etiketi: bugünse "Bugün", dünse "Dün", değilse sadece tarih
+        const kpiDateLabel = (iso) => {
+            if (!iso) return "-";
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+            const diff = Math.round((today - new Date(y, m - 1, d)) / 86400000);
+            const pretty = fmtDateTr(iso);
+            if (diff === 0) return "Bugün - " + pretty;
+            if (diff === 1) return "Dün - " + pretty;
+            return pretty;
+        };
 
-        function switchTab(tabId) {
-            document.querySelectorAll(".tab-content").forEach(el => el.classList.remove("active"));
-            document.querySelectorAll(".menu-item").forEach(el => el.classList.remove("active"));
-            
-            document.getElementById(tabId).classList.add("active");
-            event.target.classList.add("active");
-
-            const pageTitle = document.getElementById("page-title");
-            const pageSubtitle = document.getElementById("page-subtitle");
-
-            if (tabId === "op-monitor") {
-                pageTitle.innerText = "Yönetici İzleme Paneli";
-                pageSubtitle.innerText = "SolarReportAutomation ETL operasyon kontrol merkezi";
-                initDashboard();
-            } else if (tabId === "hist-analytics") {
-                pageTitle.innerText = "Tarihsel Analiz ve Raporlama Motoru";
-                pageSubtitle.innerText = "Güneş enerjisi santralleri üretim ve verimlilik analizleri";
-                initAnalytics();
-            } else {
-                pageTitle.innerText = "Sistem Yapılandırma Ayarları";
-                pageSubtitle.innerText = "Salt-okunur üretim profili ve sistem parametreleri";
-                loadSettings();
-            }
-        }
-
-        async function loadSettings() {
-            const data = await fetchJson("/api/settings");
-            if (data) {
-                document.getElementById("settings-port").innerText = data.dashboard_port;
-                document.getElementById("settings-access").innerText = data.dashboard_access_mode.toUpperCase();
-                document.getElementById("settings-source").innerText = data.active_source;
-                document.getElementById("settings-registered").innerText = data.registered_sources.join(", ");
-                document.getElementById("settings-env").innerText = data.app_env.toUpperCase();
-                document.getElementById("settings-loglevel").innerText = data.log_level;
-                document.getElementById("settings-retention").innerText = data.backup_retention_days + " Gün";
-                
-                // SMTP status labels with badges
-                const smtpEl = document.getElementById("settings-smtp");
-                if (data.smtp_status === "aktif") {
-                    smtpEl.innerHTML = `<span class="status-badge status-success">AKTİF (ÇALIŞIYOR)</span>`;
-                } else if (data.smtp_status === "eksik") {
-                    smtpEl.innerHTML = `<span class="status-badge status-warning">EKSİK YAPILANDIRILMIŞ</span>`;
-                } else {
-                    smtpEl.innerHTML = `<span class="status-badge status-failed">PASİF (KAPALI)</span>`;
-                }
-
-                // SMTP details
-                document.getElementById("settings-smtp-host").innerText = data.smtp_host || "-";
-                document.getElementById("settings-smtp-user").innerText = data.smtp_username || "-";
-                document.getElementById("settings-smtp-pass").innerText = data.smtp_password_masked || "-";
-                document.getElementById("settings-smtp-to").innerText = data.smtp_to || "-";
-                
-                const mailStatusEl = document.getElementById("settings-smtp-last-status");
-                mailStatusEl.innerText = data.smtp_last_status;
-                mailStatusEl.className = "status-badge " + (data.smtp_last_status === "SENT" ? "status-success" : data.smtp_last_status === "FAILED" ? "status-failed" : "status-warning");
-                
-                document.getElementById("settings-smtp-last-error").innerText = data.smtp_last_error || "YOK";
-            }
-        }
-
-        function printReport() {
-            const tbody = document.getElementById("daily-tbody");
-            if (!tbody || tbody.rows.length === 0 || 
-                (tbody.rows.length === 1 && tbody.rows[0].cells[0].innerText.includes("Yükleniyor")) || 
-                (tbody.rows.length === 1 && tbody.rows[0].innerText.includes("Henüz üretim verisi"))) {
-                alert("Uyarı: Yazdırılacak üretim verisi bulunmuyor! Lütfen önce scripts/run_etl.bat betiğini çalıştırarak veri çekin.");
-                return;
-            }
-            window.print();
-        }
-
-        function exportAnalyticsToCSV() {
-            const tbody = document.getElementById("daily-tbody");
-            if (!tbody || tbody.rows.length === 0 || 
-                (tbody.rows.length === 1 && tbody.rows[0].cells[0].innerText.includes("Yükleniyor")) || 
-                (tbody.rows.length === 1 && tbody.rows[0].innerText.includes("Henüz üretim verisi"))) {
-                alert("Uyarı: Dışa aktarılacak üretim verisi bulunmuyor! Lütfen önce scripts/run_etl.bat betiğini çalıştırarak veri çekin.");
-                return;
-            }
-            
-            const rows = [];
-            rows.push(["Tarih", "Santral", "Uretim (kWh)", "Gelir", "CO2 Azaltimi (kg)"]);
-            
-            for (let r of tbody.rows) {
-                if (r.cells.length === 5) {
-                    rows.push([
-                        r.cells[0].innerText,
-                        r.cells[1].innerText,
-                        r.cells[2].innerText.replace(" kWh", "").replace(/,/g, ""),
-                        r.cells[3].innerText,
-                        r.cells[4].innerText.replace(" kg", "").replace(/,/g, "")
-                    ]);
-                }
-            }
-            
-            let csvContent = "\uFEFF"; // BOM support for Excel Turkish charset
-            rows.forEach(e => {
-                let rowStr = e.map(val => `"${val.replace(/"/g, '""')}"`).join(";");
-                csvContent += rowStr + "\r\n";
-            });
-            
-            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.setAttribute("href", url);
-            link.setAttribute("download", "solar_analytics_export_" + new Date().toISOString().slice(0,10) + ".csv");
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        async function fetchJson(url) {
+        async function api(url) {
             try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("HTTP error " + response.status);
-                const result = await response.json();
-                if (result.success) return result.data;
-                return null;
-            } catch (err) {
-                console.error("Fetch failed: " + url, err);
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                const body = await res.json();
+                return body.success ? body.data : null;
+            } catch (e) {
+                console.error("Veri alınamadı:", url, e);
                 return null;
             }
         }
 
-        async function initDashboard() {
-            // env meta
-            const kpiData = await fetchJson("/api/kpis");
-            if (kpiData) {
-                document.getElementById("kpi-success-rate").innerText = kpiData.success_rate + "%";
-                document.getElementById("kpi-failed-runs").innerText = kpiData.failed_runs_count;
-                document.getElementById("kpi-avg-duration").innerText = kpiData.avg_duration_ms + " ms";
-                document.getElementById("kpi-total-retries").innerText = kpiData.total_retries;
-                document.getElementById("kpi-health-score").innerText = kpiData.health_score + "%";
-            }
+        const charts = {};
+        function drawChart(id, config) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(el.getContext("2d"), config);
+        }
+        const gridColor = "rgba(255,255,255,0.06)";
+        const tickColor = "#94a3b8";
+        const baseScales = {
+            y: { grid: { color: gridColor }, ticks: { color: tickColor } },
+            x: { grid: { display: false }, ticks: { color: tickColor } }
+        };
+        const baseLegend = { labels: { color: "#f1f5f9" } };
 
-            // runs table
-            const runs = await fetchJson("/api/runs");
-            const runsTbody = document.getElementById("runs-tbody");
-            if (runs && runs.length > 0) {
-                runsTbody.innerHTML = runs.map(r => `
-                    <tr>
-                        <td><code>${r.run_id.slice(0, 8)}</code></td>
-                        <td>${r.started_at.replace("T", " ").slice(0, 19)}</td>
-                        <td>${r.duration_ms} ms</td>
-                        <td><code>${r.exit_code}</code></td>
-                        <td>${r.issues_count}</td>
-                        <td><span class="status-badge ${r.status === 'SUCCESS' ? 'status-success' : 'status-failed'}">${r.status}</span></td>
-                    </tr>
-                `).join("");
-
-                // Son ETL Özeti Kartlarını Doldur
-                const lastRun = runs[0];
-                document.getElementById("last-etl-time").innerText = lastRun.started_at.replace("T", " ").slice(0, 19);
-                
-                const etlStatEl = document.getElementById("last-etl-status");
-                etlStatEl.innerText = lastRun.status;
-                etlStatEl.className = "status-badge " + (lastRun.status === "SUCCESS" ? "status-success" : "status-failed");
-                
-                document.getElementById("last-etl-rows").innerText = lastRun.inserted_records + lastRun.updated_records;
-                
-                const skipDl = (lastRun.skipped_stages && lastRun.skipped_stages.includes("Download")) ? "EVET (Atlandı)" : "HAYIR (İndirildi)";
-                document.getElementById("last-etl-skip").innerText = skipDl;
-                
-                document.getElementById("last-etl-error").innerText = (lastRun.issues && lastRun.issues.length > 0) ? lastRun.issues.join(", ") : "YOK";
-            } else {
-                runsTbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Veri yok.</td></tr>`;
-            }
-
-            // Aktif Sistem Servisleri Verilerini Yükle
-            const sysSettings = await fetchJson("/api/settings");
-            if (sysSettings) {
-                document.getElementById("live-active-source").innerText = sysSettings.active_source;
-                
-                const smtpLiveEl = document.getElementById("live-smtp-status");
-                smtpLiveEl.innerText = sysSettings.smtp_status.toUpperCase();
-                smtpLiveEl.className = "status-badge " + (sysSettings.smtp_status === "aktif" ? "status-success" : sysSettings.smtp_status === "eksik" ? "status-warning" : "status-failed");
-                
-                const lastMailEl = document.getElementById("live-last-mail");
-                lastMailEl.innerText = sysSettings.smtp_last_status;
-                lastMailEl.className = "status-badge " + (sysSettings.smtp_last_status === "SENT" ? "status-success" : sysSettings.smtp_last_status === "FAILED" ? "status-failed" : "status-warning");
-            }
-
-            // health list
-            const health = await fetchJson("/api/health");
-            const healthContainer = document.getElementById("health-list-container");
-            if (health && health.checks && health.checks.length > 0) {
-                healthContainer.innerHTML = health.checks.map(c => `
-                    <div class="health-item">
-                        <span class="health-name">${c.name}</span>
-                        <span class="status-badge ${c.status === 'SUCCESS' ? 'status-success' : c.status === 'WARNING' ? 'status-warning' : 'status-failed'}">${c.status}</span>
-                    </div>
-                `).join("");
-            } else {
-                healthContainer.innerHTML = `<div style="text-align: center; color: var(--text-secondary);">Sağlık raporu bulunamadı.</div>`;
-            }
-
-            // notifications table
-            const notifs = await fetchJson("/api/notifications");
-            const notifsTbody = document.getElementById("notifications-tbody");
-            if (notifs && notifs.length > 0) {
-                notifsTbody.innerHTML = notifs.map(n => `
-                    <tr>
-                        <td>${n.sent_at.replace("T", " ").slice(0, 19)}</td>
-                        <td>${n.recipient.slice(0, 18)}..</td>
-                        <td><span class="status-badge ${n.status === 'SENT' ? 'status-success' : 'status-failed'}">${n.status}</span></td>
-                    </tr>
-                `).join("");
-            } else {
-                notifsTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
-            }
-
-            // performance chart
-            const cpuData = await fetchJson("/api/metrics/system.cpu.percent");
-            const memData = await fetchJson("/api/metrics/system.memory.percent");
-            
-            const labels = (cpuData && cpuData.timestamps) || [];
-            const cpuValues = (cpuData && cpuData.values) || [];
-            const memValues = (memData && memData.values) || [];
-
-            if (perfChartInstance) perfChartInstance.destroy();
-            const ctx = document.getElementById('performanceChart').getContext('2d');
-            perfChartInstance = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'CPU Usage (%)',
-                            data: cpuValues,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            fill: true,
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Memory Usage (%)',
-                            data: memValues,
-                            borderColor: '#10b981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            fill: true,
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: { min: 0, max: 100, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
-                        x: { grid: { display: false } }
-                    },
-                    plugins: { legend: { labels: { color: '#f8fafc' } } }
-                }
+        // ------------------------------------------------------------
+        // Sayfa geçişleri
+        // ------------------------------------------------------------
+        document.querySelectorAll(".menu-item").forEach(item => {
+            item.addEventListener("click", () => {
+                document.querySelectorAll(".menu-item").forEach(el => el.classList.remove("active"));
+                document.querySelectorAll(".page").forEach(el => el.classList.remove("active"));
+                item.classList.add("active");
+                document.getElementById(item.dataset.page).classList.add("active");
+                const loaders = {
+                    "page-home": loadHome,
+                    "page-settlements": loadSettlements,
+                    "page-analytics": loadAnalytics,
+                    "page-settings": loadSettingsPage
+                };
+                loaders[item.dataset.page]();
             });
-            loadSettlementInfo();
+        });
+
+        // ------------------------------------------------------------
+        // ANA SAYFA
+        // ------------------------------------------------------------
+        async function loadHome() {
+            const summary = await api("/api/settlement/summary");
+            if (summary) {
+                const g = summary.bugun || {};
+                document.getElementById("kpi-uretim").innerText = fmt(g.uretim);
+                document.getElementById("kpi-tuketim").innerText = fmt(g.tuketim);
+                document.getElementById("kpi-mahsup").innerText = fmt(g.mahsup);
+                document.getElementById("kpi-cekis").innerText = fmt(g.cekis);
+                document.getElementById("kpi-satis").innerText = fmt(g.satis);
+                const dateLabel = kpiDateLabel(g.tarih);
+                document.querySelectorAll(".kpi .kpi-date").forEach(el => el.innerText = dateLabel);
+                document.getElementById("home-date-note").innerText = g.tarih ? `— son kayıtlı gün: ${fmtDateTr(g.tarih)}` : "";
+
+                document.getElementById("side-last-update").innerText =
+                    summary.son_guncelleme ? "Son güncelleme: " + fmtDateTr(summary.son_guncelleme) : "";
+            }
+
+            // Ay içi durum: ayın 1'inden bugüne günlük toplamlar
+            const mtd = await api("/api/settlement/month-to-date");
+            if (mtd) {
+                const ayAdi = AYLAR[(mtd.ay || 1) - 1];
+                const sonGun = mtd.bitis ? parseInt(mtd.bitis.slice(8, 10), 10) : new Date().getDate();
+                document.getElementById("mtd-title").innerText =
+                    `${ayAdi} ${mtd.yil} — Ay İçi Durum (1-${sonGun} ${ayAdi})`;
+                document.getElementById("ay-uretim").innerText = fmt(mtd.uretim) + " kWh";
+                document.getElementById("ay-tuketim").innerText = fmt(mtd.tuketim) + " kWh";
+                document.getElementById("ay-mahsup").innerText = fmt(mtd.mahsup) + " kWh";
+                document.getElementById("ay-cekis").innerText = fmt(mtd.cekis) + " kWh";
+                document.getElementById("ay-satis").innerText = fmt(mtd.satis) + " kWh";
+            }
+
+            const cfg = await api("/api/settings");
+            if (cfg) {
+                setBadge("st-isolar", cfg.isolar_status === "AKTİF", cfg.isolar_status);
+                setBadge("st-gaosb", cfg.gaosb_status === "AKTİF", cfg.gaosb_status);
+                setBadge("st-mail", cfg.smtp_status === "aktif", cfg.smtp_status === "aktif" ? "AKTİF" : "PASİF");
+                document.getElementById("st-lastrun").innerText =
+                    cfg.last_run_time ? cfg.last_run_time.replace("T", " ").slice(0, 16) : "-";
+            }
+
+            const reports = await api("/api/settlement/reports/latest");
+            bindReport("rep-daily", reports && reports.daily, "daily");
+            bindReport("rep-monthly", reports && reports.monthly, "monthly");
         }
 
-        async function loadSettlementInfo() {
-            const data = await fetchJson("/api/settlement/latest");
-            const dlLink = document.getElementById("settlement-download-link");
-            if (data) {
-                document.getElementById("settlement-report-date").innerText = data.date;
-                document.getElementById("settlement-report-name").innerText = data.filename;
-                document.getElementById("settlement-report-size").innerText = data.size_kb + " KB";
-                
-                dlLink.href = data.download_url;
-                dlLink.style.pointerEvents = "auto";
-                dlLink.style.opacity = "1";
+        function setBadge(id, ok, text) {
+            const el = document.getElementById(id);
+            el.innerText = text || (ok ? "AKTİF" : "PASİF");
+            el.className = "badge " + (ok ? "ok" : "bad");
+        }
+
+        function bindReport(prefix, info, kind) {
+            const dateEl = document.getElementById(prefix + "-date");
+            const fileEl = document.getElementById(prefix + "-file");
+            const btn = document.getElementById(prefix + "-btn");
+            if (info) {
+                dateEl.innerText = kind === "monthly" ? fmtAyNokta(info.date) : info.date;
+                fileEl.innerText = `${info.filename} — ${info.size_kb} KB`;
+                btn.href = info.download_url;
+                btn.style.pointerEvents = "auto";
+                btn.style.opacity = "1";
             } else {
-                document.getElementById("settlement-report-date").innerText = "YOK";
-                document.getElementById("settlement-report-name").innerText = "Henüz mahsuplaşma raporu üretilmedi.";
-                document.getElementById("settlement-report-size").innerText = "-";
-                
-                dlLink.href = "#";
-                dlLink.style.pointerEvents = "none";
-                dlLink.style.opacity = "0.5";
+                dateEl.innerText = "-";
+                fileEl.innerText = "Henüz rapor oluşturulmadı";
+                btn.style.pointerEvents = "none";
+                btn.style.opacity = "0.5";
             }
         }
 
-        async function triggerSettlement() {
-            const btn = document.getElementById("btn-trigger-settlement");
-            const statusDiv = document.getElementById("settlement-trigger-status");
-            
-            btn.disabled = true;
-            btn.innerText = "Çalıştırılıyor... Lütfen Bekleyin...";
-            btn.style.opacity = "0.7";
-            btn.style.cursor = "not-allowed";
-            
-            statusDiv.style.display = "block";
-            statusDiv.style.background = "rgba(245, 158, 11, 0.15)";
-            statusDiv.style.color = "var(--accent-yellow)";
-            statusDiv.innerText = "Mahsuplaşma görevi başlatıldı. iSolar ve GAOSB verileri indirilip mahsuplaşma hesabı yapılıyor (yaklaşık 30-60 saniye sürebilir)...";
-            
+        async function triggerJob(mode) {
+            const btnDaily = document.getElementById("btn-daily");
+            const btnMonthly = document.getElementById("btn-monthly");
+            const msg = document.getElementById("trigger-msg");
+            const dl = document.getElementById("trigger-download");
+            const activeBtn = mode === "daily" ? btnDaily : btnMonthly;
+            const originalText = activeBtn.innerText;
+
+            btnDaily.disabled = true;
+            btnMonthly.disabled = true;
+            // Neden: İndirme butonu bir kez göründükten sonra kaybolmamalı;
+            // yeni tetiklemede de önceki raporun linki erişilebilir kalır.
+            activeBtn.innerHTML = '<span class="spinner"></span> Çalışıyor...';
+            msg.className = "msg info";
+            msg.innerText = "Arka planda veriler çekiliyor, lütfen bekleyin... Bu işlem birkaç dakika sürebilir.";
+
             try {
-                const response = await fetch("/api/settlement/trigger", { method: "POST" });
-                const result = await response.json();
-                
-                if (result.success && result.data && result.data.status === "SUCCESS") {
-                    statusDiv.style.background = "rgba(16, 185, 129, 0.15)";
-                    statusDiv.style.color = "var(--accent-green)";
-                    statusDiv.innerHTML = `<strong>BAŞARILI!</strong> Mahsuplaşma tamamlandı. ${result.data.settlement_count} kayıt işlendi.<br>Rapor: ${result.data.report_path}`;
-                    loadSettlementInfo();
+                const res = await fetch("/api/settlement/trigger/" + mode, { method: "POST" });
+                const body = await res.json();
+                if (body.success && body.data && body.data.status === "SUCCESS") {
+                    msg.className = "msg ok";
+                    msg.innerText = "✓ Tamamlandı — rapor başarıyla hazırlandı.";
+                    dl.href = body.data.download_url || ("/api/settlement/download/latest/" + mode);
+                    dl.innerText = "Raporu İndir";
+                    dl.style.display = "inline-flex";
+                    loadHome();
                 } else {
-                    statusDiv.style.background = "rgba(239, 68, 68, 0.15)";
-                    statusDiv.style.color = "var(--accent-red)";
-                    const err = (result.data && result.data.error) || result.error || "Bilinmeyen hata.";
-                    statusDiv.innerHTML = `<strong>HATA!</strong> Görev başarısız oldu.<br>Hata Detayı: ${err}`;
+                    msg.className = "msg bad";
+                    msg.innerText = "Rapor hazırlanamadı. Lütfen daha sonra tekrar deneyin veya sistem yöneticinize başvurun.";
                 }
             } catch (e) {
-                statusDiv.style.background = "rgba(239, 68, 68, 0.15)";
-                statusDiv.style.color = "var(--accent-red)";
-                statusDiv.innerHTML = `<strong>BAĞLANTI HATASI!</strong> Sunucuyla iletişim kurulamadı.<br>${e}`;
+                msg.className = "msg bad";
+                msg.innerText = "Sunucuya ulaşılamadı. Lütfen bağlantınızı kontrol edip tekrar deneyin.";
             } finally {
-                btn.disabled = false;
-                btn.innerText = "Mahsuplaşmayı Tetikle";
-                btn.style.opacity = "1";
-                btn.style.cursor = "pointer";
+                btnDaily.disabled = false;
+                btnMonthly.disabled = false;
+                activeBtn.innerText = originalText;
             }
         }
 
-        async function initAnalytics() {
-            // overview
-            const analOver = await fetchJson("/api/analytics/overview");
-            if (analOver) {
-                document.getElementById("anal-total-yield").innerText = analOver.total_yield_kwh.toLocaleString() + " kWh";
-                document.getElementById("anal-avg-yield").innerText = analOver.avg_daily_yield_kwh.toLocaleString() + " kWh";
-                document.getElementById("anal-peak-yield").innerText = analOver.peak_production_kwh.toLocaleString() + " kWh";
-                document.getElementById("anal-missing-days").innerText = analOver.missing_days_count;
-            }
+        // ------------------------------------------------------------
+        // MAHSUPLAŞMALARIM
+        // ------------------------------------------------------------
+        let dailyFilter = "7";
 
-            // daily table
-            const daily = await fetchJson("/api/analytics/daily");
-            const dailyTbody = document.getElementById("daily-tbody");
-            if (daily && daily.length > 0) {
-                // Son 100 kaydı göster
-                dailyTbody.innerHTML = daily.slice(-100).reverse().map(d => `
-                    <tr>
-                        <td>${d.date}</td>
-                        <td>${d.plant_name}</td>
-                        <td>${d.yield_kwh.toLocaleString()} kWh</td>
-                        <td>${d.revenue.toLocaleString()} TL</td>
-                        <td>${d.co2_reduction_kg.toLocaleString()} kg</td>
-                    </tr>
-                `).join("");
+        function setDailyFilter(range, btn) {
+            dailyFilter = range;
+            document.querySelectorAll(".filter-btn").forEach(el => el.classList.remove("active"));
+            btn.classList.add("active");
+            loadDailyTable();
+        }
+
+        async function loadDailyTable() {
+            const tbody = document.getElementById("tbl-daily7");
+            const title = document.getElementById("tbl-title");
+            let rows;
+            if (dailyFilter === "month") {
+                const now = new Date();
+                const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+                const all = await api("/api/settlement/daily/latest?days=31");
+                rows = (all || []).filter(r => (r.tarih || "").startsWith(prefix));
+                title.innerText = `Bu Ay Mahsuplaşma (${AYLAR[now.getMonth()]} ${now.getFullYear()})`;
             } else {
-                dailyTbody.innerHTML = `
-                    <tr>
-                        <td colspan="5" style="text-align: center; padding: 25px; color: var(--accent-yellow);">
-                            <strong>Henüz üretim verisi bulunmuyor.</strong><br>
-                            Veri çekmek için <code>scripts/run_etl.bat</code> betiğini çalıştırın.<br>
-                            SMTP mail altyapısını test etmek için <code>scripts/test_smtp.bat</code> dosyasını kullanın.
-                        </td>
-                    </tr>
-                `;
+                rows = await api(`/api/settlement/daily/latest?days=${dailyFilter}`);
+                title.innerText = `Son ${dailyFilter} Günlük Mahsuplaşma`;
             }
-
-            // weekly table
-            const weekly = await fetchJson("/api/analytics/weekly");
-            const weeklyTbody = document.getElementById("weekly-tbody");
-            if (weekly && weekly.length > 0) {
-                weeklyTbody.innerHTML = weekly.reverse().map(w => `
+            if (rows && rows.length) {
+                tbody.innerHTML = rows.map(r => `
                     <tr>
-                        <td>${w.year}</td>
-                        <td>Hafta ${w.week_number}</td>
-                        <td>${w.yield_kwh.toLocaleString()} kWh</td>
-                        <td>${w.plant_count} Tesis</td>
-                    </tr>
-                `).join("");
+                        <td>${fmtDateTr(r.tarih)}</td>
+                        <td class="num">${fmt(r.uretim)}</td>
+                        <td class="num">${fmt(r.tuketim)}</td>
+                        <td class="num">${fmt(r.mahsup)}</td>
+                        <td class="num">${fmt(r.cekis)}</td>
+                        <td class="num">${fmt(r.satis)}</td>
+                    </tr>`).join("");
             } else {
-                weeklyTbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
+                tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;">Bu dönem için mahsuplaşma kaydı bulunmuyor.</td></tr>';
+            }
+        }
+
+        async function loadSettlements() {
+            loadDailyTable();
+
+            const monthly = await api("/api/settlement/monthly/latest?limit=1");
+            if (monthly && monthly.length) {
+                const m = monthly[0];
+                document.getElementById("ms-title").innerText = `${fmtDonem(m.donem)} Özeti`;
+                document.getElementById("ms-uretim").innerText = fmt(m.uretim) + " kWh";
+                document.getElementById("ms-tuketim").innerText = fmt(m.tuketim) + " kWh";
+                document.getElementById("ms-mahsup").innerText = fmt(m.mahsup) + " kWh";
+                document.getElementById("ms-cekis").innerText = fmt(m.cekis) + " kWh";
+                document.getElementById("ms-satis").innerText = fmt(m.satis) + " kWh";
             }
 
-            // monthly table
-            const monthly = await fetchJson("/api/analytics/monthly");
-            const monthlyTbody = document.getElementById("monthly-tbody");
-            if (monthly && monthly.length > 0) {
-                monthlyTbody.innerHTML = monthly.reverse().map(m => `
-                    <tr>
-                        <td>${m.year_month}</td>
-                        <td>${m.yield_kwh.toLocaleString()} kWh</td>
-                        <td>${m.plant_count} Tesis</td>
-                    </tr>
-                `).join("");
-            } else {
-                monthlyTbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: var(--text-secondary);">Kayıt yok.</td></tr>`;
-            }
-
-            // missing days
-            const missing = await fetchJson("/api/analytics/missing-days");
-            const missingTbody = document.getElementById("missing-tbody");
-            if (missing && missing.length > 0) {
-                missingTbody.innerHTML = missing.map(m => `
-                    <tr>
-                        <td style="color: var(--accent-yellow); font-weight: 600;">${m.date}</td>
-                        <td>${m.plant_name}</td>
-                    </tr>
-                `).join("");
-            } else {
-                missingTbody.innerHTML = `<tr><td colspan="2" style="text-align: center; color: var(--accent-green);">Eksik gün kaydı bulunmamaktadır.</td></tr>`;
-            }
-
-            // trend chart
-            const trend = await fetchJson("/api/analytics/trend");
-            if (trend) {
-                const badge = document.getElementById("trend-badge");
-                badge.innerText = `TREND: ${trend.direction} (${trend.change_percent}%)`;
-                badge.className = "status-badge " + (trend.direction === 'INCREASING' ? 'status-success' : trend.direction === 'DECREASING' ? 'status-failed' : 'status-warning');
-
-                if (trendChartInstance) trendChartInstance.destroy();
-                const ctx = document.getElementById('trendChart').getContext('2d');
-                trendChartInstance = new Chart(ctx, {
-                    type: 'bar',
+            const daily30 = await api("/api/settlement/daily/latest?days=30");
+            if (daily30 && daily30.length) {
+                const rows = [...daily30].reverse();
+                drawChart("chart-30d", {
+                    type: "line",
                     data: {
-                        labels: trend.labels,
-                        datasets: [{
-                            label: 'Daily Production (kWh)',
-                            data: trend.values,
-                            backgroundColor: 'rgba(59, 130, 246, 0.4)',
-                            borderColor: '#3b82f6',
-                            borderWidth: 1
-                        }]
+                        labels: rows.map(r => fmtDateTr(r.tarih).slice(0, 5)),
+                        datasets: [
+                            { label: "Üretim (kWh)", data: rows.map(r => r.uretim), borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.12)", fill: true, tension: 0.35 },
+                            { label: "Tüketim (kWh)", data: rows.map(r => r.tuketim), borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.12)", fill: true, tension: 0.35 }
+                        ]
                     },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } },
-                            x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
-                        },
-                        plugins: { legend: { labels: { color: '#f8fafc' } } }
-                    }
+                    options: { responsive: true, maintainAspectRatio: false, scales: baseScales, plugins: { legend: baseLegend } }
                 });
             }
         }
 
-        async function initPage() {
-            // Get initial environment state
-            try {
-                const response = await fetch("/api/kpis");
-                const resJson = await response.json();
-                document.getElementById("env-badge").innerText = resJson.metadata.environment;
-            } catch(e) {
-                document.getElementById("env-badge").innerText = "error";
+        // ------------------------------------------------------------
+        // ANALİTİK
+        // ------------------------------------------------------------
+        async function loadAnalytics() {
+            // Haftalık üretim ve tüketim (sunucuda pazartesi başlangıçlı gruplanır)
+            const weekly = await api("/api/settlement/weekly?weeks=8");
+            if (weekly && weekly.length) {
+                drawChart("chart-weekly", {
+                    type: "bar",
+                    data: {
+                        labels: weekly.map(w => w.hafta_etiketi),
+                        datasets: [
+                            { label: "Üretim (kWh)", data: weekly.map(w => w.uretim), backgroundColor: "rgba(34,197,94,0.55)", borderColor: "#22c55e", borderWidth: 1 },
+                            { label: "Tüketim (kWh)", data: weekly.map(w => w.tuketim), backgroundColor: "rgba(59,130,246,0.55)", borderColor: "#3b82f6", borderWidth: 1 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: baseScales, plugins: { legend: baseLegend } }
+                });
             }
-            initDashboard();
+
+            const daily30 = await api("/api/settlement/daily/latest?days=30");
+            if (daily30 && daily30.length) {
+                const last30 = [...daily30].reverse();
+
+                // Üretim vs Tüketim (son 30 gün)
+                drawChart("chart-compare", {
+                    type: "line",
+                    data: {
+                        labels: last30.map(r => fmtDateTr(r.tarih).slice(0, 5)),
+                        datasets: [
+                            { label: "Üretim (kWh)", data: last30.map(r => r.uretim), borderColor: "#22c55e", backgroundColor: "rgba(34,197,94,0.1)", fill: true, tension: 0.35 },
+                            { label: "Tüketim (kWh)", data: last30.map(r => r.tuketim), borderColor: "#3b82f6", backgroundColor: "rgba(59,130,246,0.1)", fill: true, tension: 0.35 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: baseScales, plugins: { legend: baseLegend } }
+                });
+
+                // Mahsup oranı trendi: mahsup / tüketim (%) — yüksek = şebekeden az çekiş
+                drawChart("chart-ratio", {
+                    type: "line",
+                    data: {
+                        labels: last30.map(r => fmtDateTr(r.tarih).slice(0, 5)),
+                        datasets: [{
+                            label: "Mahsup Oranı (%)",
+                            data: last30.map(r => r.tuketim > 0 ? Math.round((r.mahsup / r.tuketim) * 1000) / 10 : null),
+                            borderColor: "#f59e0b", backgroundColor: "rgba(245,158,11,0.12)",
+                            fill: true, tension: 0.35
+                        }]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        scales: {
+                            y: { grid: { color: gridColor }, ticks: { color: tickColor, callback: v => v + "%" }, suggestedMax: 100, beginAtZero: true },
+                            x: { grid: { display: false }, ticks: { color: tickColor } }
+                        },
+                        plugins: { legend: baseLegend }
+                    }
+                });
+            }
+
+            const monthly = await api("/api/settlement/monthly/latest?limit=12");
+            if (monthly && monthly.length) {
+                const rows = [...monthly].reverse();
+                drawChart("chart-monthly", {
+                    type: "bar",
+                    data: {
+                        labels: rows.map(m => fmtDonem(m.donem)),
+                        datasets: [
+                            { label: "Üretim (kWh)", data: rows.map(m => m.uretim), backgroundColor: "rgba(34,197,94,0.55)", borderColor: "#22c55e", borderWidth: 1 },
+                            { label: "Tüketim (kWh)", data: rows.map(m => m.tuketim), backgroundColor: "rgba(59,130,246,0.55)", borderColor: "#3b82f6", borderWidth: 1 }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, scales: baseScales, plugins: { legend: baseLegend } }
+                });
+            }
+
+            const ges = await api("/api/settlement/ges-distribution?days=30");
+            if (ges && ges.length) {
+                const palette = ["#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#ec4899", "#14b8a6", "#f97316", "#64748b"];
+                drawChart("chart-ges", {
+                    type: "doughnut",
+                    data: {
+                        labels: ges.map(g => g.plant),
+                        datasets: [{ data: ges.map(g => g.total_kwh), backgroundColor: ges.map((_, i) => palette[i % palette.length]), borderColor: "#1e293b", borderWidth: 2 }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "right", labels: { color: "#f1f5f9", boxWidth: 14 } } } }
+                });
+            } else {
+                const el = document.getElementById("chart-ges");
+                if (el) el.parentElement.innerHTML = '<p class="muted small" style="padding-top:100px; text-align:center;">Santral bazlı üretim verisi henüz bulunmuyor.</p>';
+            }
         }
 
-        window.addEventListener("DOMContentLoaded", initPage);
+        // ------------------------------------------------------------
+        // SİSTEM AYARLARI
+        // ------------------------------------------------------------
+        async function loadSettingsPage() {
+            const cfg = await api("/api/settings");
+            if (!cfg) return;
+            document.getElementById("si-version").innerText = cfg.version || "-";
+            document.getElementById("si-commit").innerText = cfg.git_commit || "-";
+            document.getElementById("si-smtp-host").innerText = cfg.smtp_host || "-";
+            document.getElementById("si-smtp-to").innerText = cfg.smtp_to || "-";
+
+            const mailEl = document.getElementById("si-mail-status");
+            mailEl.innerText = cfg.smtp_last_status || "-";
+            mailEl.className = "badge " + (cfg.smtp_last_status === "SENT" ? "ok" : cfg.smtp_last_status === "FAILED" ? "bad" : "warn");
+
+            const schedEl = document.getElementById("si-schedules");
+            if (cfg.schedules && cfg.schedules.length) {
+                schedEl.innerHTML = cfg.schedules.map(s =>
+                    `<div class="info-line"><span class="k">${s.name}</span><span>${s.zamanlama}</span></div>`).join("");
+            }
+        }
+
+        async function saveSmtp() {
+            const msg = document.getElementById("smtp-msg");
+            const btn = document.getElementById("btn-smtp");
+            const adminPass = document.getElementById("f-admin").value;
+            if (!adminPass) {
+                msg.className = "msg bad";
+                msg.innerText = "Lütfen yönetici şifresini girin.";
+                return;
+            }
+            const payload = {
+                admin_password: adminPass,
+                smtp_host: document.getElementById("f-host").value,
+                smtp_port: document.getElementById("f-port").value,
+                smtp_username: document.getElementById("f-user").value,
+                smtp_password: document.getElementById("f-pass").value,
+                smtp_to: document.getElementById("f-to").value
+            };
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+            try {
+                const res = await fetch("/api/settings/smtp", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                if (body.success) {
+                    msg.className = "msg ok";
+                    msg.innerText = "Ayarlar başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
+                    document.getElementById("f-admin").value = "";
+                    loadSettingsPage();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Ayarlar kaydedilemedi.";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucuya ulaşılamadı. Lütfen tekrar deneyin.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Ayarları Kaydet";
+            }
+        }
+
+        // ------------------------------------------------------------
+        // GAOSB CAPTCHA doğrulama akışı
+        // ------------------------------------------------------------
+        async function checkCaptchaStatus() {
+            const st = await api("/api/gaosb/captcha-status");
+            const banner = document.getElementById("captcha-banner");
+            if (st && st.captcha_required) {
+                banner.classList.add("visible");
+            } else {
+                banner.classList.remove("visible");
+            }
+        }
+
+        function openCaptchaModal() {
+            document.getElementById("captcha-modal").classList.add("visible");
+        }
+        function closeCaptchaModal() {
+            document.getElementById("captcha-modal").classList.remove("visible");
+        }
+
+        async function resolveCaptcha() {
+            const btn = document.getElementById("btn-captcha-done");
+            const msg = document.getElementById("captcha-msg");
+            const dl = document.getElementById("captcha-download");
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Rapor yeniden hazırlanıyor...';
+            msg.className = "msg info";
+            msg.innerText = "Rapor yeniden hazırlanıyor. Bu işlem birkaç dakika sürebilir, lütfen pencereyi kapatmayın...";
+            dl.style.display = "none";
+
+            try {
+                const res = await fetch("/api/gaosb/captcha-resolved", { method: "POST" });
+                const body = await res.json();
+                if (body.success && body.data && body.data.status === "SUCCESS") {
+                    msg.className = "msg ok";
+                    msg.innerText = "✓ Rapor hazır — aşağıdaki butondan indirebilirsiniz.";
+                    dl.href = body.data.download_url || "#";
+                    dl.style.display = "inline-flex";
+                    document.getElementById("captcha-banner").classList.remove("visible");
+                    loadHome();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Rapor hazırlanamadı. Lütfen doğrulamayı kontrol edip tekrar deneyin.";
+                    checkCaptchaStatus();
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucuya ulaşılamadı. Lütfen bağlantınızı kontrol edip tekrar deneyin.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Tamamladım — Raporu Yeniden Hazırla";
+            }
+        }
+
+        setInterval(checkCaptchaStatus, 60000);
+
+        window.addEventListener("DOMContentLoaded", () => {
+            loadHome();
+            checkCaptchaStatus();
+        });
     </script>
 </body>
 </html>

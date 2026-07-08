@@ -7,7 +7,11 @@ import pandas as pd
 
 from app.infrastructure.browser.playwright_client import PlaywrightClient
 from app.extractors.isolar.extractor import IsolarExtractor
-from app.sources.gaosb.extractor import GaosbExtractor
+from app.sources.gaosb.extractor import (
+    GaosbExtractor,
+    GaosbCaptchaRequiredError,
+    CAPTCHA_FLAG_PATH,
+)
 from app.settlement.engine import SettlementEngine
 from app.settlement.models import HourlySettlement
 from app.notifications.notification_service import NotificationService
@@ -308,6 +312,49 @@ class MonthlySettlementJob:
                     headless=headless,
                 )
                 logger.info(f"2. Aşama BAŞARILI. İndirilen dosya: {gaosb_path}")
+            except GaosbCaptchaRequiredError:
+                # Neden: Captcha manuel doğrulama ister; job duraklatılır, yönetici
+                # e-posta ile bilgilendirilir ve dashboard doğrulama akışı devreye girer.
+                logger.warning("GAOSB captcha doğrulaması gerekiyor; aylık job duraklatılıyor.")
+                try:
+                    import json as _json
+                    flag_info = {}
+                    if CAPTCHA_FLAG_PATH.exists():
+                        try:
+                            flag_info = _json.loads(CAPTCHA_FLAG_PATH.read_text(encoding="utf-8-sig"))
+                        except Exception:
+                            flag_info = {}
+                    flag_info.update({"job_type": "monthly", "target": target_month})
+                    CAPTCHA_FLAG_PATH.write_text(_json.dumps(flag_info), encoding="utf-8")
+                except Exception as flag_err:
+                    logger.error(f"Captcha flag güncellenemedi (best-effort): {flag_err}")
+
+                try:
+                    notifier = NotificationService()
+                    notifier.notify_pipeline(
+                        run_id=run_id,
+                        exit_code=2,
+                        duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
+                        stage_summary=(
+                            f"{target_month} ayına ait aylık mahsuplaşma için GAOSB "
+                            f"güvenlik doğrulaması gerekiyor.\n\n"
+                            f"Lütfen dashboard'a girin ve "
+                            f"'GAOSB Doğrulamasını Tamamla' butonuna tıklayın.\n"
+                            f"Doğrulama sonrası rapor otomatik yeniden hazırlanacak."
+                        ),
+                        event_type="CAPTCHA_REQUIRED",
+                        force=True,
+                    )
+                except Exception as mail_err:
+                    logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")
+
+                return {
+                    "status": "CAPTCHA_REQUIRED",
+                    "month": target_month,
+                    "report_path": None,
+                    "settlement_count": 0,
+                    "error": "GAOSB captcha doğrulaması gerekiyor",
+                }
             except Exception as e:
                 err_txt = f"GAOSB raporu indirme aşaması başarısız: {e}"
                 logger.error(err_txt)

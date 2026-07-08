@@ -13,6 +13,20 @@ from app.core.logger import setup_logger
 
 logger = setup_logger("GaosbExtractor")
 
+
+class GaosbCaptchaRequiredError(Exception):
+    """
+    Neden: BotGuard captcha manuel doğrulama gerektirdiğinde, interaktif olmayan
+    çalıştırmalarda (dashboard/scheduler) süreci bloklamak yerine bu istisna
+    fırlatılır. Dashboard, flag dosyası üzerinden kullanıcıya doğrulama akışı sunar.
+    """
+    pass
+
+
+# Neden: Captcha bekleyen koşuların işareti; dashboard bu dosyayı okuyup kullanıcıya
+# sarı uyarı bandı gösterir. Proje köküne sabitlenir (scheduler'ın cwd'sinden bağımsız).
+CAPTCHA_FLAG_PATH = Path(__file__).resolve().parents[3] / "config" / "gaosb_captcha_flag.txt"
+
 # Neden: BotGuard clearance + oturum çerezlerinin çalıştırmalar arasında kalıcı olması için
 # gerçek bir Chromium profili (persistent context) kullanılır. Yol proje köküne sabitlenir
 # ki scheduler hangi dizinden çalışırsa çalışsın aynı profil bulunsun.
@@ -158,35 +172,63 @@ class GaosbExtractor(ISourceExtractor):
         except Exception as ex:
             logger.warning("Captcha uyarı e-postası gönderilemedi: %s", ex)
 
+    def _write_captcha_flag(self) -> None:
+        """
+        Neden: Dashboard'un captcha durumunu görebilmesi için bekleyen doğrulamayı
+        diske işaretler. Job katmanı bu dosyaya job_type/target bilgisi ekler.
+        """
+        import json
+        from datetime import datetime
+
+        CAPTCHA_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CAPTCHA_FLAG_PATH.write_text(
+            json.dumps({
+                "detected_at": datetime.now().isoformat(),
+                "status": "pending",
+            }),
+            encoding="utf-8",
+        )
+        logger.info("Captcha bekleme işareti yazıldı: %s", CAPTCHA_FLAG_PATH)
+
     def _wait_for_manual_captcha(self) -> None:
         """
         Neden: Kullanıcının açılan tarayıcıda captcha'yı çözüp giriş yapmasını bekler.
-        Interaktif olmayan (scheduler) çalıştırmada sonsuza kadar bloklamamak için TTY yoksa
-        temiz bir hata fırlatır.
+        Interaktif olmayan (dashboard/scheduler) çalıştırmada bloklamak yerine flag
+        dosyası yazılır ve GaosbCaptchaRequiredError fırlatılır; dashboard kullanıcıyı
+        doğrulamaya yönlendirir.
         """
-        banner = (
-            "\n" + "=" * 60 + "\n"
-            "CAPTCHA TESPİT EDİLDİ\n"
-            "Açılan tarayıcıda captcha'yı çözün ve GAOSB'ye giriş yapın.\n"
-            "Tamamladıktan sonra buraya dönüp Enter'a basın...\n"
-            + "=" * 60
-        )
-        print(banner)
-
-        if not self._stdin_interactive():
-            logger.error(
-                "Manuel captcha gerekiyor ancak terminal interaktif değil (stdin TTY yok). "
-                "Bu adımı interaktif bir terminalde (GAOSB_HEADLESS=false) çalıştırın."
+        if self._stdin_interactive():
+            # Terminal: kullanıcı çözene kadar bekle (mevcut davranış).
+            banner = (
+                "\n" + "=" * 60 + "\n"
+                "CAPTCHA TESPİT EDİLDİ\n"
+                "Açılan tarayıcıda captcha'yı çözün ve GAOSB'ye giriş yapın.\n"
+                "Tamamladıktan sonra buraya dönüp Enter'a basın...\n"
+                + "=" * 60
             )
-            raise SourceAuthenticationError("gaosb")
+            print(banner)
+            try:
+                input()
+            except EOFError as e:
+                logger.error("stdin kapalı; manuel captcha beklenemedi.")
+                self._write_captcha_flag()
+                raise GaosbCaptchaRequiredError(
+                    "GAOSB güvenlik doğrulaması gerekiyor. "
+                    "Dashboard'dan doğrulamayı tamamlayın."
+                ) from e
+            logger.info("Kullanıcı captcha'yı geçti, devam ediliyor.")
+            return
 
-        try:
-            input()
-        except EOFError as e:
-            logger.error("stdin kapalı; manuel captcha beklenemedi.")
-            raise SourceAuthenticationError("gaosb") from e
-
-        logger.info("Kullanıcı captcha'yı geçti, devam ediliyor.")
+        # Dashboard/scheduler: flag yaz ve özel hata fırlat.
+        logger.warning(
+            "Manuel captcha gerekiyor ancak terminal interaktif değil; "
+            "flag yazılıp GaosbCaptchaRequiredError fırlatılıyor."
+        )
+        self._write_captcha_flag()
+        raise GaosbCaptchaRequiredError(
+            "GAOSB güvenlik doğrulaması gerekiyor. "
+            "Dashboard'dan doğrulamayı tamamlayın."
+        )
 
     def _perform_login(self, page, username: str, password: str) -> None:
         """

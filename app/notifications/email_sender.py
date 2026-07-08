@@ -1,3 +1,5 @@
+import datetime
+import re
 import time
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -31,6 +33,8 @@ class EmailSender:
             template_name = "success.html"
         elif event_type.upper() == "VALIDATION_FAILED":
             template_name = "validation_failed.html"
+        elif event_type.upper() == "CAPTCHA_REQUIRED":
+            template_name = "captcha_required.html"
             
         template_file = self.templates_dir / template_name
         
@@ -52,6 +56,34 @@ class EmailSender:
         </html>
         """
 
+    def _extract_report_date(self, event: NotificationEvent) -> str:
+        """
+        Neden: Yönetici dostu konu/gövde için rapor tarihini (DD.MM.YYYY) üretmek.
+        Olay nesnesi tarih alanı taşımadığından, ek dosya adındaki YYYYMMDD deseni
+        (ör. mahsup_20260706.xlsx) kaynak alınır; bulunamazsa bugünün tarihi kullanılır.
+        """
+        if event.attachment_path:
+            m = re.search(r"(\d{4})(\d{2})(\d{2})", Path(event.attachment_path).name)
+            if m:
+                return f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
+        return datetime.date.today().strftime("%d.%m.%Y")
+
+    def _friendly_error_summary(self, event: NotificationEvent) -> str:
+        """
+        Neden: Hata e-postası yöneticiye gider; ham exception metni yerine
+        anlaşılır bir özet gösterilir. Kaynak, stage_summary içindeki hata
+        ifadelerinden/istisna adlarından tespit edilir.
+        """
+        text = event.stage_summary or ""
+        reasons = []
+        if "SourceAuthenticationError" in text or "GAOSB raporu indirme aşaması başarısız" in text:
+            reasons.append("GAOSB bağlantı hatası")
+        if "IsolarError" in text or "iSolar Curve indirme aşaması başarısız" in text:
+            reasons.append("iSolar bağlantı hatası")
+        if not reasons:
+            reasons.append("Veri işleme hatası")
+        return ", ".join(reasons)
+
     def render_body(self, event: NotificationEvent) -> str:
         """
         Neden: HTML şablonundaki değişkenleri ($RUN_ID vb.) olay verileriyle güvenli
@@ -67,12 +99,12 @@ class EmailSender:
         stage_summary = stage_summary.replace("\n", "<br>")
 
         # Neden: Ek varsa kullanıcıya "rapor ekte" notunu göster; yoksa boş bırak.
+        # Dosya adı/yolu gibi teknik detaylar yönetici e-postasında gösterilmez.
         attachment_note = ""
         if event.attachment_path:
             attachment_note = (
                 '<p style="background-color: #e8f5e9; padding: 10px; border-radius: 4px;">'
-                f"&#128206; Mahsuplaşma raporu (<strong>{Path(event.attachment_path).name}</strong>) "
-                "bu e-postaya ektedir.</p>"
+                "&#128206; Günlük mahsuplaşma raporu ekte sunulmaktadır.</p>"
             )
 
         template_data = {
@@ -84,7 +116,9 @@ class EmailSender:
             "GIT_COMMIT": event.git_commit,
             "STAGE_SUMMARY": stage_summary,
             "VALIDATION_SUMMARY": validation_summary,
-            "ATTACHMENT_NOTE": attachment_note
+            "ATTACHMENT_NOTE": attachment_note,
+            "REPORT_DATE": self._extract_report_date(event),
+            "ERROR_SUMMARY": self._friendly_error_summary(event)
         }
         
         # string.Template kullanarak placeholderları değiştir (safe_substitute hata vermesini önler)
@@ -110,7 +144,15 @@ class EmailSender:
         msg = MIMEMultipart()
         msg["From"] = settings.smtp_from if settings.smtp_from else settings.smtp_username
         msg["To"] = settings.alert_email
-        msg["Subject"] = f"Solar ETL Alert - {event.event_type} (Run ID: {event.run_id[:8]})"
+        # Neden: E-postalar yöneticiye gider; konu satırında teknik detay (Run ID vb.) olmaz.
+        if event.event_type.upper() == "SUCCESS":
+            msg["Subject"] = f"GES Mahsuplaşma Raporu - {self._extract_report_date(event)}"
+        elif event.event_type.upper() == "FAILED":
+            msg["Subject"] = f"GES Mahsuplaşma Raporu — Hata - {self._extract_report_date(event)}"
+        elif event.event_type.upper() == "CAPTCHA_REQUIRED":
+            msg["Subject"] = "GES Sistemi — GAOSB Doğrulaması Gerekiyor"
+        else:
+            msg["Subject"] = f"Solar ETL Alert - {event.event_type} (Run ID: {event.run_id[:8]})"
         msg.attach(MIMEText(body, "html", "utf-8"))
 
         # Neden: Olayda ek dosya (ör. mahsup Excel raporu) tanımlıysa e-postaya iliştir.
