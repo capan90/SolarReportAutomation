@@ -232,13 +232,10 @@
         <div class="modal">
             <button class="modal-close" onclick="closeCaptchaModal()">&#10005;</button>
             <h3>GAOSB Güvenlik Doğrulaması</h3>
-            <ol>
-                <li>Aşağıdaki butona tıklayarak GAOSB portalını açın</li>
-                <li>Güvenlik doğrulamasını (captcha) tamamlayın</li>
-                <li>Giriş yaptıktan sonra bu pencereye dönün ve 'Doğrulamayı Tamamla' butonuna tıklayın</li>
-            </ol>
-            <a class="btn blue" style="margin-bottom:18px;" href="https://elk.gaosb.org/" target="_blank" rel="noopener">GAOSB Portalını Aç &#8594;</a>
-            <p class="muted small" style="margin-bottom:10px;">Doğrulamayı tamamladınız mı?</p>
+            <div style="text-align: left; line-height: 1.6; margin-bottom: 20px;">
+                <p style="margin-bottom: 12px;">Sistem GAOSB portalına otomatik olarak bağlanacak ve güvenlik doğrulamasını tamamlayacak.</p>
+                <p style="font-weight: bold; color: #f59e0b;">Eğer güvenlik ekranı açılırsa lütfen 'Ben bir insanım' kutusunu işaretleyin.</p>
+            </div>
             <button id="btn-captcha-done" class="btn green" onclick="resolveCaptcha()">Doğrulamayı Tamamla — Raporu Hazırla</button>
             <div id="captcha-msg" class="msg"></div>
             <a id="captcha-download" class="btn outline" style="display:none; margin-top:10px;" href="#">&#10003; Rapor hazır — İndir</a>
