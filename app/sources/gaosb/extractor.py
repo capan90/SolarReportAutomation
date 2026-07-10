@@ -23,15 +23,16 @@ class GaosbCaptchaRequiredError(Exception):
     pass
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
 # Neden: Captcha bekleyen koşuların işareti; dashboard bu dosyayı okuyup kullanıcıya
 # sarı uyarı bandı gösterir. Proje köküne sabitlenir (scheduler'ın cwd'sinden bağımsız).
-CAPTCHA_FLAG_PATH = Path(__file__).resolve().parents[3] / "config" / "gaosb_captcha_flag.txt"
+CAPTCHA_FLAG_PATH = PROJECT_ROOT / "config" / "gaosb_captcha_flag.txt"
 
 # Neden: BotGuard clearance + oturum çerezlerinin çalıştırmalar arasında kalıcı olması için
 # gerçek bir Chromium profili (persistent context) kullanılır. Yol proje köküne sabitlenir
 # ki scheduler hangi dizinden çalışırsa çalışsın aynı profil bulunsun.
-# (extractor.py -> app/sources/gaosb/ olduğundan parents[3] proje köküdür.)
-USER_DATA_DIR = Path(__file__).resolve().parents[3] / "config" / "gaosb_browser_profile"
+USER_DATA_DIR = PROJECT_ROOT / "config" / "gaosb_browser_profile"
 
 # Neden: Otomasyon parmak izini azaltmak için gerçekçi bir masaüstü Chrome User-Agent'ı.
 USER_AGENT = (
@@ -124,11 +125,8 @@ class GaosbExtractor(ISourceExtractor):
         return any(m in content for m in markers)
 
     def _stdin_interactive(self) -> bool:
-        """Neden: Manuel captcha adımı yalnızca gerçek (TTY) bir terminalde mümkündür."""
-        try:
-            return bool(sys.stdin) and sys.stdin.isatty()
-        except Exception:
-            return False
+        """Neden: GAOSB_INTERACTIVE ortam değişkenine göre interaktif (terminal) modda mı çalışıyoruz?"""
+        return os.environ.get("GAOSB_INTERACTIVE", "true").lower() == "true"
 
     def _notify_captcha_required(self) -> None:
         """
