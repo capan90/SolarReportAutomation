@@ -385,6 +385,64 @@ class GaosbExtractor(ISourceExtractor):
             except Exception:
                 pass
 
+    def renew_session(self) -> bool:
+        """
+        Playwright headless=False ile GAOSB'ye bağlanır,
+        BotGuard clearance alır, profile kaydeder ve kapanır.
+        
+        Terminal'de çalışır (GAOSB_INTERACTIVE dikkate alınmaz).
+        Captcha varsa kullanıcı manuel geçer.
+        
+        Returns: True başarılı, False başarısız
+        """
+        pw = None
+        context = None
+        try:
+            from playwright.sync_api import sync_playwright
+            USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            pw = sync_playwright().start()
+            context = pw.chromium.launch_persistent_context(
+                user_data_dir=str(USER_DATA_DIR),
+                headless=False,
+                args=["--disable-blink-features=AutomationControlled"],
+                user_agent=USER_AGENT,
+                viewport={"width": 1280, "height": 800},
+                accept_downloads=True,
+            )
+            page = context.new_page()
+            
+            gaosb_url = os.environ.get("GAOSB_URL", "https://elk.gaosb.org/")
+            page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
+            
+            if self._is_captcha_page(page):
+                print("\n" + "="*60)
+                print("GAOSB GÜVENLİK DOĞRULAMASI GEREKİYOR")
+                print("Açılan tarayıcıda captcha'yı çözün ve giriş yapın.")
+                print("Tamamladıktan sonra Enter'a basın...")
+                print("="*60)
+                input()
+                # Tekrar kontrol et (otomatik yönlendirmeyi kesmemek için best-effort)
+                time.sleep(2)
+                try:
+                    page.goto(gaosb_url, wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+            
+            if "mainpage" in page.url.lower() or not self._is_captcha_page(page):
+                logger.info("Session yenileme başarılı, profil kaydedildi.")
+                return True
+            else:
+                logger.error("Session yenileme başarısız.")
+                return False
+        except Exception as e:
+            logger.error(f"Session yenileme hatası: {e}")
+            return False
+        finally:
+            if context:
+                context.close()
+            if pw:
+                pw.stop()
+
     # ------------------------------------------------------------------
     # Format dönüştürme yardımcıları
     # ------------------------------------------------------------------

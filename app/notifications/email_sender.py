@@ -1,4 +1,5 @@
 import datetime
+import os
 import re
 import time
 import smtplib
@@ -118,7 +119,8 @@ class EmailSender:
             "VALIDATION_SUMMARY": validation_summary,
             "ATTACHMENT_NOTE": attachment_note,
             "REPORT_DATE": self._extract_report_date(event),
-            "ERROR_SUMMARY": self._friendly_error_summary(event)
+            "ERROR_SUMMARY": self._friendly_error_summary(event),
+            "DASHBOARD_URL": os.environ.get("DASHBOARD_URL", "http://localhost:8081")
         }
         
         # string.Template kullanarak placeholderları değiştir (safe_substitute hata vermesini önler)

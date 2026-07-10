@@ -914,9 +914,9 @@
             const msg = document.getElementById("captcha-msg");
             const dl = document.getElementById("captcha-download");
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Rapor yeniden hazırlanıyor...';
+            btn.innerHTML = '<span class="spinner"></span> Kontrol ediliyor...';
             msg.className = "msg info";
-            msg.innerText = "Rapor yeniden hazırlanıyor. Bu işlem birkaç dakika sürebilir, lütfen pencereyi kapatmayın...";
+            msg.innerHTML = "Güvenlik doğrulaması kontrol ediliyor...<br>Ardından rapor otomatik hazırlanacak.<br>Bu işlem 2-3 dakika sürebilir.";
             dl.style.display = "none";
 
             try {
@@ -924,19 +924,21 @@
                 const body = await res.json();
                 if (body.success && body.data && body.data.status === "SUCCESS") {
                     msg.className = "msg ok";
-                    msg.innerText = "✓ Rapor hazır — aşağıdaki butondan indirebilirsiniz.";
+                    msg.innerText = "✓ Doğrulama tamamlandı, rapor hazırlandı!";
                     dl.href = body.data.download_url || "#";
+                    dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
                     document.getElementById("captcha-banner").classList.remove("visible");
                     loadHome();
                 } else {
                     msg.className = "msg bad";
-                    msg.innerText = body.error || "Rapor hazırlanamadı. Lütfen doğrulamayı kontrol edip tekrar deneyin.";
+                    msg.innerText = "Doğrulama tamamlanamadı. Lütfen tekrar deneyin.";
                     checkCaptchaStatus();
                 }
             } catch (e) {
                 msg.className = "msg bad";
-                msg.innerText = "Sunucuya ulaşılamadı. Lütfen bağlantınızı kontrol edip tekrar deneyin.";
+                msg.innerText = "Doğrulama tamamlanamadı. Lütfen tekrar deneyin.";
+                checkCaptchaStatus();
             } finally {
                 btn.disabled = false;
                 btn.innerText = "Tamamladım — Raporu Yeniden Hazırla";

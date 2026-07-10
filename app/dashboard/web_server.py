@@ -601,22 +601,46 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_captcha_resolved(self) -> None:
         """
-        Neden: Kullanıcı GAOSB doğrulamasını tamamladığını bildirdiğinde flag dosyası
-        silinir ve duraklatılan job (flag'deki job_type/target'e göre) yeniden çalıştırılır.
-        Doğrulama hâlâ geçmemişse extractor flag'i yeniden yazar ve kullanıcıya bildirilir.
+        Neden: Kullanıcı GAOSB doğrulamasını tamamladığını bildirdiğinde flag durumunu 
+        'resolving' yapar, GaosbExtractor.renew_session() ile Playwright oturumunu yeniler.
+        Başarılı olursa flag silinir ve duraklatılan job çalıştırılıp sonucu döner.
+        Başarısız olursa flag silinmez ve hata dönülür.
         """
         flag_info = {}
         if CAPTCHA_FLAG_PATH.exists():
             try:
-                # Neden: utf-8-sig — elle/PowerShell ile yazılmış BOM'lu dosyayı da okur.
                 flag_info = json.loads(CAPTCHA_FLAG_PATH.read_text(encoding="utf-8-sig"))
             except Exception:
                 pass
-            try:
-                CAPTCHA_FLAG_PATH.unlink()
-            except Exception as e:
-                logger.error(f"Captcha flag dosyası silinemedi: {e}")
 
+        flag_info["status"] = "resolving"
+        try:
+            CAPTCHA_FLAG_PATH.write_text(json.dumps(flag_info), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Captcha flag resolving olarak güncellenemedi: {e}")
+
+        # 2. GaosbExtractor().renew_session() çalıştır
+        from app.sources.gaosb.extractor import GaosbExtractor
+        success = GaosbExtractor().renew_session()
+
+        if not success:
+            # Revert flag status to pending so banner remains
+            flag_info["status"] = "pending"
+            try:
+                CAPTCHA_FLAG_PATH.write_text(json.dumps(flag_info), encoding="utf-8")
+            except Exception:
+                pass
+            self._send_json_contract(None, "Session yenilenemedi, lütfen tekrar deneyin.")
+            return
+
+        # 3. Session başarılıysa flag'i sil
+        try:
+            if CAPTCHA_FLAG_PATH.exists():
+                CAPTCHA_FLAG_PATH.unlink()
+        except Exception as e:
+            logger.error(f"Captcha flag dosyası silinemedi: {e}")
+
+        # 4. DailySettlementJob veya MonthlySettlementJob çalıştır
         job_type = flag_info.get("job_type", "daily")
         target = flag_info.get("target")
         logger.warning(f"Captcha doğrulaması tamamlandı bildirimi alındı; {job_type} job yeniden çalıştırılıyor (target={target}).")
@@ -627,11 +651,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             if job_type == "monthly":
                 from app.jobs.monthly_settlement_job import MonthlySettlementJob
                 result = MonthlySettlementJob().run(target_month=target)
-                result["download_url"] = "/api/settlement/download/latest/monthly"
+                if target:
+                    result["download_url"] = f"/api/settlement/download/monthly/{target}"
+                else:
+                    result["download_url"] = "/api/settlement/download/latest/monthly"
             else:
                 from app.jobs.daily_settlement_job import DailySettlementJob
                 result = DailySettlementJob().run(target_date=target)
-                result["download_url"] = "/api/settlement/download/latest/daily"
+                if target:
+                    result["download_url"] = f"/api/settlement/download/daily/{target}"
+                else:
+                    result["download_url"] = "/api/settlement/download/latest/daily"
 
             if result.get("status") == "CAPTCHA_REQUIRED":
                 error_message = ("GAOSB doğrulaması henüz tamamlanmamış görünüyor. "
@@ -782,27 +812,44 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         logger.debug(f"{self.address_string()} - {format%args}")
 
 
+class SolarDashboardServer:
+    """
+    Neden: Dashboard web sunucusunu nesne yönelimli olarak temsil etmek ve yönetmek.
+    """
+    def __init__(self, port: int = None):
+        self.port = port
+        self.httpd = None
+
+    def start(self) -> None:
+        """
+        Neden: Dashboard web sunucusunu başlatmak ve serve_forever ile açık tutmak.
+        """
+        if self.port is None:
+            self.port = settings.dashboard_port
+
+        access_mode = settings.dashboard_access_mode
+        host = "0.0.0.0" if access_mode == "lan" else "127.0.0.1"
+
+        server_address = (host, self.port)
+        self.httpd = HTTPServer(server_address, DashboardRequestHandler)
+
+        logger.info(f"Dashboard Web Server BAŞLATILDI: http://{host if host != '0.0.0.0' else 'localhost'}:{self.port} (Mod: {access_mode})")
+        try:
+            self.httpd.serve_forever()
+        except KeyboardInterrupt:
+            logger.info("Dashboard Web Server durduruluyor...")
+        finally:
+            self.httpd.server_close()
+            logger.info("Dashboard Web Server kapatıldı.")
+
+
 def start_dashboard_server(port: int = None) -> None:
     """
     Neden: Dashboard web sunucusunu yapılandırmaya göre localhost veya LAN binding ile ayağa kaldırmak.
     """
-    if port is None:
-        port = settings.dashboard_port
-
-    access_mode = settings.dashboard_access_mode
-    host = "0.0.0.0" if access_mode == "lan" else "127.0.0.1"
-
-    server_address = (host, port)
-    httpd = HTTPServer(server_address, DashboardRequestHandler)
-
-    logger.info(f"Dashboard Web Server BAŞLATILDI: http://{host if host != '0.0.0.0' else 'localhost'}:{port} (Mod: {access_mode})")
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        logger.info("Dashboard Web Server durduruluyor...")
-    finally:
-        httpd.server_close()
-        logger.info("Dashboard Web Server kapatıldı.")
+    server = SolarDashboardServer(port=port)
+    server.start()
 
 if __name__ == "__main__":
     start_dashboard_server()
+
