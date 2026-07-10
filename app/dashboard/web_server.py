@@ -79,6 +79,31 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._serve_excel(_find_latest_report(MONTHLY_REPORT_RE))
             return
 
+        if path.startswith("/api/settlement/download/daily/"):
+            date_str = path.replace("/api/settlement/download/daily/", "").strip()
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                month_str = dt.strftime("%Y-%m")
+                formatted_date = dt.strftime("%Y%m%d")
+                file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_date}.xlsx"
+                self._serve_excel(file_path)
+            else:
+                self.send_error(400, "Geçersiz tarih formatı.")
+            return
+
+        if path.startswith("/api/settlement/download/monthly/"):
+            month_str = path.replace("/api/settlement/download/monthly/", "").strip()
+            if re.match(r"^\d{4}-\d{2}$", month_str):
+                year = int(month_str[:4])
+                month = int(month_str[5:7])
+                formatted_month = f"{year:04d}{month:02d}"
+                file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_month}_aylik.xlsx"
+                self._serve_excel(file_path)
+            else:
+                self.send_error(400, "Geçersiz ay formatı.")
+            return
+
+
         if path.startswith("/api/"):
             self._handle_api(path, query)
         else:
@@ -91,6 +116,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._handle_settlement_trigger(mode="daily")
         elif path == "/api/settlement/trigger/monthly":
             self._handle_settlement_trigger(mode="monthly")
+        elif path == "/api/settlement/trigger/daily-date":
+            self._handle_settlement_trigger_daily_date()
+        elif path == "/api/settlement/trigger/monthly-date":
+            self._handle_settlement_trigger_monthly_date()
+
         elif path == "/api/settings/smtp":
             self._handle_smtp_settings()
         elif path == "/api/gaosb/captcha-resolved":
@@ -461,6 +491,113 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             error_message = "Mahsuplaşma işlemi tamamlanamadı. Lütfen daha sonra tekrar deneyin."
 
         self._send_json_contract(response_data, error_message)
+
+    def _handle_settlement_trigger_daily_date(self) -> None:
+        body = self._read_json_body()
+        date_str = body.get("date")
+        if not date_str or not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+            self._send_json_contract(None, "Geçersiz tarih formatı. Beklenen: YYYY-MM-DD")
+            return
+        try:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            self._send_json_contract(None, "Geçersiz tarih.")
+            return
+
+        today = datetime.now().date()
+        if target_date >= today:
+            self._send_json_contract(None, "Tarih geçmişte olmalıdır.")
+            return
+
+        two_years_ago = today - timedelta(days=365*2)
+        if target_date < two_years_ago:
+            self._send_json_contract(None, "Tarih en fazla 2 yıl geriye ait olabilir.")
+            return
+
+        error_message = None
+        response_data = None
+        try:
+            from app.database.settlement_repository import SettlementRepository
+            repo = SettlementRepository()
+            has_db = repo.has_daily_data(date_str)
+            report_path = repo.get_daily_report_path(date_str)
+
+            if has_db and report_path:
+                response_data = {
+                    "status": "cached",
+                    "report_path": report_path,
+                    "download_url": f"/api/settlement/download/daily/{date_str}"
+                }
+            else:
+                from app.jobs.daily_settlement_job import DailySettlementJob
+                result = DailySettlementJob().run(target_date=date_str)
+                if result.get("status") == "SUCCESS":
+                    result["download_url"] = f"/api/settlement/download/daily/{date_str}"
+                response_data = result
+        except Exception as e:
+            logger.error(f"Geçmiş günlük mahsuplaşma tetikleme hatası ({date_str}): {e}")
+            error_message = "Mahsuplaşma işlemi tamamlanamadı. Lütfen daha sonra tekrar deneyin."
+
+        self._send_json_contract(response_data, error_message)
+
+    def _handle_settlement_trigger_monthly_date(self) -> None:
+        body = self._read_json_body()
+        month_str = body.get("month")
+        if not month_str or not re.match(r"^\d{4}-\d{2}$", month_str):
+            self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM")
+            return
+        try:
+            dt = datetime.strptime(month_str, "%Y-%m")
+            year = dt.year
+            month = dt.month
+        except ValueError:
+            self._send_json_contract(None, "Geçersiz ay.")
+            return
+
+        today = datetime.now().date()
+        first_of_this_month = today.replace(day=1)
+        target_first_day = dt.date()
+
+        if target_first_day >= first_of_this_month:
+            self._send_json_contract(None, "Ay bu aydan önce olmalıdır.")
+            return
+
+        try:
+            two_years_ago_first_day = first_of_this_month.replace(year=first_of_this_month.year - 2)
+        except ValueError:
+            two_years_ago_first_day = first_of_this_month - timedelta(days=365*2)
+            two_years_ago_first_day = two_years_ago_first_day.replace(day=1)
+
+        if target_first_day < two_years_ago_first_day:
+            self._send_json_contract(None, "Ay en fazla 2 yıl geriye ait olabilir.")
+            return
+
+        error_message = None
+        response_data = None
+        try:
+            from app.database.settlement_repository import SettlementRepository
+            repo = SettlementRepository()
+            has_db = repo.has_monthly_data(year, month)
+            report_path = repo.get_monthly_report_path(year, month)
+
+            if has_db and report_path:
+                response_data = {
+                    "status": "cached",
+                    "report_path": report_path,
+                    "download_url": f"/api/settlement/download/monthly/{month_str}"
+                }
+            else:
+                from app.jobs.monthly_settlement_job import MonthlySettlementJob
+                result = MonthlySettlementJob().run(target_month=month_str)
+                if result.get("status") == "SUCCESS":
+                    result["download_url"] = f"/api/settlement/download/monthly/{month_str}"
+                response_data = result
+        except Exception as e:
+            logger.error(f"Geçmiş aylık mahsuplaşma tetikleme hatası ({month_str}): {e}")
+            error_message = "Mahsuplaşma işlemi tamamlanamadı. Lütfen daha sonra tekrar deneyin."
+
+        self._send_json_contract(response_data, error_message)
+
 
     def _handle_captcha_resolved(self) -> None:
         """

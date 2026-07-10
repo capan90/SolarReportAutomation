@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional, Dict
 
 from app.core.logger import setup_logger
@@ -145,3 +146,52 @@ class SettlementRepository:
             }
         finally:
             session.close()
+
+    def has_daily_data(self, date: str) -> bool:
+        """settlement_daily tablosunda o tarih var mı?"""
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            return False
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(SettlementDaily)
+                .filter(SettlementDaily.date == target_date)
+                .first()
+            )
+            return row is not None
+        finally:
+            session.close()
+
+    def has_monthly_data(self, year: int, month: int) -> bool:
+        """settlement_monthly tablosunda o ay var mı?"""
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(SettlementMonthly)
+                .filter(SettlementMonthly.year == year, SettlementMonthly.month == month)
+                .first()
+            )
+            return row is not None
+        finally:
+            session.close()
+
+    def get_daily_report_path(self, date: str) -> Optional[str]:
+        """outputs/reports/YYYY-MM/mahsup_YYYYMMDD.xlsx varsa path döndür"""
+        try:
+            dt = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            return None
+        month_str = dt.strftime("%Y-%m")
+        formatted_date = dt.strftime("%Y%m%d")
+        path = Path("outputs/reports") / month_str / f"mahsup_{formatted_date}.xlsx"
+        return str(path) if path.exists() else None
+
+    def get_monthly_report_path(self, year: int, month: int) -> Optional[str]:
+        """outputs/reports/YYYY-MM/mahsup_YYYYMM_aylik.xlsx varsa path döndür"""
+        month_str = f"{year:04d}-{month:02d}"
+        formatted_month = f"{year:04d}{month:02d}"
+        path = Path("outputs/reports") / month_str / f"mahsup_{formatted_month}_aylik.xlsx"
+        return str(path) if path.exists() else None
+

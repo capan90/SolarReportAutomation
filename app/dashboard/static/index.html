@@ -320,7 +320,34 @@
                 <div id="trigger-msg" class="msg"></div>
                 <a id="trigger-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
             </div>
+
+            <!-- ============ GEÇMİŞ RAPOR SORGULA ============ -->
+            <div class="card" style="margin-top: 22px;">
+                <div class="card-title">📅 Geçmiş Rapor Sorgula</div>
+                <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
+                    Geçmiş bir tarihe ait verileri sorgulayabilir ve raporunu hazırlayabilirsiniz.
+                </p>
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 14px;">
+                    <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label>Günlük Rapor:</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input id="input-daily-date" type="date">
+                            <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')">Raporu Hazırla</button>
+                        </div>
+                    </div>
+                    <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
+                        <label>Aylık Rapor:</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input id="input-monthly-date" type="month">
+                            <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')">Raporu Hazırla</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="past-msg" class="msg"></div>
+                <a id="past-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
+            </div>
         </section>
+
 
         <!-- ============ MAHSUPLAŞMALARIM ============ -->
         <section id="page-settlements" class="page">
@@ -916,12 +943,138 @@
             }
         }
 
+        function initPastReportLimits() {
+            const today = new Date();
+            
+            // Daily limits: max is yesterday, min is 2 years ago
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const maxDailyStr = yesterday.toISOString().split("T")[0];
+            
+            const twoYearsAgo = new Date(today);
+            twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+            const minDailyStr = twoYearsAgo.toISOString().split("T")[0];
+            
+            const dailyInput = document.getElementById("input-daily-date");
+            if (dailyInput) {
+                dailyInput.min = minDailyStr;
+                dailyInput.max = maxDailyStr;
+            }
+            
+            // Monthly limits: max is previous month, min is 2 years ago this month
+            const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            const maxMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+            
+            const twoYearsAgoMonth = new Date(today.getFullYear() - 2, today.getMonth(), 1);
+            const minMonthStr = `${twoYearsAgoMonth.getFullYear()}-${String(twoYearsAgoMonth.getMonth() + 1).padStart(2, '0')}`;
+            
+            const monthlyInput = document.getElementById("input-monthly-date");
+            if (monthlyInput) {
+                monthlyInput.min = minMonthStr;
+                monthlyInput.max = maxMonthStr;
+            }
+        }
+
+        async function triggerPastReport(mode) {
+            const btnDaily = document.getElementById("btn-get-daily");
+            const btnMonthly = document.getElementById("btn-get-monthly");
+            const msg = document.getElementById("past-msg");
+            const dl = document.getElementById("past-download");
+            
+            const inputDaily = document.getElementById("input-daily-date");
+            const inputMonthly = document.getElementById("input-monthly-date");
+            
+            let payload = {};
+            let url = "";
+            let selectedVal = "";
+            
+            if (mode === "daily") {
+                selectedVal = inputDaily.value;
+                if (!selectedVal) {
+                    msg.className = "msg bad";
+                    msg.innerText = "Lütfen bir tarih seçin.";
+                    return;
+                }
+                payload = { date: selectedVal };
+                url = "/api/settlement/trigger/daily-date";
+            } else {
+                selectedVal = inputMonthly.value;
+                if (!selectedVal) {
+                    msg.className = "msg bad";
+                    msg.innerText = "Lütfen bir ay seçin.";
+                    return;
+                }
+                payload = { month: selectedVal };
+                url = "/api/settlement/trigger/monthly-date";
+            }
+            
+            btnDaily.disabled = true;
+            btnMonthly.disabled = true;
+            dl.style.display = "none";
+            
+            const activeBtn = mode === "daily" ? btnDaily : btnMonthly;
+            const originalText = activeBtn.innerText;
+            activeBtn.innerHTML = '<span class="spinner"></span> Hazırlanıyor...';
+            
+            msg.className = "msg info";
+            msg.innerText = "Veriler çekiliyor, lütfen bekleyin... (birkaç dakika sürebilir)";
+            
+            try {
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                
+                if (body.success && body.data) {
+                    const data = body.data;
+                    if (data.status === "cached") {
+                        msg.className = "msg ok";
+                        msg.innerText = "✓ Bu tarih daha önce hesaplandı. Rapor hazır, indiriliyor...";
+                        dl.href = data.download_url;
+                        dl.innerText = "Raporu İndir";
+                        dl.style.display = "inline-flex";
+                        
+                        window.location.href = data.download_url;
+                    } else if (data.status === "SUCCESS") {
+                        msg.className = "msg ok";
+                        msg.innerText = "✓ Rapor başarıyla hazırlandı.";
+                        dl.href = data.download_url;
+                        dl.innerText = "Raporu İndir";
+                        dl.style.display = "inline-flex";
+                        
+                        window.location.href = data.download_url;
+                    } else if (data.status === "CAPTCHA_REQUIRED") {
+                        msg.className = "msg bad";
+                        msg.innerText = "GAOSB Güvenlik Doğrulaması gerekiyor. Lütfen yukarıdaki uyarı bandından doğrulamayı tamamlayın.";
+                        checkCaptchaStatus();
+                    } else {
+                        msg.className = "msg bad";
+                        msg.innerText = "Rapor hazırlanamadı. Lütfen tekrar deneyin.";
+                    }
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = "Rapor hazırlanamadı. Lütfen tekrar deneyin.";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Rapor hazırlanamadı. Lütfen tekrar deneyin.";
+            } finally {
+                btnDaily.disabled = false;
+                btnMonthly.disabled = false;
+                activeBtn.innerText = originalText;
+            }
+        }
+
         setInterval(checkCaptchaStatus, 60000);
 
         window.addEventListener("DOMContentLoaded", () => {
             loadHome();
             checkCaptchaStatus();
+            initPastReportLimits();
         });
+
     </script>
 </body>
 </html>
