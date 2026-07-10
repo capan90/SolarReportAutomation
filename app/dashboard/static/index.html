@@ -233,13 +233,13 @@
             <button class="modal-close" onclick="closeCaptchaModal()">&#10005;</button>
             <h3>GAOSB Güvenlik Doğrulaması</h3>
             <ol>
-                <li>Aşağıdaki butona tıklayarak GAOSB'ye gidin</li>
+                <li>Aşağıdaki butona tıklayarak GAOSB portalını açın</li>
                 <li>Güvenlik doğrulamasını (captcha) tamamlayın</li>
-                <li>Giriş yaptıktan sonra "Tamamladım" deyin</li>
+                <li>Giriş yaptıktan sonra bu pencereye dönün ve 'Doğrulamayı Tamamla' butonuna tıklayın</li>
             </ol>
             <a class="btn blue" style="margin-bottom:18px;" href="https://elk.gaosb.org/" target="_blank" rel="noopener">GAOSB Portalını Aç &#8594;</a>
             <p class="muted small" style="margin-bottom:10px;">Doğrulamayı tamamladınız mı?</p>
-            <button id="btn-captcha-done" class="btn green" onclick="resolveCaptcha()">Tamamladım — Raporu Yeniden Hazırla</button>
+            <button id="btn-captcha-done" class="btn green" onclick="resolveCaptcha()">Doğrulamayı Tamamla — Raporu Hazırla</button>
             <div id="captcha-msg" class="msg"></div>
             <a id="captcha-download" class="btn outline" style="display:none; margin-top:10px;" href="#">&#10003; Rapor hazır — İndir</a>
         </div>
@@ -916,7 +916,7 @@
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> Kontrol ediliyor...';
             msg.className = "msg info";
-            msg.innerHTML = "Güvenlik doğrulaması kontrol ediliyor...<br>Ardından rapor otomatik hazırlanacak.<br>Bu işlem 2-3 dakika sürebilir.";
+            msg.innerHTML = "Sistem GAOSB'ye bağlanıyor ve rapor hazırlanıyor, lütfen bekleyin... (2-3 dakika)";
             dl.style.display = "none";
 
             try {
@@ -924,7 +924,7 @@
                 const body = await res.json();
                 if (body.success && body.data && body.data.status === "SUCCESS") {
                     msg.className = "msg ok";
-                    msg.innerText = "✓ Doğrulama tamamlandı, rapor hazırlandı!";
+                    msg.innerText = "✓ Rapor hazırlandı!";
                     dl.href = body.data.download_url || "#";
                     dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
@@ -932,16 +932,16 @@
                     loadHome();
                 } else {
                     msg.className = "msg bad";
-                    msg.innerText = "Doğrulama tamamlanamadı. Lütfen tekrar deneyin.";
+                    msg.innerText = "Bağlantı kurulamadı, lütfen tekrar deneyin";
                     checkCaptchaStatus();
                 }
             } catch (e) {
                 msg.className = "msg bad";
-                msg.innerText = "Doğrulama tamamlanamadı. Lütfen tekrar deneyin.";
+                msg.innerText = "Bağlantı kurulamadı, lütfen tekrar deneyin";
                 checkCaptchaStatus();
             } finally {
                 btn.disabled = false;
-                btn.innerText = "Tamamladım — Raporu Yeniden Hazırla";
+                btn.innerText = "Doğrulamayı Tamamla — Raporu Hazırla";
             }
         }
 
