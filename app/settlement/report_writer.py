@@ -36,7 +36,7 @@ class SettlementReportWriter:
             saat_araligi = "23:00-24:00"
         return tarih_str, saat_araligi
 
-    def write(self, settlements: List[HourlySettlement], output_path: Path, isolar_df=None) -> Path:
+    def write(self, settlements: List[HourlySettlement], output_path: Path, isolar_df=None, summary_title=None) -> Path:
         """
         Neden: HourlySettlement listesini alır ve belirtilen output_path konumunda
         şekillendirilmiş bir Excel raporu üretir.
@@ -44,6 +44,30 @@ class SettlementReportWriter:
         isolar_df: load_isolar_curve()'den gelen DataFrame (opsiyonel).
         Verilirse "GES Kırılımı" ikinci sayfası eklenir.
         """
+        if not summary_title:
+            if settlements:
+                unique_dates = set()
+                for s in settlements:
+                    tarih_str, _ = self._parse_timestamp(s.timestamp)
+                    unique_dates.add(tarih_str)
+                
+                if len(unique_dates) == 1:
+                    summary_title = f"{next(iter(unique_dates))} Günlük Toplamları"
+                else:
+                    first_ts = settlements[0].timestamp.replace("T", " ")
+                    date_part = first_ts.split(' ')[0]
+                    try:
+                        year, month, _ = map(int, date_part.split('-'))
+                        AYLAR = {
+                            1: "Ocak", 2: "Şubat", 3: "Mart", 4: "Nisan",
+                            5: "Mayıs", 6: "Haziran", 7: "Temmuz", 8: "Ağustos",
+                            9: "Eylül", 10: "Ekim", 11: "Kasım", 12: "Aralık"
+                        }
+                        summary_title = f"{AYLAR.get(month, '')} {year} Aylık Toplamları"
+                    except Exception:
+                        summary_title = "AYLIK TOPLAMLAR"
+            else:
+                summary_title = "AYLIK TOPLAMLAR"
         # Neden: Yeni bir openpyxl çalışma kitabı oluşturup aktif sayfayı seçeriz.
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -133,10 +157,10 @@ class SettlementReportWriter:
             cell.border = double_bottom_border
 
         # Neden: Sağ tarafta yer alan özet bloğu (I-J sütunları) oluştururuz.
-        # AYLIK TOPLAMLAR Başlığı
+        # Dinamik Özet Başlığı
         ws.merge_cells("I2:J2")
         title_cell = ws["I2"]
-        title_cell.value = "AYLIK TOPLAMLAR"
+        title_cell.value = summary_title
         title_cell.font = font_header
         title_cell.fill = fill_gray
         title_cell.alignment = Alignment(horizontal="center", vertical="center")
