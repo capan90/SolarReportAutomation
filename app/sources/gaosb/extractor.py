@@ -261,7 +261,7 @@ class GaosbExtractor(ISourceExtractor):
                 logger.error(f"Login butonu tıklanamadı: {e}")
                 raise SourceAuthenticationError("gaosb") from e
 
-            page.wait_for_url("**/mainpage.aspx", timeout=30000)
+            page.wait_for_url("**/mainpage.aspx", timeout=60000, wait_until="domcontentloaded")
             logger.info("Giriş başarılı, mainpage.aspx sayfasına ulaşıldı.")
         except SourceAuthenticationError:
             raise
@@ -428,12 +428,42 @@ class GaosbExtractor(ISourceExtractor):
                 except Exception:
                     pass
             
-            if "mainpage" in page.url.lower() or not self._is_captcha_page(page):
-                logger.info("Session yenileme başarılı, profil kaydedildi.")
+            current_url = (page.url or "").lower()
+            if "mainpage" in current_url:
+                logger.info("Session yenileme başarılı (zaten giriş yapılmış).")
                 return True
-            else:
-                logger.error("Session yenileme başarısız.")
+            elif self._is_captcha_page(page):
+                logger.error("Captcha çözülemedi, session yenileme başarısız.")
                 return False
+            else:
+                # Login sayfasındayız, otomatik giriş yapmayı dene
+                username = os.environ.get("GAOSB_USERNAME")
+                password = os.environ.get("GAOSB_PASSWORD")
+                if not username or not password:
+                    logger.error("GAOSB kimlik bilgileri eksik.")
+                    return False
+                
+                success_login = False
+                for attempt in range(1, 4):
+                    try:
+                        logger.info(f"Oturum açma denemesi {attempt}/3...")
+                        if attempt > 1:
+                            page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
+                        
+                        self._perform_login(page, username, password)
+                        success_login = True
+                        break
+                    except Exception as le:
+                        logger.warning(f"Oturum açma denemesi {attempt} başarısız oldu: {le}")
+                        if attempt < 3:
+                            time.sleep(5)
+                
+                if success_login:
+                    logger.info("Session yenileme başarılı, profil kaydedildi.")
+                    return True
+                else:
+                    logger.error("3 deneme sonrasında da oturum açılamadı.")
+                    return False
         except Exception as e:
             logger.error(f"Session yenileme hatası: {e}")
             return False
