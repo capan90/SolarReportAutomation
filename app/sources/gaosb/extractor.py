@@ -386,20 +386,15 @@ class GaosbExtractor(ISourceExtractor):
                 pass
 
     def renew_session(self) -> bool:
-        """
-        Playwright headless=False ile GAOSB'ye bağlanır,
-        BotGuard clearance alır, profile kaydeder ve kapanır.
-        
-        Terminal'de çalışır (GAOSB_INTERACTIVE dikkate alınmaz).
-        Captcha varsa kullanıcı manuel geçer.
-        
-        Returns: True başarılı, False başarısız
-        """
         pw = None
         context = None
         try:
             from playwright.sync_api import sync_playwright
+            import time
+            
             USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+            logger.info(f"renew_session başlatılıyor, profil: {USER_DATA_DIR}")
+            
             pw = sync_playwright().start()
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=str(USER_DATA_DIR),
@@ -410,68 +405,150 @@ class GaosbExtractor(ISourceExtractor):
                 accept_downloads=True,
             )
             page = context.new_page()
+            logger.info("Tarayıcı açıldı")
             
+            # Ana sayfaya git
             gaosb_url = os.environ.get("GAOSB_URL", "https://elk.gaosb.org/")
             page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(2)
             
-            if self._is_captcha_page(page):
-                print("\n" + "="*60)
-                print("GAOSB GÜVENLİK DOĞRULAMASI GEREKİYOR")
-                print("Açılan tarayıcıda captcha'yı çözün ve giriş yapın.")
-                print("Tamamladıktan sonra Enter'a basın...")
-                print("="*60)
-                input()
-                # Tekrar kontrol et (otomatik yönlendirmeyi kesmemek için best-effort)
-                time.sleep(2)
+            # URL ve içerik bazlı durum tespiti
+            def get_page_state(p):
                 try:
-                    page.goto(gaosb_url, wait_until="domcontentloaded", timeout=15000)
+                    if self._is_captcha_page(p):
+                        return "captcha"
                 except Exception:
                     pass
+                url = (p.url or "").lower()
+                if "mainpage" in url:
+                    return "mainpage"
+                elif any(x in url for x in ["login", "default.aspx", "elk.gaosb.org/"]):
+                    return "login"
+                else:
+                    return "unknown"
             
-            current_url = (page.url or "").lower()
-            if "mainpage" in current_url:
-                logger.info("Session yenileme başarılı (zaten giriş yapılmış).")
-                return True
-            elif self._is_captcha_page(page):
-                logger.error("Captcha çözülemedi, session yenileme başarısız.")
-                return False
-            else:
-                # Login sayfasındayız, otomatik giriş yapmayı dene
+            state = get_page_state(page)
+            logger.info(f"İlk URL: {page.url}")
+            logger.info(f"Sayfa durumu: {state}")
+            
+            # Captcha varsa bekle (kullanıcı tarayıcıda geçer)
+            if state == "captcha":
+                logger.info("Captcha tespit edildi, kullanıcı geçmesini bekliyorum...")
+                for i in range(150):  # max 5 dakika (2s * 150)
+                    time.sleep(2)
+                    state = get_page_state(page)
+                    
+                    if i % 15 == 0:
+                        logger.info(f"Captcha bekleniyor ({i//15+1}/10): {state} - {page.url}")
+                    
+                    # Her 60 saniyede bir reload yap (tıkanma durumlarına karşı)
+                    if i > 0 and i % 30 == 0:
+                        logger.info("Sayfa tıkanma ihtimaline karşı yeniden yükleniyor...")
+                        try:
+                            page.reload(wait_until="domcontentloaded", timeout=15000)
+                        except Exception:
+                            pass
+                    
+                    if state != "captcha":
+                        break
+            
+            # Login sayfasındaysa otomatik giriş yap
+            if state == "login":
+                logger.info("Login sayfası tespit edildi, otomatik giriş yapılıyor...")
                 username = os.environ.get("GAOSB_USERNAME")
                 password = os.environ.get("GAOSB_PASSWORD")
                 if not username or not password:
                     logger.error("GAOSB kimlik bilgileri eksik.")
                     return False
                 
-                success_login = False
-                for attempt in range(1, 4):
+                for attempt in range(3):
                     try:
-                        logger.info(f"Oturum açma denemesi {attempt}/3...")
-                        if attempt > 1:
-                            page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
+                        logger.info(f"Login denemesi {attempt+1}/3")
+                        # Kullanıcı adı
+                        username_sel = "#ctl00_ContentPlaceHolder1_eUserName_I"
+                        page.wait_for_selector(username_sel, timeout=10000)
+                        page.fill(username_sel, username)
                         
-                        self._perform_login(page, username, password)
-                        success_login = True
-                        break
-                    except Exception as le:
-                        logger.warning(f"Oturum açma denemesi {attempt} başarısız oldu: {le}")
-                        if attempt < 3:
+                        # Şifre
+                        password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I"
+                        page.fill(password_sel, password)
+                        
+                        # EULA checkbox (DevExpress span olduğundan click kullanılmalı)
+                        try:
+                            checkbox = page.locator(
+                                "#ctl00_ContentPlaceHolder1_chkReadcontract_S"
+                            ).first
+                            if checkbox.is_visible(timeout=2000):
+                                checkbox.click()
+                                logger.info("EULA işaretlendi")
+                        except Exception as e:
+                            logger.error(f"EULA işaretleme hatası: {e}")
+                        
+                        # Login butonu (DevExpress CD div veya form submit)
+                        login_div = page.locator(
+                            "#ctl00_ContentPlaceHolder1_LoginButton_CD"
+                        ).first
+                        try:
+                            if login_div.is_visible(timeout=3000):
+                                login_div.click()
+                                logger.info("Login butonu tıklandı")
+                            else:
+                                logger.info("Login div görünür değil, JS submit deneniyor...")
+                                page.evaluate("document.querySelector('form').submit()")
+                        except Exception as le:
+                            logger.error(f"Login butonu tıklanamadı: {le}")
+                            page.evaluate("document.querySelector('form').submit()")
+                        
+                        # URL değişmesini poll et
+                        for j in range(24):  # max 120 saniye
                             time.sleep(5)
+                            state = get_page_state(page)
+                            logger.info(f"Login bekleniyor ({j+1}/24): {state} - {page.url}")
+                            if state == "mainpage":
+                                break
+                        
+                        if state == "mainpage":
+                            break
+                        else:
+                            logger.warning(f"Login denemesi {attempt+1} başarısız, tekrar deneniyor...")
+                            try:
+                                page.reload(wait_until="domcontentloaded", timeout=15000)
+                            except Exception:
+                                pass
+                            time.sleep(3)
+                            
+                    except Exception as e:
+                        logger.error(f"Login denemesi {attempt+1} hatası: {e}")
+                        time.sleep(3)
+            
+            # Sonuç kontrolü
+            state = get_page_state(page)
+            logger.info(f"Final durum: {state} - {page.url}")
+            
+            if state == "mainpage":
+                logger.info("Session yenileme BAŞARILI")
+                return True
+            else:
+                logger.error(f"Session yenileme BAŞARISIZ, final state: {state}")
+                return False
                 
-                if success_login:
-                    logger.info("Session yenileme başarılı, profil kaydedildi.")
-                    return True
-                else:
-                    logger.error("3 deneme sonrasında da oturum açılamadı.")
-                    return False
         except Exception as e:
-            logger.error(f"Session yenileme hatası: {e}")
+            logger.error(f"renew_session genel hata: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
         finally:
             if context:
-                context.close()
+                try:
+                    context.close()
+                    logger.info("Tarayıcı kapatıldı")
+                except Exception:
+                    pass
             if pw:
-                pw.stop()
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Format dönüştürme yardımcıları
