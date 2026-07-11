@@ -931,6 +931,15 @@ class IsolarExtractor:
         NOT: Bu metod çağrıldığında login yapılmış olmalı.
         Persistent session kullanır.
         """
+        def clean_plant_name(name: str) -> str:
+            # "ERDEMSOFT-GES_2 Guest Elbeyli" → "ERDEMSOFT-GES-2"
+            import re
+            # Sadece ERDEMSOFT-GES-X kısmını al
+            match = re.search(r'ERDEMSOFT[- _]GES[_-](\d+)', name)
+            if match:
+                return f"ERDEMSOFT-GES-{match.group(1)}"
+            return name.strip()
+
         logger.info("iSolar santral durumları çekiliyor...")
         from urllib.parse import urlparse
         parsed = urlparse(self.page.url if self.page.url and "http" in self.page.url else settings.base_url)
@@ -989,7 +998,7 @@ class IsolarExtractor:
                 plant_name = None
                 for txt in cell_texts:
                     if "GES" in txt:
-                        plant_name = txt.replace("\n", " ").strip()
+                        plant_name = clean_plant_name(txt.replace("\n", " ").strip())
                         break
                 
                 if not plant_name:
