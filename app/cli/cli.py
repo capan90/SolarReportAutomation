@@ -96,6 +96,13 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         help="Aylık job için hedef ay (Format: YYYY-MM), yoksa geçen ay"
     )
 
+    parser.add_argument(
+        "--plant-status",
+        action="store_true",
+        default=False,
+        help="Santral durum kontrolü job'unu çalıştır"
+    )
+
     parsed = parser.parse_args(args_list)
 
     # Neden: Tarih parametresinin YYYY-MM-DD formatında olmasını zorunlu kılmak (Fail-Fast)
@@ -141,5 +148,6 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         settlement=parsed.settlement,
         settlement_date=parsed.settlement_date,
         settlement_monthly=parsed.settlement_monthly,
-        settlement_month=parsed.settlement_month
+        settlement_month=parsed.settlement_month,
+        plant_status=parsed.plant_status
     )

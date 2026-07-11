@@ -249,6 +249,55 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 # Neden: Geriye dönük uyumluluk — eski arayüz sözleşmesi.
                 response_data = _report_info(_find_latest_report(DAILY_REPORT_RE), "daily")
 
+            elif path == "/api/plants/status":
+                from app.database.plant_status_repository import PlantStatusRepository
+                repo = PlantStatusRepository()
+                records = repo.get_latest_status_records()
+                plants = []
+                anomaly_count = 0
+                last_check_dt = None
+                for r in records:
+                    last_checked_str = r.timestamp.strftime("%H:%M") if r.timestamp else "-"
+                    plants.append({
+                        "name": r.plant_name,
+                        "status": r.status,
+                        "last_checked": last_checked_str
+                    })
+                    if r.status != "Normal":
+                        anomaly_count += 1
+                    if r.timestamp:
+                        if last_check_dt is None or r.timestamp > last_check_dt:
+                            last_check_dt = r.timestamp
+                last_check_str = last_check_dt.strftime("%d.%m.%Y %H:%M") if last_check_dt else "-"
+                response_data = {
+                    "plants": plants,
+                    "last_check": last_check_str,
+                    "anomaly_count": anomaly_count
+                }
+
+            elif path == "/api/plants/history":
+                from app.database.plant_status_repository import PlantStatusRepository
+                repo = PlantStatusRepository()
+                plant_name = query.get("plant", [None])[0]
+                hours_str = query.get("hours", ["24"])[0]
+                try:
+                    hours = int(hours_str)
+                except ValueError:
+                    hours = 24
+                records = repo.get_status_history(plant_name=plant_name, hours=hours)
+                response_data = [
+                    {
+                        "id": r.id,
+                        "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                        "plant_name": r.plant_name,
+                        "status": r.status,
+                        "previous_status": r.previous_status,
+                        "notified": r.notified,
+                        "created_at": r.created_at.isoformat() if r.created_at else None
+                    }
+                    for r in records
+                ]
+
             elif path == "/api/settings":
                 response_data = self._build_settings_payload()
             elif path.startswith("/api/metrics/"):

@@ -104,6 +104,19 @@ def run():
             print(f"Settlement Job hatası: {e}")
             sys.exit(1)
 
+    if args and getattr(args, 'plant_status', False):
+        from app.jobs.plant_status_job import PlantStatusJob
+        try:
+            job = PlantStatusJob()
+            result = job.run()
+            print(f"Plant Status Job: {result['status']}")
+            if result.get('error'):
+                print(f"Hata: {result['error']}")
+            sys.exit(0 if result['status'] in ('SUCCESS', 'SKIPPED') else 1)
+        except Exception as e:
+            print(f"Plant Status Job hatası: {e}")
+            sys.exit(1)
+
     # 2. Lock file kontrolü (Uç uca çakışmaları engellemek)
     if LOCK_FILE.exists():
         print(f"Hata: İkinci bir ETL işlemi çalışamaz. Lock dosyası aktif: {LOCK_FILE}")

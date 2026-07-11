@@ -107,10 +107,11 @@
         .card-title { font-size: 0.98rem; font-weight: 700; margin-bottom: 14px; }
         .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
         .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         /* Neden: Grid hücresindeki Chart.js canvas'ı min-width:0 olmadan sonsuz
            büyüme (resize loop) döngüsüne girer ve sayfayı kilitler. */
-        .grid-2 > *, .grid-4 > *, .grid-5 > * { min-width: 0; }
+        .grid-2 > *, .grid-3 > *, .grid-4 > *, .grid-5 > * { min-width: 0; }
 
         .kpi .kpi-date { color: var(--muted); font-size: 0.7rem; font-weight: 600; margin-bottom: 8px; }
         .kpi .label { color: var(--muted); font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -205,7 +206,7 @@
         @media (max-width: 1000px) {
             .grid-4 { grid-template-columns: repeat(2, 1fr); }
             .grid-5 { grid-template-columns: repeat(2, 1fr); }
-            .grid-2, .form-grid { grid-template-columns: 1fr; }
+            .grid-2, .grid-3, .form-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 720px) {
             body { flex-direction: column; }
@@ -272,7 +273,16 @@
                 <div class="card kpi lightgreen"><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
             </div>
 
-            <div class="grid-2">
+            <div class="grid-3">
+                <div class="card">
+                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                        <span>🔋 Santral Durumları</span>
+                    </div>
+                    <div id="plant-last-check" class="muted small" style="margin-bottom: 14px; font-weight: normal; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Son kontrol: -</div>
+                    <div id="plant-status-container">
+                        <div class="muted small" style="text-align:center; padding: 20px;">Yükleniyor...</div>
+                    </div>
+                </div>
                 <div class="card">
                     <div class="card-title">Sistem Durumu</div>
                     <div class="status-row"><span class="name">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
@@ -543,10 +553,52 @@
             });
         });
 
+        async function loadPlantStatuses() {
+            const data = await api("/api/plants/status");
+            const container = document.getElementById("plant-status-container");
+            const lastCheckEl = document.getElementById("plant-last-check");
+            
+            if (data && data.plants && data.plants.length) {
+                lastCheckEl.innerText = "Son kontrol: " + (data.last_check || "-");
+                
+                container.innerHTML = data.plants.map(p => {
+                    let icon = "●";
+                    let color = "var(--green)";
+                    
+                    if (p.status === "Normal") {
+                        icon = "●";
+                        color = "var(--green)";
+                    } else if (p.status === "Abnormal") {
+                        icon = "⚠";
+                        color = "var(--yellow)";
+                    } else if (p.status === "Offline") {
+                        icon = "✗";
+                        color = "var(--red)";
+                    } else {
+                        icon = "?";
+                        color = "var(--muted)";
+                    }
+                    
+                    return `
+                        <div class="status-row">
+                            <span class="name">${p.name}</span>
+                            <span style="font-weight: 600; display: inline-flex; align-items: center;">
+                                <span style="color: ${color}; margin-right: 6px; font-size: 1.1rem; line-height: 1;">${icon}</span>
+                                <span style="color: ${color};">${p.status}</span>
+                            </span>
+                        </div>
+                    `;
+                }).join("");
+            } else {
+                container.innerHTML = '<div class="muted small" style="text-align:center; padding: 20px;">Santral durum verisi bulunamadı.</div>';
+            }
+        }
+
         // ------------------------------------------------------------
         // ANA SAYFA
         // ------------------------------------------------------------
         async function loadHome() {
+            loadPlantStatuses();
             const summary = await api("/api/settlement/summary");
             if (summary) {
                 const g = summary.bugun || {};
@@ -1067,9 +1119,11 @@
         }
 
         setInterval(checkCaptchaStatus, 60000);
+        setInterval(loadPlantStatuses, 15 * 60 * 1000);
 
         window.addEventListener("DOMContentLoaded", () => {
             loadHome();
+            loadPlantStatuses();
             checkCaptchaStatus();
             initPastReportLimits();
         });

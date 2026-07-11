@@ -9,7 +9,8 @@ from sqlalchemy import (
     Text,
     DateTime,
     ForeignKey,
-    UniqueConstraint
+    UniqueConstraint,
+    Boolean
 )
 from sqlalchemy.orm import relationship
 from app.database.db_session import Base
@@ -207,6 +208,18 @@ class PerformanceMetric(Base):
     metric_value = Column(Numeric(12, 4), nullable=False)
     labels = Column(Text, nullable=True)                  # JSON string dimensions
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+
+class PlantStatus(Base):
+    __tablename__ = "plant_status"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False)
+    plant_name = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    previous_status = Column(String, nullable=True)
+    notified = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 
 

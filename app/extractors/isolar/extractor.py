@@ -911,5 +911,126 @@ class IsolarExtractor:
                 except Exception:
                     pass
 
+    def get_plant_statuses(self) -> dict:
+        """
+        iSolar Plant listesi sayfasından tüm GES'lerin
+        durumunu okur ve döndürür.
+        
+        Returns: {"ERDEMSOFT-GES-2": "Normal", 
+                   "ERDEMSOFT-GES-4": "Abnormal", ...}
+        
+        Akış:
+        1. Plant listesi sayfasına git
+           page.goto("#/plant/list" veya Plant menüsüne tıkla)
+        2. Sayfa yüklenene kadar bekle
+        3. Her satırdaki plant name ve status'u oku
+           - Status kolonunda "Normal", "Abnormal", "Offline" var
+           - CSS selector'ları DOM'dan bul
+        4. Dict olarak döndür
+        
+        NOT: Bu metod çağrıldığında login yapılmış olmalı.
+        Persistent session kullanır.
+        """
+        logger.info("iSolar santral durumları çekiliyor...")
+        from urllib.parse import urlparse
+        parsed = urlparse(self.page.url if self.page.url and "http" in self.page.url else settings.base_url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        
+        urls_to_try = [
+            f"{base_domain}/#/plant/list",
+            f"{base_domain}/#/plantList",
+            f"{base_domain.rstrip('/')}/#/plant/list",
+            f"{base_domain.rstrip('/')}/#/plantList"
+        ]
+        
+        table_loaded = False
+        for target_url in urls_to_try:
+            logger.info(f"Yönlendirilen URL deneniyor: {target_url}")
+            try:
+                self.page.goto(target_url, wait_until="domcontentloaded", timeout=12000)
+                self.page.wait_for_timeout(2000)
+                # Tablonun yüklenmesini bekle
+                try:
+                    self.page.wait_for_selector(".el-table__row", timeout=5000)
+                    table_loaded = True
+                    logger.info("Santral tablosu başarıyla yüklendi.")
+                    break
+                except Exception:
+                    # tr etiketlerini dene
+                    if self.page.locator("tr").count() > 1:
+                        table_loaded = True
+                        logger.info("Tablo tr satırları bulundu.")
+                        break
+            except Exception as e:
+                logger.warning(f"{target_url} sayfasına gidilemedi veya tablo yüklenemedi: {e}")
+
+        if not table_loaded:
+            logger.warning("Belirtilen URL'ler ile tablo yüklenemedi. Son çare olarak mevcut sayfada tarama yapılacak.")
+            self._take_screenshot("warning_plant_list_not_loaded")
+
+        self.page.wait_for_timeout(2000)
+        
+        rows = self.page.locator(".el-table__row").all()
+        if not rows:
+            rows = self.page.locator("tr").all()
+            
+        logger.info(f"Tabloda toplam {len(rows)} satır bulundu.")
+        results = {}
+        
+        for idx, row in enumerate(rows):
+            try:
+                cells = row.locator("td").all()
+                if not cells:
+                    continue
+                
+                cell_texts = [c.inner_text().strip() for c in cells]
+                
+                # Santral adını bul (içinde GES geçen ilk sütun)
+                plant_name = None
+                for txt in cell_texts:
+                    if "GES" in txt:
+                        plant_name = txt.replace("\n", " ").strip()
+                        break
+                
+                if not plant_name:
+                    continue
+                
+                # Durumu belirle
+                status = "Normal"
+                found = False
+                for txt in cell_texts:
+                    t_lower = txt.lower()
+                    if "normal" in t_lower:
+                        status = "Normal"
+                        found = True
+                        break
+                    elif any(w in t_lower for w in ["abnormal", "arıza", "ariza", "hata", "anormal"]):
+                        status = "Abnormal"
+                        found = True
+                        break
+                    elif any(w in t_lower for w in ["offline", "çevrimdışı", "cevrimdisi"]):
+                        status = "Offline"
+                        found = True
+                        break
+                
+                if not found:
+                    # Alternatif olarak HTML içeriğini tara
+                    row_html = row.inner_html().lower()
+                    if "normal" in row_html:
+                        status = "Normal"
+                    elif any(w in row_html for w in ["abnormal", "arıza", "ariza", "hata", "anormal", "error", "warn"]):
+                        status = "Abnormal"
+                    elif any(w in row_html for w in ["offline", "çevrimdışı", "cevrimdisi", "danger"]):
+                        status = "Offline"
+                
+                results[plant_name] = status
+                logger.info(f"Santral Durumu Okundu -> {plant_name}: {status}")
+            except Exception as row_err:
+                logger.warning(f"{idx}. satır okunurken hata: {row_err}")
+                
+        logger.info(f"Santral durum tespiti bitti. Sonuçlar: {results}")
+        return results
+
+
 
 
