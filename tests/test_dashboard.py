@@ -64,7 +64,7 @@ def test_dashboard_server():
         
         assert he.code == 405, "Status Code 405 olmalı."
         assert data["success"] is False, "POST başarısız (False) olmalı."
-        assert "Method Not Allowed" in data["error"], "Hata mesajı doğru olmalı."
+        assert "HTTP metodu desteklenmiyor" in data["error"], "Hata mesajı doğru olmalı."
         print("  - [SUCCESS] POST isteği beklendiği gibi engellendi (405).")
 
     # 4. Statik Dosya Sunumu: GET /index.html Test Et
@@ -76,7 +76,7 @@ def test_dashboard_server():
             print(f"  - Response status: {response.status}")
             print(f"  - Gelen html ilk satırlar: {body[:150]}")
             
-            assert "iSolar ETL" in body, "index.html içeriği doğru olmalı."
+            assert "GES Enerji" in body, "index.html içeriği doğru olmalı."
             assert response.getheader("Content-Type") == "text/html; charset=utf-8", "Content-Type doğru olmalı."
             print("  - [SUCCESS] GET /index.html başarıyla servis edildi.")
     except Exception as e:
