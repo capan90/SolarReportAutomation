@@ -250,16 +250,35 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 response_data = _report_info(_find_latest_report(DAILY_REPORT_RE), "daily")
 
             elif path == "/api/plants/status":
+                import re
+                def clean_name(name):
+                    match = re.search(r'ERDEMSOFT[- _]GES[_-](\d+)', name)
+                    if match:
+                        return f"ERDEMSOFT-GES-{match.group(1)}"
+                    return name.strip()
+
                 from app.database.plant_status_repository import PlantStatusRepository
                 repo = PlantStatusRepository()
                 records = repo.get_latest_status_records()
+                
+                # Clean and group by cleaned name, keeping the latest by timestamp
+                latest_by_cleaned_name = {}
+                for r in records:
+                    cleaned = clean_name(r.plant_name)
+                    existing = latest_by_cleaned_name.get(cleaned)
+                    if not existing or (r.timestamp and existing.timestamp and r.timestamp > existing.timestamp):
+                        latest_by_cleaned_name[cleaned] = r
+                
                 plants = []
                 anomaly_count = 0
                 last_check_dt = None
-                for r in records:
+                
+                # Sort plants by name for a consistent UI presentation
+                for name in sorted(latest_by_cleaned_name.keys()):
+                    r = latest_by_cleaned_name[name]
                     last_checked_str = r.timestamp.strftime("%H:%M") if r.timestamp else "-"
                     plants.append({
-                        "name": r.plant_name,
+                        "name": name,
                         "status": r.status,
                         "last_checked": last_checked_str
                     })
@@ -268,6 +287,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     if r.timestamp:
                         if last_check_dt is None or r.timestamp > last_check_dt:
                             last_check_dt = r.timestamp
+                
                 last_check_str = last_check_dt.strftime("%d.%m.%Y %H:%M") if last_check_dt else "-"
                 response_data = {
                     "plants": plants,
