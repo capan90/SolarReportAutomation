@@ -87,8 +87,13 @@ class PlantStatusJob:
 
         # 1. Playwright persistent context ile bağlan
         try:
+            logger.info(f"Profil dizini kontrol ediliyor: {ISOLAR_PROFILE_DIR}")
             ISOLAR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            
+            logger.info("sync_playwright motoru başlatılıyor...")
             pw = sync_playwright().start()
+            logger.info("sync_playwright motoru başlatıldı.")
+            
             logger.info("Playwright persistent context başlatılıyor (headless=True)...")
             context = pw.chromium.launch_persistent_context(
                 user_data_dir=str(ISOLAR_PROFILE_DIR),
@@ -97,49 +102,67 @@ class PlantStatusJob:
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 800},
             )
+            logger.info("Persistent context başarıyla başlatıldı.")
+            
+            logger.info("Yeni tarayıcı sayfası (page) oluşturuluyor...")
             page = context.new_page()
+            logger.info("Tarayıcı sayfası başarıyla oluşturuldu.")
+            
+            logger.info("IsolarExtractor örneği oluşturuluyor...")
             extractor = IsolarExtractor(page, run_id="plant-status")
+            logger.info("IsolarExtractor örneği oluşturuldu.")
 
             # 2. login_and_verify() - Oturum geçerliyse atla
-            logger.info("Mevcut oturum doğrulanıyor...")
+            logger.info(f"Oturum doğrulaması için giriş adresi açılıyor: {settings.base_url}")
             try:
                 page.goto(settings.base_url, wait_until="domcontentloaded", timeout=15000)
+                logger.info(f"Giriş adresi yüklendi. Mevcut URL: {page.url}")
                 page.wait_for_timeout(3000)
             except Exception as e:
                 logger.warning(f"Giriş sayfası yüklenemedi, yine de login denenecek: {e}")
 
             # Oturum belirtileri kontrolü
+            logger.info("Oturum doğrulaması için arayüz elemanları taranıyor...")
             authenticated = False
             for selector in [".el-aside", ".sidebar", ".plant-list", ".user-avatar"]:
                 try:
                     if page.locator(selector).first.is_visible(timeout=2000):
+                        logger.info(f"Oturum aktif: '{selector}' elemanı görünür durumda.")
                         authenticated = True
                         break
                 except Exception:
                     pass
 
+            logger.info(f"Arayüz taraması bitti. authenticated={authenticated}, URL={page.url}")
             if authenticated or "plant" in page.url.lower():
                 logger.info("Mevcut oturum aktif. Giriş aşaması atlanıyor.")
             else:
                 logger.info("Oturum doğrulanamadı. Yeniden giriş yapılıyor...")
                 extractor.login_and_verify()
+                logger.info("Yeniden giriş işlemi tamamlandı.")
 
             # 3. get_plant_statuses() - durumları çek
+            logger.info("get_plant_statuses çağrılıyor...")
             results = extractor.get_plant_statuses()
+            logger.info(f"get_plant_statuses tamamlandı. {len(results)} adet santral sonucu alındı.")
         except Exception as e:
             error_msg = f"iSolar santral durumlarını çekerken hata oluştu: {e}"
             logger.error(error_msg)
         finally:
             if context:
                 try:
+                    logger.info("Persistent context kapatılıyor...")
                     context.close()
-                except Exception:
-                    pass
+                    logger.info("Persistent context kapatıldı.")
+                except Exception as close_err:
+                    logger.warning(f"Context kapatılırken hata oluştu: {close_err}")
             if pw:
                 try:
+                    logger.info("Playwright motoru durduruluyor...")
                     pw.stop()
-                except Exception:
-                    pass
+                    logger.info("Playwright motoru durduruldu.")
+                except Exception as stop_err:
+                    logger.warning(f"Playwright durdurulurken hata oluştu: {stop_err}")
 
         if not results:
             return {

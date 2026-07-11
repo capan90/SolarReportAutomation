@@ -106,6 +106,7 @@ def run():
 
     if args and getattr(args, 'plant_status', False):
         from app.jobs.plant_status_job import PlantStatusJob
+        import traceback
         try:
             job = PlantStatusJob()
             result = job.run()
@@ -113,8 +114,11 @@ def run():
             if result.get('error'):
                 print(f"Hata: {result['error']}")
             sys.exit(0 if result['status'] in ('SUCCESS', 'SKIPPED') else 1)
-        except Exception as e:
-            print(f"Plant Status Job hatası: {e}")
+        except SystemExit:
+            raise
+        except BaseException as e:
+            print(f"Plant Status Job hatası / kesinti (BaseException): {e}")
+            traceback.print_exc()
             sys.exit(1)
 
     # 2. Lock file kontrolü (Uç uca çakışmaları engellemek)
