@@ -8,10 +8,8 @@
     <!-- Flatpickr CDN -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/themes/dark.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/plugins/monthSelect/style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/l10n/tr.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/plugins/monthSelect/index.js"></script>
     <style>
         :root {
             --bg: #0f172a;
@@ -247,6 +245,8 @@
             .main { padding: 18px; }
             .grid-4, .grid-5 { grid-template-columns: 1fr; }
         }
+        .month-only .flatpickr-days { display: none; }
+        .month-only .flatpickr-monthDropdown-months { font-size: 16px; }
     </style>
 </head>
 <body>
@@ -1226,15 +1226,26 @@
 
             flatpickr("#monthly-month-picker", {
                 locale: "tr",
+                dateFormat: "Y-m",
                 altInput: true,
-                plugins: [new monthSelectPlugin({
-                    shorthand: true,
-                    dateFormat: "Y-m",
-                    altFormat: "F Y",
-                })],
-                maxDate: new Date(new Date().setDate(0)), // geçen ay sonu
-                minDate: new Date(Date.now() - 730*86400000),
-                disableMobile: true
+                altFormat: "F Y",  // "Temmuz 2026" gibi
+                maxDate: new Date(new Date().getFullYear(), new Date().getMonth(), 0), // geçen ay
+                minDate: new Date(new Date().getFullYear() - 2, new Date().getMonth(), 1), // 2 yıl önce
+                disableMobile: true,
+                plugins: [],
+                // Sadece ay ve yıl göster, gün gizle
+                onReady: function(selectedDates, dateStr, instance) {
+                    instance.calendarContainer.classList.add("month-only");
+                },
+                onMonthChange: function(selectedDates, dateStr, instance) {
+                    // Ay seçilince otomatik kapat ve tarihi güncelle
+                    if (instance.currentMonth !== undefined) {
+                        let year = instance.currentYear;
+                        let month = String(instance.currentMonth + 1).padStart(2, '0');
+                        instance.setDate(year + '-' + month, true);
+                        instance.close();
+                    }
+                }
             });
         }
 
@@ -1261,7 +1272,7 @@
                 payload = { date: selectedVal };
                 url = "/api/settlement/trigger/daily-date";
             } else {
-                selectedVal = inputMonthly.value;
+                selectedVal = inputMonthly._flatpickr ? inputMonthly._flatpickr.input.value : inputMonthly.value;
                 if (!selectedVal) {
                     msg.className = "msg bad";
                     msg.innerText = "Lütfen bir ay seçin.";
