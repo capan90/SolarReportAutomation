@@ -344,6 +344,7 @@ class MonthlySettlementJob:
                         ),
                         event_type="CAPTCHA_REQUIRED",
                         force=True,
+                        email_profile="monthly"
                     )
                 except Exception as mail_err:
                     logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")
@@ -447,6 +448,7 @@ class MonthlySettlementJob:
                     event_type="SUCCESS",
                     attachment_path=str(rapor_path.absolute()),
                     force=True,
+                    email_profile="monthly"
                 )
             else:
                 stage_summary = (
@@ -461,6 +463,7 @@ class MonthlySettlementJob:
                     exit_code=1,
                     duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
                     stage_summary=stage_summary,
+                    email_profile="monthly",
                 )
             logger.info("5. Aşama BAŞARILI. Bildirim tamamlandı.")
         except Exception as e:

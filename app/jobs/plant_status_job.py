@@ -18,13 +18,14 @@ def send_status_email(subject: str, html_body: str) -> bool:
     if not settings.smtp_enabled:
         logger.info("SMTP devre dışı. E-posta gönderilmedi.")
         return False
-    if not settings.smtp_host or not settings.alert_email:
-        logger.warning("SMTP sunucu adresi veya alıcı adresi eksik.")
+    recipient = settings.smtp_to_plant_alert
+    if not settings.smtp_host or not recipient:
+        logger.warning("SMTP sunucu adresi veya alıcı adresi (plant_alert) eksik.")
         return False
 
     msg = MIMEMultipart()
     msg["From"] = settings.smtp_from if settings.smtp_from else settings.smtp_username
-    msg["To"] = settings.alert_email
+    msg["To"] = recipient
     msg["Subject"] = subject
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 

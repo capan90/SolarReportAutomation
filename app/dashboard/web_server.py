@@ -277,9 +277,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 for name in sorted(latest_by_cleaned_name.keys()):
                     r = latest_by_cleaned_name[name]
                     last_checked_str = r.timestamp.strftime("%H:%M") if r.timestamp else "-"
+                    
+                    status_tr = "Bilinmiyor"
+                    if r.status == "Normal":
+                        status_tr = "Normal"
+                    elif r.status == "Abnormal":
+                        status_tr = "HATA"
+                    elif r.status == "Offline":
+                        status_tr = "BAĞLANTI YOK"
+
                     plants.append({
                         "name": name,
-                        "status": r.status,
+                        "status": status_tr,
                         "last_checked": last_checked_str
                     })
                     if r.status != "Normal":
@@ -498,6 +507,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "smtp_username": settings.smtp_username,
             "smtp_password_masked": "********" if settings.smtp_password else "",
             "smtp_to": settings.alert_email,
+            "smtp_to_daily": settings.smtp_to_daily,
+            "smtp_to_monthly": settings.smtp_to_monthly,
+            "smtp_to_plant_alert": settings.smtp_to_plant_alert,
+            "smtp_to_system": settings.smtp_to_system,
             "smtp_last_status": last_mail_status,
             "smtp_last_error": last_mail_error,
             "backup_retention_days": 14,
@@ -758,7 +771,37 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json_contract(None, "Yönetici şifresi hatalı.")
             return
 
-        # Neden: Yalnızca bilinen anahtarlar, dolu gönderilmişse güncellenir.
+        updates = {}
+
+        # 1. Profil Alıcıları
+        profile_map = {
+            "daily": "SMTP_TO_DAILY",
+            "monthly": "SMTP_TO_MONTHLY",
+            "plant_alert": "SMTP_TO_PLANT_ALERT",
+            "system": "SMTP_TO_SYSTEM"
+        }
+        for prof_key, env_key in profile_map.items():
+            prof_data = body.get(prof_key)
+            if isinstance(prof_data, dict):
+                to_val = prof_data.get("to")
+                if to_val is not None:
+                    updates[env_key] = str(to_val).strip()
+
+        # 2. Genel SMTP Ayarları
+        smtp_data = body.get("smtp")
+        if isinstance(smtp_data, dict):
+            smtp_key_map = {
+                "host": "SMTP_HOST",
+                "port": "SMTP_PORT",
+                "username": "SMTP_USERNAME",
+                "password": "SMTP_PASSWORD",
+            }
+            for smtp_key, env_key in smtp_key_map.items():
+                val = smtp_data.get(smtp_key)
+                if val is not None:
+                    updates[env_key] = str(val).strip()
+
+        # 3. Geriye Dönük Düz JSON Desteği
         env_key_map = {
             "smtp_host": "SMTP_HOST",
             "smtp_port": "SMTP_PORT",
@@ -766,7 +809,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "smtp_password": "SMTP_PASSWORD",
             "smtp_to": "SMTP_TO",
         }
-        updates = {}
         for body_key, env_key in env_key_map.items():
             value = body.get(body_key)
             if value is not None and str(value).strip() != "":
@@ -792,8 +834,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 new_lines.append(f"{key}={value}")
             env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
 
-            # Neden: Çalışan süreçte de yeni değerler görünür olsun (settings nesnesi
-            # başlangıçta donduğu için tam etki uygulama yeniden başlatılınca oluşur).
+            # Çalışan süreç ortamını güncelle
             for key, value in updates.items():
                 os.environ[key] = value
 

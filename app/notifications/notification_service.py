@@ -28,7 +28,7 @@ class NotificationService:
         self.queue = queue or InMemoryNotificationQueue()
         self.email_sender = email_sender or EmailSender()
 
-    def notify(self, event: NotificationEvent, force: bool = False) -> None:
+    def notify(self, event: NotificationEvent, force: bool = False, email_profile: str = "default") -> None:
         """
         Neden: ETL Pipeline veya CLI seviyesinden tetiklenen olay bildirim isteğini karşılamak.
         Politika uygunsa kuyruğa alır ve best-effort olarak gönderimi başlatır.
@@ -48,7 +48,7 @@ class NotificationService:
             self.queue.push(event)
             
             # 3. Kuyruğu Tüket (In-Memory kuyruk olduğu için senkron olarak hemen tüketilir)
-            self.process_queue()
+            self.process_queue(email_profile=email_profile)
             
         except Exception as e:
             # Bildirim altyapısının patlaması ana pipeline akışını asla bozmamalıdır (Best-Effort).
@@ -63,7 +63,8 @@ class NotificationService:
         validation_summary: Optional[str] = None,
         event_type: Optional[str] = None,
         attachment_path: Optional[str] = None,
-        force: bool = False
+        force: bool = False,
+        email_profile: str = "default"
     ) -> None:
         """
         Neden: Pipeline sonuçlarına göre uygun olay tipini belirlemek, Git/Sunucu metriklerini toplamak
@@ -115,9 +116,9 @@ class NotificationService:
             validation_summary=validation_summary,
             attachment_path=attachment_path
         )
-        self.notify(event, force=force)
+        self.notify(event, force=force, email_profile=email_profile)
 
-    def process_queue(self) -> None:
+    def process_queue(self, email_profile: str = "default") -> None:
         """
         Neden: Kuyruktaki bekleyen bildirimleri sırayla çıkarıp göndermek ve veritabanına loglamak.
         """
@@ -129,22 +130,32 @@ class NotificationService:
             logger.info(f"Kuyruktan bildirim alınıyor ve gönderiliyor: {event.event_type}")
             
             # E-Posta gönder
-            success, attempt_count, error_msg = self.email_sender.send(event)
+            success, attempt_count, error_msg = self.email_sender.send(event, email_profile=email_profile)
             
             # Sonucu veritabanına logla
-            self._save_audit(event, success, attempt_count, error_msg)
+            self._save_audit(event, success, attempt_count, error_msg, email_profile=email_profile)
 
-    def _save_audit(self, event: NotificationEvent, success: bool, attempt_count: int, error_msg: Optional[str]) -> None:
+    def _save_audit(self, event: NotificationEvent, success: bool, attempt_count: int, error_msg: Optional[str], email_profile: str = "default") -> None:
         """
         Neden: Gönderilen bildirimlerin denetim izini (audit trail) veritabanında saklamak.
         """
         db = None
+        recipient = settings.alert_email
+        if email_profile == "daily":
+            recipient = settings.smtp_to_daily
+        elif email_profile == "monthly":
+            recipient = settings.smtp_to_monthly
+        elif email_profile == "plant_alert":
+            recipient = settings.smtp_to_plant_alert
+        elif email_profile == "system":
+            recipient = settings.smtp_to_system
+
         try:
             db = SessionLocal()
             history = NotificationHistory(
                 run_id=event.run_id,
                 channel="email",
-                recipient=settings.alert_email or "unknown",
+                recipient=recipient or "unknown",
                 status="SENT" if success else "FAILED",
                 attempt_count=attempt_count,
                 error_message=error_msg if error_msg else None,

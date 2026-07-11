@@ -92,9 +92,33 @@
 
         /* ---------- Main ---------- */
         .main { flex: 1; padding: 28px 32px; max-width: 1500px; width: 100%; margin: 0 auto; }
-        .page-header { margin-bottom: 22px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 22px; }
         .page-header h1 { font-size: 1.45rem; font-weight: 700; }
         .page-header p { color: var(--muted); font-size: 0.88rem; margin-top: 4px; }
+        @media (max-width: 720px) {
+            .page-header { flex-direction: column; align-items: flex-start; }
+        }
+
+        /* ---------- Tab Navigation ---------- */
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            padding: 8px 16px;
+            font-size: 0.92rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover {
+            color: var(--text);
+            background: rgba(255,255,255,0.04);
+        }
+        .tab-btn.active {
+            color: #fff;
+            background: var(--green);
+        }
 
         .page { display: none; flex-direction: column; gap: 22px; }
         .page.active { display: flex; }
@@ -261,97 +285,174 @@
         <!-- ============ ANA SAYFA ============ -->
         <section id="page-home" class="page active">
             <div class="page-header">
-                <h1>Erdemsoft GES Enerji Yönetim Sistemi</h1>
-                <p>Santrallerinizin üretim, tüketim ve mahsuplaşma durumu <span id="home-date-note" class="muted"></span></p>
+                <div>
+                    <h1>Erdemsoft GES Enerji Yönetim Sistemi</h1>
+                    <p>Santrallerinizin üretim, tüketim ve mahsuplaşma durumu <span id="home-date-note" class="muted"></span></p>
+                </div>
+                <div id="last-update-time" class="muted small" style="font-size: 0.85rem; font-weight: 600; background: var(--card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 8px;">Son güncelleme: -</div>
             </div>
 
-            <div class="grid-5">
-                <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
-                <div class="card kpi blue"><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
-                <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
-                <div class="card kpi orange"><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
-                <div class="card kpi lightgreen"><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
+            <!-- TAB NAV BUTTONS -->
+            <div class="tab-nav" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+                <button class="tab-btn active" onclick="switchHomeTab('tab-system-status')">📊 Sistem Durumu</button>
+                <button class="tab-btn" onclick="switchHomeTab('tab-plant-monitor')">🔋 Santral İzleme</button>
+                <button class="tab-btn" onclick="switchHomeTab('tab-reports')">📁 Raporlar</button>
             </div>
 
-            <div class="grid-3">
-                <div class="card">
-                    <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-                        <span>🔋 Santral Durumları</span>
-                    </div>
-                    <div id="plant-last-check" class="muted small" style="margin-bottom: 14px; font-weight: normal; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Son kontrol: -</div>
-                    <div id="plant-status-container">
-                        <div class="muted small" style="text-align:center; padding: 20px;">Yükleniyor...</div>
-                    </div>
+            <!-- TAB 1: Sistem Durumu -->
+            <div id="tab-system-status" class="home-tab active">
+                <div class="grid-5">
+                    <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi blue"><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi orange"><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi lightgreen"><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
                 </div>
-                <div class="card">
-                    <div class="card-title">Sistem Durumu</div>
-                    <div class="status-row"><span class="name">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
-                    <div class="status-row"><span class="name">Tüketim Verisi (GAOSB)</span><span id="st-gaosb" class="badge warn">-</span></div>
-                    <div class="status-row"><span class="name">E-Posta Bildirimi</span><span id="st-mail" class="badge warn">-</span></div>
-                    <div class="status-row"><span class="name">Son Çalışma</span><span id="st-lastrun" class="muted small">-</span></div>
-                </div>
-                <div class="card">
-                    <div class="card-title" id="mtd-title">Bu Ay Özeti</div>
-                    <div class="status-row"><span class="name">Toplam Üretim</span><strong id="ay-uretim" class="num">-</strong></div>
-                    <div class="status-row"><span class="name">Toplam Tüketim</span><strong id="ay-tuketim">-</strong></div>
-                    <div class="status-row"><span class="name">Toplam Mahsup</span><strong id="ay-mahsup">-</strong></div>
-                    <div class="status-row"><span class="name">Toplam Şebekeden Çekiş</span><strong id="ay-cekis">-</strong></div>
-                    <div class="status-row"><span class="name">Toplam Fazla Satış</span><strong id="ay-satis">-</strong></div>
-                </div>
-            </div>
 
-            <div class="grid-2">
-                <div class="card">
-                    <div class="card-title">Son Günlük Rapor</div>
-                    <div class="rep-date" id="rep-daily-date">-</div>
-                    <div class="rep-file" id="rep-daily-file">-</div>
-                    <a id="rep-daily-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
-                </div>
-                <div class="card">
-                    <div class="card-title">Son Aylık Rapor</div>
-                    <div class="rep-date" id="rep-monthly-date">-</div>
-                    <div class="rep-file" id="rep-monthly-file">-</div>
-                    <a id="rep-monthly-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-title">Manuel Çalıştırma</div>
-                <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
-                    Raporlar her gün otomatik hazırlanır. Gerekirse aşağıdaki butonlarla hemen yeni bir rapor oluşturabilirsiniz (birkaç dakika sürebilir).
-                </p>
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <button id="btn-daily" class="btn green" style="width:auto;" onclick="triggerJob('daily')">Günlük Mahsuplaşma Çalıştır</button>
-                    <button id="btn-monthly" class="btn blue" style="width:auto;" onclick="triggerJob('monthly')">Aylık Mahsuplaşma Çalıştır</button>
-                </div>
-                <div id="trigger-msg" class="msg"></div>
-                <a id="trigger-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
-            </div>
-
-            <!-- ============ GEÇMİŞ RAPOR SORGULA ============ -->
-            <div class="card" style="margin-top: 22px;">
-                <div class="card-title">📅 Geçmiş Rapor Sorgula</div>
-                <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
-                    Geçmiş bir tarihe ait verileri sorgulayabilir ve raporunu hazırlayabilirsiniz.
-                </p>
-                <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 14px;">
-                    <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
-                        <label>Günlük Rapor:</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input id="input-daily-date" type="date">
-                            <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')">Raporu Hazırla</button>
+                <div class="grid-3" style="margin-top: 20px;">
+                    <div class="card">
+                        <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                            <span>🔋 Santral Durumları</span>
+                        </div>
+                        <div id="plant-last-check" class="muted small" style="margin-bottom: 14px; font-weight: normal; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Son kontrol: -</div>
+                        <div id="plant-status-container">
+                            <div class="muted small" style="text-align:center; padding: 20px;">Yükleniyor...</div>
                         </div>
                     </div>
-                    <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
-                        <label>Aylık Rapor:</label>
-                        <div style="display: flex; gap: 8px;">
-                            <input id="input-monthly-date" type="month">
-                            <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')">Raporu Hazırla</button>
+                    <div class="card">
+                        <div class="card-title">Sistem Durumu</div>
+                        <div class="status-row"><span class="name">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name">Tüketim Verisi (GAOSB)</span><span id="st-gaosb" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name">E-Posta Bildirimi</span><span id="st-mail" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name">Son Çalışma</span><span id="st-lastrun" class="muted small">-</span></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title" id="mtd-title">Bu Ay Özeti</div>
+                        <div class="status-row"><span class="name">Toplam Üretim</span><strong id="ay-uretim" class="num">-</strong></div>
+                        <div class="status-row"><span class="name">Toplam Tüketim</span><strong id="ay-tuketim">-</strong></div>
+                        <div class="status-row"><span class="name">Toplam Mahsup</span><strong id="ay-mahsup">-</strong></div>
+                        <div class="status-row"><span class="name">Toplam Şebekeden Çekiş</span><strong id="ay-cekis">-</strong></div>
+                        <div class="status-row"><span class="name">Toplam Fazla Satış</span><strong id="ay-satis">-</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: Santral İzleme -->
+            <div id="tab-plant-monitor" class="home-tab" style="display: none;">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-title">🔋 Santral Durumları Detaylı Tablo</div>
+                        <div style="overflow-x: auto;">
+                            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid var(--border); height: 40px;">
+                                        <th style="padding: 8px;">Santral Adı</th>
+                                        <th style="padding: 8px;">Güncel Durum</th>
+                                        <th style="padding: 8px;">Son Kontrol</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="detailed-plant-table-body">
+                                    <tr style="border-bottom: 1px solid var(--border); height: 40px;"><td colspan="3" style="text-align: center; padding: 20px;" class="muted">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-title">⚠️ Aktif Anomali / Bildirim Geçmişi</div>
+                        <div style="overflow-x: auto; max-height: 400px;">
+                            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+                                <thead>
+                                    <tr style="border-bottom: 2px solid var(--border); height: 40px;">
+                                        <th style="padding: 8px;">Zaman</th>
+                                        <th style="padding: 8px;">Santral</th>
+                                        <th style="padding: 8px;">Durum</th>
+                                        <th style="padding: 8px;">Bildirim</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="plant-anomalies-body">
+                                    <tr style="border-bottom: 1px solid var(--border); height: 40px;"><td colspan="4" style="text-align: center; padding: 20px;" class="muted">Kayıt yok.</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
-                <div id="past-msg" class="msg"></div>
-                <a id="past-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">🕒 Son 24 Saat Durum Geçmişi (Tüm Santraller)</div>
+                    <div style="overflow-x: auto; max-height: 400px;">
+                        <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+                            <thead>
+                                <tr style="border-bottom: 2px solid var(--border); height: 40px;">
+                                    <th style="padding: 8px;">Zaman</th>
+                                    <th style="padding: 8px;">Santral Adı</th>
+                                    <th style="padding: 8px;">Durum</th>
+                                    <th style="padding: 8px;">Önceki Durum</th>
+                                    <th style="padding: 8px;">Bildirim Durumu</th>
+                                </tr>
+                            </thead>
+                            <tbody id="plant-history-body">
+                                <tr style="border-bottom: 1px solid var(--border); height: 40px;"><td colspan="5" style="text-align: center; padding: 20px;" class="muted">Yükleniyor...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: Raporlar -->
+            <div id="tab-reports" class="home-tab" style="display: none;">
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-title">Son Günlük Rapor</div>
+                        <div class="rep-date" id="rep-daily-date">-</div>
+                        <div class="rep-file" id="rep-daily-file">-</div>
+                        <a id="rep-daily-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">Son Aylık Rapor</div>
+                        <div class="rep-date" id="rep-monthly-date">-</div>
+                        <div class="rep-file" id="rep-monthly-file">-</div>
+                        <a id="rep-monthly-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">Manuel Çalıştırma</div>
+                    <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
+                        Raporlar her gün otomatik hazırlanır. Gerekirse aşağıdaki butonlarla hemen yeni bir rapor oluşturabilirsiniz (birkaç dakika sürebilir).
+                    </p>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button id="btn-daily" class="btn green" style="width:auto;" onclick="triggerJob('daily')">Günlük Mahsuplaşma Çalıştır</button>
+                        <button id="btn-monthly" class="btn blue" style="width:auto;" onclick="triggerJob('monthly')">Aylık Mahsuplaşma Çalıştır</button>
+                    </div>
+                    <div id="trigger-msg" class="msg"></div>
+                    <a id="trigger-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
+                </div>
+
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-title">📅 Geçmiş Rapor Sorgula</div>
+                    <p class="muted small" style="margin-bottom:14px; line-height:1.5;">
+                        Geçmiş bir tarihe ait verileri sorgulayabilir ve raporunu hazırlayabilirsiniz.
+                    </p>
+                    <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 14px;">
+                        <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
+                            <label>Günlük Rapor:</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input id="input-daily-date" type="date">
+                                <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')">Raporu Hazırla</button>
+                            </div>
+                        </div>
+                        <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
+                            <label>Aylık Rapor:</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input id="input-monthly-date" type="month">
+                                <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')">Raporu Hazırla</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="past-msg" class="msg"></div>
+                    <a id="past-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
+                </div>
             </div>
         </section>
 
@@ -438,19 +539,52 @@
             </div>
 
             <div class="grid-2">
-                <div class="card">
-                    <div class="card-title">E-Posta (Mail) Ayarları</div>
-                    <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Boş bırakılan alanlar değiştirilmez.</p>
-                    <div class="form-grid">
-                        <div class="field"><label>Mail Sunucusu</label><input id="f-host" type="text" placeholder="smtp.ornek.com"></div>
-                        <div class="field"><label>Port</label><input id="f-port" type="number" placeholder="587"></div>
-                        <div class="field"><label>Kullanıcı Adı</label><input id="f-user" type="text" placeholder="rapor@ornek.com"></div>
-                        <div class="field"><label>Mail Şifresi</label><input id="f-pass" type="password" placeholder="********"></div>
-                        <div class="field"><label>Alıcı E-Posta</label><input id="f-to" type="email" placeholder="yonetici@ornek.com"></div>
-                        <div class="field"><label>Yönetici Şifresi *</label><input id="f-admin" type="password" placeholder="Zorunlu"></div>
+                <div style="display:flex; flex-direction:column; gap:16px;">
+                    <div class="card">
+                        <div class="card-title">E-Posta (Mail) Ayarları</div>
+                        <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Boş bırakılan alanlar değiştirilmez.</p>
+                        <div class="form-grid">
+                            <div class="field"><label>Mail Sunucusu</label><input id="f-host" type="text" placeholder="smtp.ornek.com"></div>
+                            <div class="field"><label>Port</label><input id="f-port" type="number" placeholder="587"></div>
+                            <div class="field"><label>Kullanıcı Adı</label><input id="f-user" type="text" placeholder="rapor@ornek.com"></div>
+                            <div class="field"><label>Mail Şifresi</label><input id="f-pass" type="password" placeholder="********"></div>
+                            <div class="field"><label>Alıcı E-Posta (Yedek)</label><input id="f-to" type="email" placeholder="yonetici@ornek.com"></div>
+                            <div class="field"><label>Yönetici Şifresi *</label><input id="f-admin" type="password" placeholder="Zorunlu"></div>
+                        </div>
+                        <div style="margin-top:16px;"><button id="btn-smtp" class="btn blue" onclick="saveSmtp()">Sunucu Ayarlarını Kaydet</button></div>
+                        <div id="smtp-msg" class="msg"></div>
                     </div>
-                    <div style="margin-top:16px;"><button id="btn-smtp" class="btn blue" onclick="saveSmtp()">Ayarları Kaydet</button></div>
-                    <div id="smtp-msg" class="msg"></div>
+
+                    <div class="card">
+                        <div class="card-title">📧 Email Bildirimleri</div>
+                        <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Birden fazla alıcı için virgülle ayırın.</p>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label>Günlük Rapor Alıcıları:</label>
+                                <input id="f-to-daily" type="text" placeholder="ornek@erdemsoft.com">
+                            </div>
+                            <div class="field">
+                                <label>Aylık Rapor Alıcıları:</label>
+                                <input id="f-to-monthly" type="text" placeholder="ornek@erdemsoft.com">
+                            </div>
+                            <div class="field">
+                                <label>GES Arıza Bildirimleri:</label>
+                                <input id="f-to-plant-alert" type="text" placeholder="ornek@erdemsoft.com">
+                            </div>
+                            <div class="field">
+                                <label>Sistem Arıza Bildirimleri:</label>
+                                <input id="f-to-system" type="text" placeholder="ornek@erdemsoft.com">
+                            </div>
+                            <div class="field">
+                                <label>Yönetici Şifresi *</label>
+                                <input id="f-admin-profiles" type="password" placeholder="Zorunlu">
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <button id="btn-save-profiles" class="btn blue" onclick="saveEmailProfiles()">Bildirim Ayarlarını Kaydet</button>
+                        </div>
+                        <div id="profiles-msg" class="msg"></div>
+                    </div>
                 </div>
 
                 <div style="display:flex; flex-direction:column; gap:16px;">
@@ -507,7 +641,28 @@
             return pretty;
         };
 
+        let loadingCount = 0;
+        function showLoading() {
+            loadingCount++;
+            const el = document.getElementById("last-update-time");
+            if (el) {
+                el.innerHTML = '<span class="spinner"></span> Güncelleniyor...';
+            }
+        }
+        function hideLoading() {
+            loadingCount--;
+            if (loadingCount <= 0) {
+                loadingCount = 0;
+                const el = document.getElementById("last-update-time");
+                if (el) {
+                    const timeStr = new Date().toLocaleTimeString('tr-TR');
+                    el.innerHTML = 'Son güncelleme: ' + timeStr;
+                }
+            }
+        }
+
         async function api(url) {
+            showLoading();
             try {
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("HTTP " + res.status);
@@ -516,6 +671,8 @@
             } catch (e) {
                 console.error("Veri alınamadı:", url, e);
                 return null;
+            } finally {
+                hideLoading();
             }
         }
 
@@ -568,10 +725,10 @@
                     if (p.status === "Normal") {
                         icon = "●";
                         color = "var(--green)";
-                    } else if (p.status === "Abnormal") {
+                    } else if (p.status === "HATA" || p.status === "Abnormal") {
                         icon = "⚠";
                         color = "var(--yellow)";
-                    } else if (p.status === "Offline") {
+                    } else if (p.status === "BAĞLANTI YOK" || p.status === "Offline") {
                         icon = "✗";
                         color = "var(--red)";
                     } else {
@@ -598,7 +755,6 @@
         // ANA SAYFA
         // ------------------------------------------------------------
         async function loadHome() {
-            loadPlantStatuses();
             const summary = await api("/api/settlement/summary");
             if (summary) {
                 const g = summary.bugun || {};
@@ -892,6 +1048,17 @@
                 schedEl.innerHTML = cfg.schedules.map(s =>
                     `<div class="info-line"><span class="k">${s.name}</span><span>${s.zamanlama}</span></div>`).join("");
             }
+
+            // Form alanlarını mevcut değerlerle doldur
+            document.getElementById("f-host").value = cfg.smtp_host || "";
+            document.getElementById("f-port").value = cfg.smtp_port || "";
+            document.getElementById("f-user").value = cfg.smtp_username || "";
+            document.getElementById("f-to").value = cfg.smtp_to || "";
+
+            document.getElementById("f-to-daily").value = cfg.smtp_to_daily || "";
+            document.getElementById("f-to-monthly").value = cfg.smtp_to_monthly || "";
+            document.getElementById("f-to-plant-alert").value = cfg.smtp_to_plant_alert || "";
+            document.getElementById("f-to-system").value = cfg.smtp_to_system || "";
         }
 
         async function saveSmtp() {
@@ -905,10 +1072,12 @@
             }
             const payload = {
                 admin_password: adminPass,
-                smtp_host: document.getElementById("f-host").value,
-                smtp_port: document.getElementById("f-port").value,
-                smtp_username: document.getElementById("f-user").value,
-                smtp_password: document.getElementById("f-pass").value,
+                smtp: {
+                    host: document.getElementById("f-host").value,
+                    port: document.getElementById("f-port").value,
+                    username: document.getElementById("f-user").value,
+                    password: document.getElementById("f-pass").value
+                },
                 smtp_to: document.getElementById("f-to").value
             };
             btn.disabled = true;
@@ -922,7 +1091,7 @@
                 const body = await res.json();
                 if (body.success) {
                     msg.className = "msg ok";
-                    msg.innerText = "Ayarlar başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
+                    msg.innerText = "Sunucu ayarları başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
                     document.getElementById("f-admin").value = "";
                     loadSettingsPage();
                 } else {
@@ -934,7 +1103,50 @@
                 msg.innerText = "Sunucuya ulaşılamadı. Lütfen tekrar deneyin.";
             } finally {
                 btn.disabled = false;
-                btn.innerText = "Ayarları Kaydet";
+                btn.innerText = "Sunucu Ayarlarını Kaydet";
+            }
+        }
+
+        async function saveEmailProfiles() {
+            const msg = document.getElementById("profiles-msg");
+            const btn = document.getElementById("btn-save-profiles");
+            const adminPass = document.getElementById("f-admin-profiles").value;
+            if (!adminPass) {
+                msg.className = "msg bad";
+                msg.innerText = "Lütfen yönetici şifresini girin.";
+                return;
+            }
+            const payload = {
+                admin_password: adminPass,
+                daily: { to: document.getElementById("f-to-daily").value },
+                monthly: { to: document.getElementById("f-to-monthly").value },
+                plant_alert: { to: document.getElementById("f-to-plant-alert").value },
+                system: { to: document.getElementById("f-to-system").value }
+            };
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+            try {
+                const res = await fetch("/api/settings/smtp", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                if (body.success) {
+                    msg.className = "msg ok";
+                    msg.innerText = "Bildirim alıcıları başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
+                    document.getElementById("f-admin-profiles").value = "";
+                    loadSettingsPage();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Ayarlar kaydedilemedi.";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucuya ulaşılamadı. Lütfen tekrar deneyin.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Bildirim Ayarlarını Kaydet";
             }
         }
 
@@ -1118,8 +1330,105 @@
             }
         }
 
+        function switchHomeTab(tabId) {
+            document.querySelectorAll(".home-tab").forEach(tab => {
+                tab.style.display = "none";
+            });
+            const activeTab = document.getElementById(tabId);
+            if (activeTab) {
+                activeTab.style.display = "block";
+            }
+            document.querySelectorAll(".tab-btn").forEach(btn => {
+                btn.classList.remove("active");
+            });
+            const clickedBtn = event.currentTarget;
+            if (clickedBtn) {
+                clickedBtn.classList.add("active");
+            }
+            
+            if (tabId === "tab-plant-monitor") {
+                loadDetailedPlantMonitor();
+            }
+        }
+
+        async function loadDetailedPlantMonitor() {
+            const statusData = await api("/api/plants/status");
+            const detailedBody = document.getElementById("detailed-plant-table-body");
+            if (statusData && statusData.plants) {
+                detailedBody.innerHTML = statusData.plants.map(p => {
+                    let color = "var(--green)";
+                    let icon = "●";
+                    if (p.status === "HATA") { color = "var(--yellow)"; icon = "⚠"; }
+                    else if (p.status === "BAĞLANTI YOK") { color = "var(--red)"; icon = "✗"; }
+                    else if (p.status === "Bilinmiyor") { color = "var(--muted)"; icon = "?"; }
+                    return `
+                        <tr style="border-bottom: 1px solid var(--border); height: 40px;">
+                            <td style="padding: 8px;">${p.name}</td>
+                            <td style="padding: 8px; font-weight:600; color:${color};">${icon} ${p.status}</td>
+                            <td style="padding: 8px;" class="muted">${p.last_checked}</td>
+                        </tr>
+                    `;
+                }).join("");
+            } else {
+                detailedBody.innerHTML = '<tr><td colspan="3" style="text-align: center; padding: 20px;" class="muted">Durum verisi alınamadı.</td></tr>';
+            }
+
+            const historyData = await api("/api/plants/history?hours=24");
+            const historyBody = document.getElementById("plant-history-body");
+            const anomaliesBody = document.getElementById("plant-anomalies-body");
+            
+            if (historyData) {
+                if (historyData.length) {
+                    historyBody.innerHTML = historyData.map(h => {
+                        let color = "var(--green)";
+                        if (h.status === "Abnormal") color = "var(--yellow)";
+                        else if (h.status === "Offline") color = "var(--red)";
+                        
+                        const timeStr = h.timestamp ? fmtDateTr(h.timestamp) : "-";
+                        return `
+                            <tr style="border-bottom: 1px solid var(--border); height: 40px;">
+                                <td style="padding: 8px;">${timeStr}</td>
+                                <td style="padding: 8px;">${h.plant_name}</td>
+                                <td style="padding: 8px; font-weight:600; color:${color};">${h.status}</td>
+                                <td style="padding: 8px;" class="muted">${h.previous_status || "-"}</td>
+                                <td style="padding: 8px;" class="muted">${h.notified ? 'Gönderildi' : 'Gerekmedi'}</td>
+                            </tr>
+                        `;
+                    }).join("");
+                    
+                    const anomalies = historyData.filter(h => h.status !== "Normal");
+                    if (anomalies.length) {
+                        anomaliesBody.innerHTML = anomalies.map(h => {
+                            let color = "var(--green)";
+                            if (h.status === "Abnormal") color = "var(--yellow)";
+                            else if (h.status === "Offline") color = "var(--red)";
+                            
+                            const timeStr = h.timestamp ? fmtDateTr(h.timestamp) : "-";
+                            return `
+                                <tr style="border-bottom: 1px solid var(--border); height: 40px;">
+                                    <td style="padding: 8px;">${timeStr}</td>
+                                    <td style="padding: 8px;">${h.plant_name}</td>
+                                    <td style="padding: 8px; font-weight:600; color:${color};">${h.status}</td>
+                                    <td style="padding: 8px;" class="muted">${h.notified ? '⚠️ E-Posta Uyarısı' : '-'}</td>
+                                </tr>
+                            `;
+                        }).join("");
+                    } else {
+                        anomaliesBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;" class="muted">Son 24 saatte aktif anomali kaydı bulunmamaktadır.</td></tr>';
+                    }
+                } else {
+                    historyBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;" class="muted">Son 24 saat geçmiş verisi bulunamadı.</td></tr>';
+                    anomaliesBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;" class="muted">Kayıt bulunamadı.</td></tr>';
+                }
+            } else {
+                historyBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;" class="muted">Geçmiş verileri yüklenemedi.</td></tr>';
+                anomaliesBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;" class="muted">Hata.</td></tr>';
+            }
+        }
+
         setInterval(checkCaptchaStatus, 60000);
-        setInterval(loadPlantStatuses, 15 * 60 * 1000);
+        setInterval(loadPlantStatuses, 60000);
+        setInterval(loadHome, 300000);
 
         window.addEventListener("DOMContentLoaded", () => {
             loadHome();

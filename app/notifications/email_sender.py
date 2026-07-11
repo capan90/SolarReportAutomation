@@ -126,7 +126,7 @@ class EmailSender:
         # string.Template kullanarak placeholderları değiştir (safe_substitute hata vermesini önler)
         return Template(raw_template).safe_substitute(template_data)
 
-    def send(self, event: NotificationEvent) -> tuple[bool, int, str]:
+    def send(self, event: NotificationEvent, email_profile: str = "default") -> tuple[bool, int, str]:
         """
         Neden: E-posta gönderimini SMTP üzerinden gerçekleştirmek. 
         Başarısızlık durumunda belirlenen saniyelerle 3 kez tekrar dener.
@@ -136,16 +136,27 @@ class EmailSender:
             logger.info("SMTP_ENABLED=false. Mail gönderimi devre dışı bırakılmıştır.")
             return False, 0, "SMTP_ENABLED=false"
 
-        if not settings.smtp_host or not settings.alert_email:
-            logger.warning("SMTP ayarları veya ALERT_EMAIL eksik. Mail gönderimi atlanıyor.")
-            return False, 0, "SMTP_HOST veya ALERT_EMAIL eksik."
+        # Alıcı adresini profile göre belirle
+        recipient = settings.alert_email
+        if email_profile == "daily":
+            recipient = settings.smtp_to_daily
+        elif email_profile == "monthly":
+            recipient = settings.smtp_to_monthly
+        elif email_profile == "plant_alert":
+            recipient = settings.smtp_to_plant_alert
+        elif email_profile == "system":
+            recipient = settings.smtp_to_system
+
+        if not settings.smtp_host or not recipient:
+            logger.warning(f"SMTP ayarları veya alıcı adresi ({email_profile}) eksik. Mail gönderimi atlanıyor.")
+            return False, 0, f"SMTP_HOST veya alıcı adresi ({email_profile}) eksik."
 
         body = self.render_body(event)
         
         # Mail nesnesi oluştur
         msg = MIMEMultipart()
         msg["From"] = settings.smtp_from if settings.smtp_from else settings.smtp_username
-        msg["To"] = settings.alert_email
+        msg["To"] = recipient
         # Neden: E-postalar yöneticiye gider; konu satırında teknik detay (Run ID vb.) olmaz.
         if event.event_type.upper() == "SUCCESS":
             msg["Subject"] = f"GES Mahsuplaşma Raporu - {self._extract_report_date(event)}"

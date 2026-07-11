@@ -133,6 +133,7 @@ class DailySettlementJob:
                     ),
                     event_type="CAPTCHA_REQUIRED",
                     force=True,
+                    email_profile="daily"
                 )
             except Exception as mail_err:
                 logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")
@@ -231,7 +232,8 @@ class DailySettlementJob:
                     stage_summary=stage_summary,
                     event_type="SUCCESS",
                     attachment_path=str(rapor_path.absolute()),
-                    force=True
+                    force=True,
+                    email_profile="daily"
                 )
             else:
                 exit_code = 1
@@ -246,7 +248,8 @@ class DailySettlementJob:
                     run_id=run_id,
                     exit_code=exit_code,
                     duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
-                    stage_summary=stage_summary
+                    stage_summary=stage_summary,
+                    email_profile="daily"
                 )
             logger.info("5. Aşama BAŞARILI. Bildirim tamamlandı.")
         except Exception as e:
