@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GES Enerji Yönetim Sistemi</title>
     <script src="/static/js/chart.min.js"></script>
+    <!-- Flatpickr CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/themes/dark.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/plugins/monthSelect/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/flatpickr.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/l10n/tr.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/flatpickr/4.6.13/plugins/monthSelect/index.js"></script>
     <style>
         :root {
             --bg: #0f172a;
@@ -438,14 +445,14 @@
                         <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
                             <label>Günlük Rapor:</label>
                             <div style="display: flex; gap: 8px;">
-                                <input id="daily-date-picker" type="date">
+                                <input type="text" id="daily-date-picker" placeholder="Tarih seçin" readonly>
                                 <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')">Raporu Hazırla</button>
                             </div>
                         </div>
                         <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
                             <label>Aylık Rapor:</label>
                             <div style="display: flex; gap: 8px;">
-                                <input id="monthly-month-picker" type="month">
+                                <input type="text" id="monthly-month-picker" placeholder="Ay/Yıl seçin" readonly>
                                 <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')">Raporu Hazırla</button>
                             </div>
                         </div>
@@ -1207,33 +1214,28 @@
         }
 
         function initPastReportLimits() {
-            const today = new Date();
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
+            flatpickr("#daily-date-picker", {
+                locale: "tr",
+                dateFormat: "Y-m-d",
+                altInput: true,
+                altFormat: "d.m.Y",
+                maxDate: new Date(Date.now() - 86400000), // dün
+                minDate: new Date(Date.now() - 730*86400000), // 2 yıl
+                disableMobile: true
+            });
 
-            // Günlük max = dün
-            const dailyPicker = document.getElementById('daily-date-picker');
-            if (dailyPicker) {
-                dailyPicker.max = yesterday.toISOString().split('T')[0];
-                
-                // Günlük min = 2 yıl önce
-                const twoYearsAgo = new Date(today);
-                twoYearsAgo.setFullYear(today.getFullYear() - 2);
-                dailyPicker.min = twoYearsAgo.toISOString().split('T')[0];
-            }
-
-            // Aylık max = geçen ay
-            const monthlyPicker = document.getElementById('monthly-month-picker');
-            if (monthlyPicker) {
-                const lastMonth = new Date(today);
-                lastMonth.setMonth(today.getMonth() - 1);
-                monthlyPicker.max = lastMonth.toISOString().slice(0,7);
-
-                // Aylık min = 2 yıl önce
-                const twoYearsAgo = new Date(today);
-                twoYearsAgo.setFullYear(today.getFullYear() - 2);
-                monthlyPicker.min = twoYearsAgo.toISOString().slice(0,7);
-            }
+            flatpickr("#monthly-month-picker", {
+                locale: "tr",
+                altInput: true,
+                plugins: [new monthSelectPlugin({
+                    shorthand: true,
+                    dateFormat: "Y-m",
+                    altFormat: "F Y",
+                })],
+                maxDate: new Date(new Date().setDate(0)), // geçen ay sonu
+                minDate: new Date(Date.now() - 730*86400000),
+                disableMobile: true
+            });
         }
 
         async function triggerPastReport(mode) {
