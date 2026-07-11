@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from app.infrastructure.browser.playwright_client import PlaywrightClient
 from app.extractors.isolar.extractor import IsolarExtractor
 from app.database.plant_status_repository import PlantStatusRepository
 from app.core.config import settings
@@ -78,48 +77,69 @@ class PlantStatusJob:
             logger.info(f"Saat {current_hour:02d}:00. Çalışma saatleri (08-18) dışında olduğu için durduruldu.")
             return {"status": "SKIPPED", "reason": "Dış çalışma saatleri"}
 
+        from playwright.sync_api import sync_playwright
+        ISOLAR_PROFILE_DIR = Path("config/isolar_browser_profile")
+
         results = {}
         error_msg = None
+        pw = None
+        context = None
 
-        # 1. Playwright ile bağlan
+        # 1. Playwright persistent context ile bağlan
         try:
-            logger.info("Playwright tarayıcı başlatılıyor (headless=True)...")
-            with PlaywrightClient(headless=True) as client:
-                page = client.create_page()
-                extractor = IsolarExtractor(page)
+            ISOLAR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            pw = sync_playwright().start()
+            logger.info("Playwright persistent context başlatılıyor (headless=True)...")
+            context = pw.chromium.launch_persistent_context(
+                user_data_dir=str(ISOLAR_PROFILE_DIR),
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = context.new_page()
+            extractor = IsolarExtractor(page, run_id="plant-status")
 
-                # 2. login_and_verify() - Oturum geçerliyse atla
-                logger.info("Mevcut oturum doğrulanıyor...")
+            # 2. login_and_verify() - Oturum geçerliyse atla
+            logger.info("Mevcut oturum doğrulanıyor...")
+            try:
+                page.goto(settings.base_url, wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(3000)
+            except Exception as e:
+                logger.warning(f"Giriş sayfası yüklenemedi, yine de login denenecek: {e}")
+
+            # Oturum belirtileri kontrolü
+            authenticated = False
+            for selector in [".el-aside", ".sidebar", ".plant-list", ".user-avatar"]:
                 try:
-                    page.goto(settings.base_url, wait_until="domcontentloaded", timeout=15000)
-                    page.wait_for_timeout(3000)
-                except Exception as e:
-                    logger.warning(f"Giriş sayfası yüklenemedi, yine de login denenecek: {e}")
+                    if page.locator(selector).first.is_visible(timeout=2000):
+                        authenticated = True
+                        break
+                except Exception:
+                    pass
 
-                if "login" in page.url.lower():
-                    logger.info("Oturum bulunamadı. Giriş yapılıyor...")
-                    extractor.login_and_verify()
-                else:
-                    # Oturum belirtileri kontrolü
-                    authenticated = False
-                    for selector in [".el-aside", ".sidebar", ".plant-list", ".user-avatar"]:
-                        try:
-                            if page.locator(selector).first.is_visible(timeout=2000):
-                                authenticated = True
-                                break
-                        except Exception:
-                            pass
-                    if authenticated:
-                        logger.info("Mevcut oturum aktif. Giriş aşaması atlanıyor.")
-                    else:
-                        logger.info("Oturum doğrulanamadı. Yeniden giriş yapılıyor...")
-                        extractor.login_and_verify()
+            if authenticated or "plant" in page.url.lower():
+                logger.info("Mevcut oturum aktif. Giriş aşaması atlanıyor.")
+            else:
+                logger.info("Oturum doğrulanamadı. Yeniden giriş yapılıyor...")
+                extractor.login_and_verify()
 
-                # 3. get_plant_statuses() - durumları çek
-                results = extractor.get_plant_statuses()
+            # 3. get_plant_statuses() - durumları çek
+            results = extractor.get_plant_statuses()
         except Exception as e:
             error_msg = f"iSolar santral durumlarını çekerken hata oluştu: {e}"
             logger.error(error_msg)
+        finally:
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
 
         if not results:
             return {
