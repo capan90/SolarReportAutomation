@@ -278,10 +278,11 @@
     <nav class="sidebar">
         <div class="logo"><span class="sun">&#9728;</span>Erdemsoft GES Enerji Yönetim Sistemi<small>Üretim &amp; Mahsuplaşma Takibi</small></div>
         <ul class="menu">
-            <li class="menu-item active" data-page="page-home">Ana Sayfa</li>
-            <li class="menu-item" data-page="page-settlements">Mahsuplaşmalarım</li>
-            <li class="menu-item" data-page="page-analytics">Analitik</li>
-            <li class="menu-item" data-page="page-settings">Sistem Ayarları</li>
+            <li class="menu-item active" data-page="page-home">🏠 Ana Sayfa</li>
+            <li class="menu-item" data-page="page-settlements">📋 Mahsuplaşmalarım</li>
+            <li class="menu-item" data-page="page-analytics">📊 Analitik</li>
+            <li class="menu-item" data-page="page-settings">⚙️ Sistem Ayarları</li>
+            <li class="menu-item" data-page="page-developer" id="dev-menu-item" style="margin-top:auto; border-top:1px solid var(--border); padding-top:12px;">🔧 Developer</li>
         </ul>
         <div class="sidebar-footer">Veriler otomatik olarak her gün güncellenir.<br><span id="side-last-update">-</span></div>
     </nav>
@@ -610,6 +611,84 @@
                 </div>
             </div>
         </section>
+
+        <!-- ============ DEVELOPER LOG SAYFASI ============ -->
+        <section id="page-developer" class="page">
+            <!-- LOGIN VIEW -->
+            <div id="dev-login-view">
+                <div class="page-header"><div><h1>🔧 Developer Girişi</h1><p>Bu alan yalnızca geliştiriciler içindir.</p></div></div>
+                <div style="max-width:400px; margin: 60px auto;">
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom:20px;">🔒 Güvenli Giriş</div>
+                        <div class="field" style="margin-bottom:16px;">
+                            <label>Geliştirici Şifresi</label>
+                            <input type="password" id="dev-password-input" placeholder="Şifrenizi girin" onkeydown="if(event.key==='Enter') devLogin()">
+                        </div>
+                        <button class="btn green" onclick="devLogin()" id="dev-login-btn">Giriş Yap</button>
+                        <div id="dev-login-msg" class="msg" style="margin-top:12px;"></div>
+                    </div>
+                </div>
+            </div>
+            <!-- LOG VIEW -->
+            <div id="dev-log-view" style="display:none;">
+                <div class="page-header">
+                    <div><h1>🔧 Sistem Logları</h1><p id="dev-log-stats">Yükleniyor...</p></div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span id="dev-auto-refresh-badge" style="font-size:0.75rem; color:var(--muted);">⏱ Otomatik yenileme: 30s</span>
+                        <button class="btn outline" style="width:auto;" onclick="loadDevLogs()">🔄 Yenile</button>
+                        <button class="btn outline" style="width:auto; color:var(--red);" onclick="devLogout()">Çıkış Yap</button>
+                    </div>
+                </div>
+                <!-- Filtreler -->
+                <div class="card" style="margin-bottom:16px;">
+                    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                        <div>
+                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SEVİYE</label>
+                            <div style="display:flex; gap:6px;">
+                                <button class="filter-btn active" id="dev-level-ALL" onclick="setDevLevel('ALL')">Tümü</button>
+                                <button class="filter-btn" id="dev-level-INFO" onclick="setDevLevel('INFO')">INFO</button>
+                                <button class="filter-btn" id="dev-level-WARNING" onclick="setDevLevel('WARNING')" style="color:var(--yellow);">WARNING</button>
+                                <button class="filter-btn" id="dev-level-ERROR" onclick="setDevLevel('ERROR')" style="color:var(--red);">ERROR</button>
+                            </div>
+                        </div>
+                        <div style="flex:1; min-width:200px;">
+                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">ARAMA</label>
+                            <input type="text" id="dev-search-input" placeholder="Kelime ara..." oninput="onDevSearch()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">DOSYA</label>
+                            <select id="dev-file-select" onchange="loadDevLogs()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                                <option value="app.log">app.log</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SAYFA</label>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <button class="filter-btn" onclick="devPagePrev()">‹</button>
+                                <span id="dev-page-info" style="font-size:0.82rem; color:var(--muted);">1/1</span>
+                                <button class="filter-btn" onclick="devPageNext()">›</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Log Tablosu -->
+                <div class="card" style="padding:0; overflow:hidden;">
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:170px;">ZAMAN</th>
+                                    <th style="width:90px;">SEVİYE</th>
+                                    <th style="width:200px;">MODÜL</th>
+                                    <th>MESAJ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dev-log-tbody"><tr><td colspan="4" class="muted" style="text-align:center;padding:30px;">Yükleniyor...</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <script>
@@ -711,11 +790,220 @@
                     "page-home": loadHome,
                     "page-settlements": loadSettlements,
                     "page-analytics": loadAnalytics,
-                    "page-settings": loadSettingsPage
+                    "page-settings": loadSettingsPage,
+                    "page-developer": loadDevPage
                 };
-                loaders[item.dataset.page]();
+                if (loaders[item.dataset.page]) loaders[item.dataset.page]();
             });
         });
+
+        // ------------------------------------------------------------
+        // Developer Log — State
+        // ------------------------------------------------------------
+        let _devToken = sessionStorage.getItem("devToken") || null;
+        let _devLevel = "ALL";
+        let _devPage = 1;
+        const DEV_PAGE_SIZE = 100;
+        let _devAllEntries = [];
+        let _devAutoRefreshTimer = null;
+
+        function loadDevPage() {
+            if (_devToken) {
+                showDevLogView();
+                loadDevLogs();
+            } else {
+                showDevLoginView();
+            }
+        }
+
+        function showDevLoginView() {
+            document.getElementById("dev-login-view").style.display = "";
+            document.getElementById("dev-log-view").style.display = "none";
+        }
+
+        function showDevLogView() {
+            document.getElementById("dev-login-view").style.display = "none";
+            document.getElementById("dev-log-view").style.display = "";
+            startDevAutoRefresh();
+        }
+
+        async function devLogin() {
+            const btn = document.getElementById("dev-login-btn");
+            const msg = document.getElementById("dev-login-msg");
+            const pw = document.getElementById("dev-password-input").value;
+            if (!pw) { msg.className="msg bad"; msg.innerText="Şifre boş bırakılamaz."; return; }
+            btn.disabled = true; btn.innerText = "Doğrulanıyor...";
+            try {
+                const resp = await fetch("/api/dev/login", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({password: pw})
+                });
+                const j = await resp.json();
+                if (j.success && j.data && j.data.token) {
+                    _devToken = j.data.token;
+                    sessionStorage.setItem("devToken", _devToken);
+                    document.getElementById("dev-password-input").value = "";
+                    msg.className = "msg";
+                    showDevLogView();
+                    loadDevLogs();
+                } else {
+                    msg.className="msg bad"; msg.innerText = j.error || "Hatalı şifre.";
+                }
+            } catch(e) {
+                msg.className="msg bad"; msg.innerText="Bağlantı hatası.";
+            } finally {
+                btn.disabled = false; btn.innerText = "Giriş Yap";
+            }
+        }
+
+        async function devLogout() {
+            if (_devToken) {
+                fetch("/api/dev/logout", {method:"POST", headers:{"X-Dev-Token": _devToken}}).catch(()=>{});
+            }
+            _devToken = null;
+            sessionStorage.removeItem("devToken");
+            stopDevAutoRefresh();
+            showDevLoginView();
+        }
+
+        function setDevLevel(level) {
+            _devLevel = level;
+            _devPage = 1;
+            document.querySelectorAll("[id^='dev-level-']").forEach(b => b.classList.remove("active"));
+            document.getElementById("dev-level-" + level).classList.add("active");
+            loadDevLogs();
+        }
+
+        let _devSearchTimer = null;
+        function onDevSearch() {
+            clearTimeout(_devSearchTimer);
+            _devSearchTimer = setTimeout(() => { _devPage = 1; loadDevLogs(); }, 300);
+        }
+
+        async function loadDevLogs() {
+            if (!_devToken) return;
+            const search = document.getElementById("dev-search-input").value;
+            const file = document.getElementById("dev-file-select").value;
+            const url = `/api/dev/logs?level=${_devLevel}&limit=2000&search=${encodeURIComponent(search)}&file=${encodeURIComponent(file)}`;
+            const tbody = document.getElementById("dev-log-tbody");
+            tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:30px;">⏳ Yükleniyor...</td></tr>`;
+            try {
+                const resp = await fetch(url, {headers: {"X-Dev-Token": _devToken}});
+                if (resp.status === 401) { devLogout(); return; }
+                const j = await resp.json();
+                if (!j.success) { throw new Error(j.error); }
+                _devAllEntries = j.data.entries || [];
+                const stats = j.data.stats || {};
+                const total = _devAllEntries.length;
+                document.getElementById("dev-log-stats").innerText =
+                    `Toplam: ${total} satır | ` +
+                    `ERROR: ${stats.error_count||0} | WARNING: ${stats.warning_count||0}`;
+                renderDevPage();
+                await loadDevLogFiles();
+            } catch(e) {
+                tbody.innerHTML = `<tr><td colspan="4" style="color:var(--red);padding:20px;">${e.message||'Loglar yüklenemedi.'}</td></tr>`;
+            }
+        }
+
+        function renderDevPage() {
+            const tbody = document.getElementById("dev-log-tbody");
+            const totalPages = Math.max(1, Math.ceil(_devAllEntries.length / DEV_PAGE_SIZE));
+            if (_devPage > totalPages) _devPage = totalPages;
+            const start = (_devPage - 1) * DEV_PAGE_SIZE;
+            const slice = _devAllEntries.slice(start, start + DEV_PAGE_SIZE);
+            document.getElementById("dev-page-info").innerText = `${_devPage}/${totalPages}`;
+            if (!slice.length) {
+                tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:30px;">Kayıt bulunamadı.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = slice.map((e, idx) => {
+                let rowStyle = "";
+                let levelBadge = `<span style="font-size:0.72rem; font-weight:700; color:var(--muted);">${e.level}</span>`;
+                if (e.level === "ERROR") {
+                    rowStyle = "background:rgba(239,68,68,0.07);";
+                    levelBadge = `<span style="font-size:0.72rem; font-weight:700; color:var(--red); background:rgba(239,68,68,0.14); padding:2px 7px; border-radius:4px;">ERROR</span>`;
+                } else if (e.level === "WARNING") {
+                    rowStyle = "background:rgba(245,158,11,0.06);";
+                    levelBadge = `<span style="font-size:0.72rem; font-weight:700; color:var(--yellow); background:rgba(245,158,11,0.12); padding:2px 7px; border-radius:4px;">WARN</span>`;
+                } else if (e.level === "INFO") {
+                    levelBadge = `<span style="font-size:0.72rem; font-weight:600; color:var(--muted);">INFO</span>`;
+                }
+                const ts = e.timestamp ? e.timestamp.split(" ")[1].split(",")[0] : "-";
+                const safeMsg = e.message.replace(/</g,"&lt;").replace(/>/g,"&gt;");
+                const globalIdx = start + idx;
+                return `<tr style="border-bottom:1px solid var(--border); cursor:pointer; ${rowStyle}" onclick="openDevLogModal(${globalIdx})">
+                    <td style="padding:8px 12px; font-size:0.8rem; color:var(--muted); white-space:nowrap;">${ts}</td>
+                    <td style="padding:8px 12px;">${levelBadge}</td>
+                    <td style="padding:8px 12px; font-size:0.8rem; color:var(--blue); white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${e.module}</td>
+                    <td style="padding:8px 12px; font-size:0.83rem; max-width:600px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeMsg}</td>
+                </tr>`;
+            }).join("");
+        }
+
+        function devPagePrev() { if (_devPage > 1) { _devPage--; renderDevPage(); } }
+        function devPageNext() {
+            const totalPages = Math.ceil(_devAllEntries.length / DEV_PAGE_SIZE);
+            if (_devPage < totalPages) { _devPage++; renderDevPage(); }
+        }
+
+        function openDevLogModal(idx) {
+            const e = _devAllEntries[idx];
+            if (!e) return;
+            const existing = document.getElementById("dev-detail-modal");
+            if (existing) existing.remove();
+            let color = "var(--text)";
+            if (e.level === "ERROR") color = "var(--red)";
+            else if (e.level === "WARNING") color = "var(--yellow)";
+            const modal = document.createElement("div");
+            modal.id = "dev-detail-modal";
+            modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;";
+            modal.innerHTML = `
+                <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;max-width:800px;width:90%;max-height:80vh;overflow-y:auto;padding:28px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <span style="font-weight:700;font-size:1rem;color:${color};">[${e.level}] ${e.module}</span>
+                        <button onclick="document.getElementById('dev-detail-modal').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;">✕</button>
+                    </div>
+                    <div class="info-line"><span class="k">Zaman</span><span>${e.timestamp||'-'}</span></div>
+                    <div class="info-line"><span class="k">Dosya</span><span>${e.file}:${e.line}</span></div>
+                    <div class="info-line"><span class="k">Modül</span><span>${e.module}</span></div>
+                    <div style="margin-top:14px;">
+                        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;">MESAJ</div>
+                        <pre style="background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:0.83rem;white-space:pre-wrap;word-break:break-all;color:var(--text);">${e.message.replace(/</g,'&lt;')}</pre>
+                    </div>
+                    <div style="margin-top:14px;">
+                        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px;">HAM SATIR</div>
+                        <pre style="background:#0b1220;border:1px solid var(--border);border-radius:8px;padding:14px;font-size:0.77rem;white-space:pre-wrap;word-break:break-all;color:var(--muted);">${e.raw.replace(/</g,'&lt;')}</pre>
+                    </div>
+                </div>`;
+            modal.addEventListener("click", (ev) => { if (ev.target === modal) modal.remove(); });
+            document.body.appendChild(modal);
+        }
+
+        async function loadDevLogFiles() {
+            try {
+                const resp = await fetch("/api/dev/logs/files", {headers: {"X-Dev-Token": _devToken}});
+                const j = await resp.json();
+                if (!j.success) return;
+                const sel = document.getElementById("dev-file-select");
+                const cur = sel.value;
+                sel.innerHTML = (j.data.files||[]).map(f =>
+                    `<option value="${f.name}" ${f.name===cur?'selected':''}>${f.name} (${f.size_kb} KB)</option>`
+                ).join("");
+            } catch(e) {}
+        }
+
+        function startDevAutoRefresh() {
+            stopDevAutoRefresh();
+            _devAutoRefreshTimer = setInterval(() => {
+                if (_devToken && document.getElementById("dev-log-view").style.display !== "none") {
+                    loadDevLogs();
+                }
+            }, 30000);
+        }
+        function stopDevAutoRefresh() {
+            if (_devAutoRefreshTimer) { clearInterval(_devAutoRefreshTimer); _devAutoRefreshTimer = null; }
+        }
 
         async function loadPlantStatuses() {
             const data = await api("/api/plants/status");

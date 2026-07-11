@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime, timedelta
@@ -51,6 +52,11 @@ def _report_info(path: Optional[Path], kind: str) -> Optional[Dict[str, Any]]:
         "size_kb": round(path.stat().st_size / 1024, 2),
         "download_url": f"/api/settlement/download/latest/{kind}",
     }
+
+
+# In-memory store for developer session tokens {token: issued_at_datetime}
+_DEV_TOKENS: Dict[str, datetime] = {}
+_DEV_TOKEN_TTL_HOURS = 8
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
@@ -104,7 +110,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
 
 
-        if path.startswith("/api/"):
+        if path.startswith("/api/dev/"):
+            self._handle_dev_api(path, query)
+        elif path.startswith("/api/"):
             self._handle_api(path, query)
         else:
             self._handle_static(path)
@@ -125,6 +133,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._handle_smtp_settings()
         elif path == "/api/gaosb/captcha-resolved":
             self._handle_captcha_resolved()
+        elif path == "/api/dev/login":
+            self._handle_dev_login()
+        elif path == "/api/dev/logout":
+            self._handle_dev_logout()
         else:
             self._send_method_not_allowed()
 
@@ -337,6 +349,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     error_message = "Metrik adı belirtilmedi."
             else:
                 not_found = True
+
         except Exception as e:
             logger.error(f"API hatası ({path}): {e}")
             error_message = "Sistem kaynağına şu anda erişilemiyor. Lütfen sistem yöneticinizle iletişime geçin."
@@ -347,6 +360,106 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json_contract(response_data, error_message)
+
+    # ------------------------------------------------------------------
+    # Developer API
+    # ------------------------------------------------------------------
+    def _check_dev_token(self) -> bool:
+        """Neden: X-Dev-Token header'ını doğrula; süresi geçmiş token'ları temizle."""
+        token = self.headers.get("X-Dev-Token", "")
+        if not token:
+            return False
+        issued = _DEV_TOKENS.get(token)
+        if not issued:
+            return False
+        if datetime.utcnow() - issued > timedelta(hours=_DEV_TOKEN_TTL_HOURS):
+            _DEV_TOKENS.pop(token, None)
+            return False
+        return True
+
+    def _handle_dev_api(self, path: str, query: Dict[str, list]) -> None:
+        """Neden: Developer log endpoint'lerini tek noktada yönetmek."""
+        if path == "/api/dev/logs":
+            if not self._check_dev_token():
+                self._send_json_contract(None, "Yetkisiz erişim.", status_code=401)
+                return
+            level_filter = query.get("level", ["ALL"])[0].upper()
+            limit = min(int(query.get("limit", ["200"])[0]), 2000)
+            search = query.get("search", [""])[0].lower()
+            file_name = query.get("file", ["app.log"])[0]
+            logs_dir = Path(getattr(settings, "log_directory", Path("logs")))
+            log_file = logs_dir / file_name
+            entries = []
+            pattern = re.compile(
+                r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d+)\]\s+"
+                r"\[([A-Z]+)\]\s+"
+                r"\[([^:]+):([^:]+):(\d+)\]:\s+(.*)"
+            )
+            try:
+                if log_file.exists():
+                    lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+                    for line in reversed(lines):
+                        m = pattern.match(line.strip())
+                        if m:
+                            ts, lvl, module, fname, lineno, msg = m.groups()
+                            if level_filter not in ("ALL", "") and lvl != level_filter:
+                                continue
+                            if search and search not in line.lower():
+                                continue
+                            entries.append({
+                                "timestamp": ts,
+                                "level": lvl,
+                                "module": module,
+                                "file": fname,
+                                "line": int(lineno),
+                                "message": msg,
+                                "raw": line.strip(),
+                            })
+                            if len(entries) >= limit:
+                                break
+            except Exception as e:
+                logger.error(f"Log dosyası okunamadı: {e}")
+            stats = {"total": len(entries),
+                     "error_count": sum(1 for e in entries if e["level"] == "ERROR"),
+                     "warning_count": sum(1 for e in entries if e["level"] == "WARNING")}
+            self._send_json_contract({"entries": entries, "stats": stats}, None)
+
+        elif path == "/api/dev/logs/files":
+            if not self._check_dev_token():
+                self._send_json_contract(None, "Yetkisiz erişim.", status_code=401)
+                return
+            logs_dir = Path(getattr(settings, "log_directory", Path("logs")))
+            files = []
+            if logs_dir.exists():
+                for f in sorted(logs_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
+                    files.append({"name": f.name, "size_kb": round(f.stat().st_size / 1024, 1)})
+            self._send_json_contract({"files": files}, None)
+        else:
+            self.send_error(404, "Dev endpoint bulunamadi.")
+
+    def _handle_dev_login(self) -> None:
+        """Neden: Şifre doğrulayıp kısa ömürlü token üret."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            self._send_json_contract(None, "Geçersiz istek gövdesi.", status_code=400)
+            return
+        from dotenv import load_dotenv
+        load_dotenv()
+        dev_password = os.environ.get("DEVELOPER_PASSWORD", "")
+        if not dev_password or body.get("password") != dev_password:
+            self._send_json_contract(None, "Hatalı şifre.", status_code=401)
+            return
+        token = str(uuid.uuid4())
+        _DEV_TOKENS[token] = datetime.utcnow()
+        self._send_json_contract({"token": token}, None)
+
+    def _handle_dev_logout(self) -> None:
+        """Neden: Token'ı bellekten silerek oturumu kapat."""
+        token = self.headers.get("X-Dev-Token", "")
+        _DEV_TOKENS.pop(token, None)
+        self._send_json_contract({"ok": True}, None)
 
     def _summary_payload(self) -> Dict[str, Any]:
         """
