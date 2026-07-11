@@ -46,6 +46,10 @@ class Settings:
     smtp_password: str
     smtp_from: str
     alert_email: str
+    smtp_to_daily: str
+    smtp_to_monthly: str
+    smtp_to_plant_alert: str
+    smtp_to_system: str
     smtp_enabled: bool
     smtp_use_tls: bool
     dashboard_access_mode: str  # 'localhost' veya 'lan'
@@ -123,6 +127,10 @@ settings = Settings(
     smtp_password=os.environ.get("SMTP_PASSWORD", ""),
     smtp_from=os.environ.get("SMTP_FROM", ""),
     alert_email=os.environ.get("SMTP_TO", os.environ.get("ALERT_EMAIL", "")),
+    smtp_to_daily=os.environ.get("SMTP_TO_DAILY", os.environ.get("SMTP_TO", "")),
+    smtp_to_monthly=os.environ.get("SMTP_TO_MONTHLY", os.environ.get("SMTP_TO", "")),
+    smtp_to_plant_alert=os.environ.get("SMTP_TO_PLANT_ALERT", os.environ.get("SMTP_TO", "")),
+    smtp_to_system=os.environ.get("SMTP_TO_SYSTEM", os.environ.get("SMTP_TO", "")),
     smtp_enabled=os.environ.get("SMTP_ENABLED", "false").lower() == "true",
     smtp_use_tls=os.environ.get("SMTP_USE_TLS", "true").lower() == "true",
     dashboard_access_mode=os.environ.get("DASHBOARD_ACCESS_MODE", "localhost").lower(),

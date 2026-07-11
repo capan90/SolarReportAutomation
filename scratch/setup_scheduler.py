@@ -96,6 +96,33 @@ else:
     sys.exit(1)
 
 # ------------------------------------------------------------------
+# 3) Plant Status — her 15 dakikada bir (/SC MINUTE /MO 15)
+# ------------------------------------------------------------------
+status_command = f'"{python_exe}" "{main_py}" --plant-status'
+status_job_name = "SolarReportAutomation_PlantStatus"
+
+delete_status = run_schtasks(["schtasks", "/Delete", "/TN", status_job_name, "/F"])
+if delete_status.returncode == 0:
+    print(f"\nEski plant status görevi silindi: {status_job_name}")
+else:
+    print(f"\nEski plant status görevi temizleme bilgisi: {(delete_status.stderr or delete_status.stdout).strip()}")
+
+create_status = run_schtasks([
+    "schtasks", "/Create", "/F",
+    "/TN", status_job_name,
+    "/TR", status_command,
+    "/SC", "MINUTE",
+    "/MO", "15",
+])
+
+if create_status.returncode == 0:
+    print(f"Görev kaydedildi: {status_job_name}")
+    print("Zamanlama: her 15 dakikada bir")
+    print(f"Komut: {status_command}")
+else:
+    print(f"HATA: Plant status görevi kaydedilemedi: {(create_status.stderr or create_status.stdout).strip()}")
+
+# ------------------------------------------------------------------
 # Doğrulama: kayıtlı Solar görevlerini listele
 # ------------------------------------------------------------------
 jobs = scheduler.list_jobs()
