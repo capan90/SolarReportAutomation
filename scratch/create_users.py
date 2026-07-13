@@ -23,12 +23,13 @@ def main():
         success = auth.create_user(
             username=u["username"],
             password=u["password"],
-            display_name=u["display_name"]
+            display_name=u["display_name"],
+            update_if_exists=True
         )
         if success:
             print(f"SUCCESS: {u['username']} ({u['display_name']})")
         else:
-            print(f"ALREADY EXISTS/FAILED: {u['username']}")
+            print(f"FAILED: {u['username']}")
 
 if __name__ == "__main__":
     main()

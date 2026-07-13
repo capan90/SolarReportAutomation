@@ -14,19 +14,27 @@ _SESSIONS: Dict[str, Dict[str, Any]] = {}
 SESSION_TIMEOUT_HOURS = 8
 
 class DashboardAuth:
-    def create_user(self, username: str, password: str, display_name: str) -> bool:
+    def create_user(self, username: str, password: str, display_name: str, update_if_exists: bool = False) -> bool:
         """Yeni kullanıcı oluştur (şifreyi bcrypt ile hash'leyerek)"""
         db = SessionLocal()
         try:
-            # Kullanıcı adının benzersiz olduğunu kontrol et
-            existing = db.query(DashboardUser).filter(DashboardUser.username == username).first()
-            if existing:
-                logger.warning(f"Kullanıcı oluşturma başarısız: '{username}' zaten mevcut.")
-                return False
-
             # Şifreyi hash'le
             salt = bcrypt.gensalt()
             password_hash = bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+
+            # Kullanıcı adının benzersiz olduğunu kontrol et
+            existing = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+            if existing:
+                if update_if_exists:
+                    existing.password_hash = password_hash
+                    existing.display_name = display_name
+                    existing.is_active = True
+                    db.commit()
+                    logger.info(f"Kullanıcı şifresi/bilgileri güncellendi: '{username}' ({display_name})")
+                    return True
+                else:
+                    logger.warning(f"Kullanıcı oluşturma başarısız: '{username}' zaten mevcut.")
+                    return False
 
             user = DashboardUser(
                 username=username,
@@ -56,9 +64,13 @@ class DashboardAuth:
 
             # Şifreyi doğrula
             if bcrypt.checkpw(password.encode("utf-8"), user.password_hash.encode("utf-8")):
-                # Son giriş tarihini güncelle
-                user.last_login = datetime.utcnow()
-                db.commit()
+                # Son giriş tarihini güncelle (hata alırsa girişi engellemesin)
+                try:
+                    user.last_login = datetime.utcnow()
+                    db.commit()
+                except Exception as db_err:
+                    db.rollback()
+                    logger.error(f"Son giriş tarihi güncellenemedi: {db_err}")
                 return True
             return False
         except Exception as e:
