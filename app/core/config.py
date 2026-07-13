@@ -52,7 +52,7 @@ class Settings:
     smtp_to_system: str
     smtp_enabled: bool
     smtp_use_tls: bool
-    dashboard_access_mode: str  # 'localhost' veya 'lan'
+    dashboard_access_mode: str  # 'localhost' veya 'network'
     dashboard_port: int
     
     # Profil Bazlı Konfigürasyonlar

@@ -1079,7 +1079,7 @@ class SolarDashboardServer:
             self.port = settings.dashboard_port
 
         access_mode = settings.dashboard_access_mode
-        host = "0.0.0.0" if access_mode == "lan" else "127.0.0.1"
+        host = "0.0.0.0" if access_mode == "network" else "127.0.0.1"
 
         server_address = (host, self.port)
         self.httpd = HTTPServer(server_address, DashboardRequestHandler)
@@ -1096,7 +1096,7 @@ class SolarDashboardServer:
 
 def start_dashboard_server(port: int = None) -> None:
     """
-    Neden: Dashboard web sunucusunu yapılandırmaya göre localhost veya LAN binding ile ayağa kaldırmak.
+    Neden: Dashboard web sunucusunu yapılandırmaya göre localhost veya network binding ile ayağa kaldırmak.
     """
     server = SolarDashboardServer(port=port)
     server.start()
