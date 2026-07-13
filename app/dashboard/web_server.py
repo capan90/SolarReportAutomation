@@ -137,6 +137,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._handle_dev_login()
         elif path == "/api/dev/logout":
             self._handle_dev_logout()
+        elif path == "/api/dev/analyze-log":
+            self._handle_dev_analyze_log()
         else:
             self._send_method_not_allowed()
 
@@ -460,6 +462,32 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         token = self.headers.get("X-Dev-Token", "")
         _DEV_TOKENS.pop(token, None)
         self._send_json_contract({"ok": True}, None)
+
+    def _handle_dev_analyze_log(self) -> None:
+        """Neden: Gelen log kaydını LogAnalyzer ile analiz edip sonucu döndür."""
+        if not self._check_dev_token():
+            self._send_json_contract(None, "Yetkisiz erişim.", status_code=401)
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            log_entry = json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            self._send_json_contract(None, "Geçersiz istek gövdesi.", status_code=400)
+            return
+        try:
+            from app.ai.log_analyzer import LogAnalyzer
+            analyzer = LogAnalyzer()
+            result = analyzer.analyze(log_entry)
+            if result:
+                self._send_json_contract(result, None)
+            else:
+                self._send_json_contract(
+                    {"source": "none", "cause": "Bu seviyede otomatik analiz yapılmıyor.",
+                     "solution": "-", "severity": "info"}, None
+                )
+        except Exception as e:
+            logger.error(f"Log analizi hatası: {e}")
+            self._send_json_contract(None, "Analiz sırasında hata oluştu.")
 
     def _summary_payload(self) -> Dict[str, Any]:
         """

@@ -681,9 +681,10 @@
                                     <th style="width:90px;">SEVİYE</th>
                                     <th style="width:200px;">MODÜL</th>
                                     <th>MESAJ</th>
+                                    <th style="width:100px; text-align:center;">AI</th>
                                 </tr>
                             </thead>
-                            <tbody id="dev-log-tbody"><tr><td colspan="4" class="muted" style="text-align:center;padding:30px;">Yükleniyor...</td></tr></tbody>
+                            <tbody id="dev-log-tbody"><tr><td colspan="5" class="muted" style="text-align:center;padding:30px;">Yükleniyor...</td></tr></tbody>
                         </table>
                     </div>
                 </div>
@@ -914,7 +915,7 @@
             const slice = _devAllEntries.slice(start, start + DEV_PAGE_SIZE);
             document.getElementById("dev-page-info").innerText = `${_devPage}/${totalPages}`;
             if (!slice.length) {
-                tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center;padding:30px;">Kayıt bulunamadı.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="muted" style="text-align:center;padding:30px;">Kayıt bulunamadı.</td></tr>`;
                 return;
             }
             tbody.innerHTML = slice.map((e, idx) => {
@@ -932,13 +933,95 @@
                 const ts = e.timestamp ? e.timestamp.split(" ")[1].split(",")[0] : "-";
                 const safeMsg = e.message.replace(/</g,"&lt;").replace(/>/g,"&gt;");
                 const globalIdx = start + idx;
+                const canAnalyze = (e.level === "ERROR" || e.level === "WARNING");
+                const aiBtn = canAnalyze
+                    ? `<button id="ai-btn-${globalIdx}" onclick="event.stopPropagation(); analyzeLogEntry(${globalIdx})"
+                         style="font-size:0.72rem; padding:3px 8px; border-radius:6px; border:1px solid rgba(139,92,246,0.4); background:rgba(139,92,246,0.1); color:#a78bfa; cursor:pointer; white-space:nowrap; transition:all 0.2s;"
+                         onmouseover="this.style.background='rgba(139,92,246,0.22)'"
+                         onmouseout="this.style.background='rgba(139,92,246,0.1)'">🤖 Analiz</button>`
+                    : `<span style="color:var(--muted); font-size:0.72rem;">—</span>`;
                 return `<tr style="border-bottom:1px solid var(--border); cursor:pointer; ${rowStyle}" onclick="openDevLogModal(${globalIdx})">
                     <td style="padding:8px 12px; font-size:0.8rem; color:var(--muted); white-space:nowrap;">${ts}</td>
                     <td style="padding:8px 12px;">${levelBadge}</td>
                     <td style="padding:8px 12px; font-size:0.8rem; color:var(--blue); white-space:nowrap; max-width:200px; overflow:hidden; text-overflow:ellipsis;">${e.module}</td>
-                    <td style="padding:8px 12px; font-size:0.83rem; max-width:600px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeMsg}</td>
+                    <td style="padding:8px 12px; font-size:0.83rem; max-width:500px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${safeMsg}</td>
+                    <td style="padding:8px 12px; text-align:center;">${aiBtn}</td>
                 </tr>`;
             }).join("");
+        }
+
+        async function analyzeLogEntry(idx) {
+            const e = _devAllEntries[idx];
+            if (!e) return;
+            const btn = document.getElementById(`ai-btn-${idx}`);
+            if (btn) { btn.disabled = true; btn.innerText = "⏳ Analiz..."; }
+            try {
+                const resp = await fetch("/api/dev/analyze-log", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-Dev-Token": _devToken
+                    },
+                    body: JSON.stringify(e)
+                });
+                if (resp.status === 401) { devLogout(); return; }
+                const j = await resp.json();
+                if (j.success && j.data) {
+                    showAiModal(j.data, e);
+                } else {
+                    showAiModal({ source:"error", cause: j.error || "Analiz başarısız.", solution:"-", severity:"info" }, e);
+                }
+            } catch(err) {
+                showAiModal({ source:"error", cause:"Bağlantı hatası.", solution:"-", severity:"info" }, e);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerText = "🤖 Analiz"; }
+            }
+        }
+
+        function showAiModal(result, logEntry) {
+            const existing = document.getElementById("ai-analysis-modal");
+            if (existing) existing.remove();
+
+            const sourceLabels = { ai:"🧠 Gemini AI", cache:"💾 Önbellek", pattern:"📋 Pattern Eşleşme", none:"—", error:"⚠️ Hata" };
+            const severityColors = { critical:"var(--red)", warning:"var(--yellow)", info:"var(--muted)" };
+            const severityLabels = { critical:"🔴 KRİTİK", warning:"🟠 UYARI", info:"🔵 BİLGİ" };
+
+            const srcLabel = sourceLabels[result.source] || result.source;
+            const sevColor = severityColors[result.severity] || "var(--muted)";
+            const sevLabel = severityLabels[result.severity] || result.severity;
+
+            const modal = document.createElement("div");
+            modal.id = "ai-analysis-modal";
+            modal.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;";
+            modal.innerHTML = `
+                <div style="background:var(--card);border:1px solid rgba(139,92,246,0.35);border-radius:14px;max-width:600px;width:92%;padding:28px;box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                        <span style="font-weight:700;font-size:1.05rem;background:linear-gradient(90deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">🤖 AI Log Analizi</span>
+                        <button onclick="document.getElementById('ai-analysis-modal').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1.4rem;">✕</button>
+                    </div>
+                    <div style="font-size:0.78rem;color:var(--muted);margin-bottom:16px;padding:8px 12px;background:rgba(255,255,255,0.03);border-radius:8px;border-left:3px solid rgba(139,92,246,0.5);">
+                        Kaynak: <strong style="color:#a78bfa;">${srcLabel}</strong>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+                        <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid var(--border);">
+                            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">📍 Muhtemel Sebep</div>
+                            <div style="font-size:0.9rem;color:var(--text);line-height:1.5;">${(result.cause||'—').replace(/</g,'&lt;')}</div>
+                        </div>
+                        <div style="padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid var(--border);">
+                            <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">💡 Önerilen Çözüm</div>
+                            <div style="font-size:0.9rem;color:var(--text);line-height:1.5;">${(result.solution||'—').replace(/</g,'&lt;')}</div>
+                        </div>
+                        <div style="padding:10px 14px;border-radius:10px;border:1px solid ${sevColor}33;background:${sevColor}11;display:flex;align-items:center;gap:10px;">
+                            <div style="font-size:0.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">⚡ Önem Düzeyi</div>
+                            <div style="font-size:0.88rem;font-weight:700;color:${sevColor};">${sevLabel}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-size:0.75rem;color:var(--muted);">
+                        <strong>Log:</strong> [${logEntry.level}] ${logEntry.module} — ${(logEntry.message||'').substring(0,100).replace(/</g,'&lt;')}${logEntry.message&&logEntry.message.length>100?'…':''}
+                    </div>
+                </div>`;
+            modal.addEventListener("click", ev => { if (ev.target === modal) modal.remove(); });
+            document.body.appendChild(modal);
         }
 
         function devPagePrev() { if (_devPage > 1) { _devPage--; renderDevPage(); } }
