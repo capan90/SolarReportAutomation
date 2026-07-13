@@ -201,16 +201,40 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/gaosb/captcha-resolved":
                 self.auth.log_action(username, self._get_client_ip(), "captcha_resolved", details="Captcha resolution submitted")
                 self._handle_captcha_resolved()
+            elif path == "/api/users":
+                self._handle_users_create(username)
+            elif path == "/api/users/change-password":
+                self._handle_users_change_password(username)
             else:
                 self._send_method_not_allowed()
         else:
             self._send_not_found()
 
     def do_PUT(self):
-        self._send_method_not_allowed()
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+
+        if path.startswith("/api/users/"):
+            username = self._authenticate()
+            if not username:
+                return
+            target_username = path.replace("/api/users/", "").strip()
+            self._handle_users_update(username, target_username)
+        else:
+            self._send_method_not_allowed()
 
     def do_DELETE(self):
-        self._send_method_not_allowed()
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+
+        if path.startswith("/api/users/"):
+            username = self._authenticate()
+            if not username:
+                return
+            target_username = path.replace("/api/users/", "").strip()
+            self._handle_users_delete(username, target_username)
+        else:
+            self._send_method_not_allowed()
 
     # ------------------------------------------------------------------
     # Excel (binary) sunumu
@@ -301,6 +325,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                             "success": log.success
                         }
                         for log in logs
+                    ]
+                finally:
+                    db.close()
+            elif path == "/api/users":
+                db = SessionLocal()
+                try:
+                    users = db.query(DashboardUser).order_by(DashboardUser.username).all()
+                    response_data = [
+                        {
+                            "username": u.username,
+                            "display_name": u.display_name,
+                            "is_active": u.is_active,
+                            "created_at": u.created_at.isoformat() if u.created_at else None,
+                            "last_login": u.last_login.isoformat() if u.last_login else None
+                        }
+                        for u in users
                     ]
                 finally:
                     db.close()
@@ -801,6 +841,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         password = body.get("password", "")
         ip = self._get_client_ip()
         
+        logger.info(f"Login attempt: username='{username}', password_len={len(password)}, ip={ip}")
+        
         if not username or not password:
             self.auth.log_action(username or "unknown", ip, "login_failed", details="Missing username or password", success=False)
             self._send_json_contract(None, "Kullanıcı adı ve şifre gereklidir.", status_code=400)
@@ -836,6 +878,68 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json_contract({"ok": True}, None)
         else:
             self._send_json_contract(None, "Token bulunamadı.", status_code=400)
+
+    def _handle_users_create(self, current_username: str) -> None:
+        body = self._read_json_body()
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+        display_name = body.get("display_name", "").strip()
+
+        if not username or not password or not display_name:
+            self._send_json_contract(None, "Tüm alanlar (Kullanıcı adı, Şifre, Ad Soyad) zorunludur.", status_code=400)
+            return
+
+        success = self.auth.create_user(username, password, display_name, update_if_exists=False)
+        if success:
+            self.auth.log_action(current_username, self._get_client_ip(), "user_create", details=f"Yeni kullanıcı oluşturuldu: '{username}'")
+            self._send_json_contract({"username": username}, None)
+        else:
+            self._send_json_contract(None, "Kullanıcı oluşturulamadı. Kullanıcı adı zaten mevcut olabilir.", status_code=400)
+
+    def _handle_users_change_password(self, current_username: str) -> None:
+        body = self._read_json_body()
+        old_password = body.get("old_password", "")
+        new_password = body.get("new_password", "")
+
+        if not old_password or not new_password:
+            self._send_json_contract(None, "Mevcut şifre ve yeni şifre alanları zorunludur.", status_code=400)
+            return
+
+        success = self.auth.change_password(current_username, old_password, new_password)
+        if success:
+            self.auth.log_action(current_username, self._get_client_ip(), "password_change", details="Kullanıcı kendi şifresini değiştirdi")
+            self._send_json_contract({"ok": True}, None)
+        else:
+            self._send_json_contract(None, "Mevcut şifre hatalı veya şifre değiştirilemedi.", status_code=400)
+
+    def _handle_users_update(self, current_username: str, target_username: str) -> None:
+        body = self._read_json_body()
+        display_name = body.get("display_name", "").strip()
+        is_active = body.get("is_active", True)
+        password = body.get("password", "")  # Optional
+
+        if not display_name:
+            self._send_json_contract(None, "Ad Soyad alanı boş bırakılamaz.", status_code=400)
+            return
+
+        success = self.auth.update_user(target_username, display_name, is_active, password if password else None)
+        if success:
+            self.auth.log_action(current_username, self._get_client_ip(), "user_update", details=f"Kullanıcı güncellendi: '{target_username}'")
+            self._send_json_contract({"username": target_username}, None)
+        else:
+            self._send_json_contract(None, "Kullanıcı güncellenemedi.", status_code=400)
+
+    def _handle_users_delete(self, current_username: str, target_username: str) -> None:
+        if current_username == target_username:
+            self._send_json_contract(None, "Kendi kullanıcınızı silemezsiniz.", status_code=400)
+            return
+
+        success = self.auth.delete_user(target_username)
+        if success:
+            self.auth.log_action(current_username, self._get_client_ip(), "user_delete", details=f"Kullanıcı silindi: '{target_username}'")
+            self._send_json_contract({"ok": True}, None)
+        else:
+            self._send_json_contract(None, "Kullanıcı silinemedi veya bulunamadı.", status_code=400)
 
     def _handle_settlement_trigger(self, mode: str) -> None:
         """

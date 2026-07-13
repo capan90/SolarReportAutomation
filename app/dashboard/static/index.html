@@ -307,6 +307,38 @@
         </div>
     </div>
 
+    <!-- ============ KULLANICI DÜZENLEME / EKLEME MODALI ============ -->
+    <div id="user-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeUserModal()">✕</button>
+            <h3 id="user-modal-title">Yeni Kullanıcı Oluştur</h3>
+            <div class="form-grid" style="margin-top: 16px;">
+                <div class="field" id="user-modal-username-field">
+                    <label>Kullanıcı Adı</label>
+                    <input id="mu-username" type="text" placeholder="kullanici_adi">
+                </div>
+                <div class="field">
+                    <label>Ad Soyad</label>
+                    <input id="mu-display-name" type="text" placeholder="Ad Soyad">
+                </div>
+                <div class="field">
+                    <label>Şifre</label>
+                    <input id="mu-password" type="password" placeholder="Şifre girin">
+                    <p id="mu-password-note" class="muted small" style="margin-top: 4px; display: none;">Boş bırakılırsa şifre değiştirilmez.</p>
+                </div>
+                <div class="field" style="display: flex; align-items: center; gap: 8px; margin-top: 10px;">
+                    <input id="mu-is-active" type="checkbox" checked style="width: auto;">
+                    <label for="mu-is-active" style="margin: 0; cursor: pointer; user-select: none;">Kullanıcı Aktif</label>
+                </div>
+            </div>
+            <div style="margin-top:20px; display: flex; gap: 10px;">
+                <button id="btn-save-user" class="btn blue" onclick="saveUser()">Kaydet</button>
+                <button class="btn outline" onclick="closeUserModal()">İptal</button>
+            </div>
+            <div id="user-modal-msg" class="msg"></div>
+        </div>
+    </div>
+
     <!-- ================= SIDEBAR ================= -->
     <nav class="sidebar">
         <div class="logo"><span class="sun">&#9728;</span>Erdemsoft GES Enerji Yönetim Sistemi<small>Üretim &amp; Mahsuplaşma Takibi</small></div>
@@ -640,6 +672,54 @@
                     <div class="card">
                         <div class="card-title">Otomatik Çalışma Planı</div>
                         <div id="si-schedules"><div class="muted small">Yükleniyor...</div></div>
+                    </div>
+
+                    <!-- ============ KULLANICI YÖNETİMİ ============ -->
+                    <div class="card">
+                        <div class="card-title">👥 Kullanıcı Yönetimi</div>
+                        <p class="muted small" style="margin-bottom:14px;">Uygulama kullanıcılarını ekleyin, güncelleyin veya silin.</p>
+                        <div class="table-wrap" style="margin-bottom:14px;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Kullanıcı</th>
+                                        <th>Ad Soyad</th>
+                                        <th>Durum</th>
+                                        <th style="text-align:right;">İşlem</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-tbody">
+                                    <tr><td colspan="4" class="muted" style="text-align:center;">Yükleniyor...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div style="text-align:right; margin-bottom:10px;">
+                            <button class="btn blue" style="width:auto; padding: 7px 14px; font-size: 0.8rem;" onclick="openNewUserModal()">+ Yeni Kullanıcı</button>
+                        </div>
+                    </div>
+
+                    <!-- ============ ŞİFRE DEĞİŞTİR ============ -->
+                    <div class="card">
+                        <div class="card-title">🔑 Şifre Değiştir</div>
+                        <p class="muted small" style="margin-bottom:14px;">Kendi kullanıcı şifrenizi güncelleyin.</p>
+                        <div class="form-grid">
+                            <div class="field">
+                                <label>Mevcut Şifre</label>
+                                <input id="cp-old-password" type="password" placeholder="Mevcut şifreniz">
+                            </div>
+                            <div class="field">
+                                <label>Yeni Şifre</label>
+                                <input id="cp-new-password" type="password" placeholder="Yeni şifre">
+                            </div>
+                            <div class="field">
+                                <label>Yeni Şifre (Tekrar)</label>
+                                <input id="cp-confirm-password" type="password" placeholder="Yeni şifre tekrar">
+                            </div>
+                        </div>
+                        <div style="margin-top:16px;">
+                            <button id="btn-change-password" class="btn blue" onclick="changeMyPassword()">Şifremi Değiştir</button>
+                        </div>
+                        <div id="cp-msg" class="msg"></div>
                     </div>
                 </div>
             </div>
@@ -1564,6 +1644,8 @@
             document.getElementById("f-to-monthly").value = cfg.smtp_to_monthly || "";
             document.getElementById("f-to-plant-alert").value = cfg.smtp_to_plant_alert || "";
             document.getElementById("f-to-system").value = cfg.smtp_to_system || "";
+
+            loadUsers();
         }
 
         async function saveSmtp() {
@@ -1652,6 +1734,228 @@
             } finally {
                 btn.disabled = false;
                 btn.innerText = "Bildirim Ayarlarını Kaydet";
+            }
+        }
+
+        // ================= KULLANICI YÖNETİMİ JS =================
+        let editingUsername = null;
+
+        async function loadUsers() {
+            const tbody = document.getElementById("users-tbody");
+            try {
+                const res = await fetch("/api/users");
+                if (res.status === 401) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; color: var(--red);">Yetkisiz erişim. Yeniden giriş yapın.</td></tr>';
+                    return;
+                }
+                const body = await res.json();
+                if (body.success && body.data) {
+                    const users = body.data;
+                    if (users.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;">Kayıtlı kullanıcı bulunamadı.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = users.map(u => {
+                        const statusBadge = u.is_active 
+                            ? '<span class="badge ok">Aktif</span>' 
+                            : '<span class="badge bad">Pasif</span>';
+                        
+                        const userJson = JSON.stringify(u).replace(/"/g, '&quot;');
+                        
+                        const deleteBtn = u.username !== "admin" 
+                            ? `<button class="btn outline" style="width:auto; padding:3px 8px; font-size:0.75rem; border-color:var(--red); color:var(--red);" onclick="deleteUser('${u.username}')">Sil</button>`
+                            : '';
+                            
+                        return `<tr>
+                            <td><strong>${u.username}</strong></td>
+                            <td>${u.display_name}</td>
+                            <td>${statusBadge}</td>
+                            <td style="text-align:right; display:flex; justify-content:flex-end; gap:8px;">
+                                <button class="btn outline" style="width:auto; padding:3px 8px; font-size:0.75rem;" onclick="openEditUserModal('${userJson}')">Düzenle</button>
+                                ${deleteBtn}
+                            </td>
+                        </tr>`;
+                    }).join("");
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="4" class="muted" style="text-align:center; color: var(--red);">${body.error || 'Kullanıcılar yüklenemedi.'}</td></tr>`;
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center; color: var(--red);">Sunucu hatası.</td></tr>';
+            }
+        }
+
+        function openNewUserModal() {
+            editingUsername = null;
+            document.getElementById("user-modal-title").innerText = "Yeni Kullanıcı Oluştur";
+            
+            document.getElementById("user-modal-username-field").style.display = "block";
+            document.getElementById("mu-username").value = "";
+            document.getElementById("mu-display-name").value = "";
+            document.getElementById("mu-password").value = "";
+            document.getElementById("mu-password-note").style.display = "none";
+            document.getElementById("mu-is-active").checked = true;
+            
+            document.getElementById("user-modal-msg").style.display = "none";
+            document.getElementById("user-modal").classList.add("visible");
+        }
+
+        function openEditUserModal(userJsonStr) {
+            const user = JSON.parse(userJsonStr);
+            editingUsername = user.username;
+            document.getElementById("user-modal-title").innerText = "Kullanıcı Düzenle";
+            
+            document.getElementById("user-modal-username-field").style.display = "none";
+            document.getElementById("mu-display-name").value = user.display_name;
+            document.getElementById("mu-password").value = "";
+            document.getElementById("mu-password-note").style.display = "block";
+            document.getElementById("mu-is-active").checked = user.is_active;
+            
+            document.getElementById("user-modal-msg").style.display = "none";
+            document.getElementById("user-modal").classList.add("visible");
+        }
+
+        function closeUserModal() {
+            document.getElementById("user-modal").classList.remove("visible");
+        }
+
+        async function saveUser() {
+            const msg = document.getElementById("user-modal-msg");
+            const btn = document.getElementById("btn-save-user");
+            
+            const displayName = document.getElementById("mu-display-name").value.trim();
+            const password = document.getElementById("mu-password").value;
+            const isActive = document.getElementById("mu-is-active").checked;
+            
+            if (!displayName) {
+                msg.className = "msg bad";
+                msg.innerText = "Ad Soyad zorunludur.";
+                msg.style.display = "block";
+                return;
+            }
+            
+            let url = "/api/users";
+            let method = "POST";
+            let payload = {};
+            
+            if (editingUsername === null) {
+                const username = document.getElementById("mu-username").value.trim();
+                if (!username || !password) {
+                    msg.className = "msg bad";
+                    msg.innerText = "Kullanıcı adı ve şifre zorunludur.";
+                    msg.style.display = "block";
+                    return;
+                }
+                payload = { username, password, display_name: displayName };
+            } else {
+                url = `/api/users/${editingUsername}`;
+                method = "PUT";
+                payload = { display_name: displayName, is_active: isActive };
+                if (password) {
+                    payload.password = password;
+                }
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+            msg.style.display = "none";
+            
+            try {
+                const res = await fetch(url, {
+                    method: method,
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const body = await res.json();
+                if (res.ok && body.success) {
+                    closeUserModal();
+                    loadUsers();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Kullanıcı kaydedilemedi.";
+                    msg.style.display = "block";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucu bağlantı hatası.";
+                msg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Kaydet";
+            }
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`'${username}' kullanıcısını silmek istediğinize emin misiniz?`)) {
+                return;
+            }
+            try {
+                const res = await fetch(`/api/users/${username}`, {
+                    method: "DELETE"
+                });
+                const body = await res.json();
+                if (res.ok && body.success) {
+                    loadUsers();
+                } else {
+                    alert(body.error || "Kullanıcı silinemedi.");
+                }
+            } catch (e) {
+                alert("Kullanıcı silinirken sunucu bağlantı hatası oluştu.");
+            }
+        }
+
+        async function changeMyPassword() {
+            const msg = document.getElementById("cp-msg");
+            const btn = document.getElementById("btn-change-password");
+            
+            const oldPassword = document.getElementById("cp-old-password").value;
+            const newPassword = document.getElementById("cp-new-password").value;
+            const confirmPassword = document.getElementById("cp-confirm-password").value;
+            
+            msg.style.display = "none";
+            
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                msg.className = "msg bad";
+                msg.innerText = "Tüm alanlar zorunludur.";
+                msg.style.display = "block";
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                msg.className = "msg bad";
+                msg.innerText = "Yeni şifreler uyuşmuyor.";
+                msg.style.display = "block";
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Şifre Değiştiriliyor...';
+            
+            try {
+                const res = await fetch("/api/users/change-password", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+                });
+                const body = await res.json();
+                if (res.ok && body.success) {
+                    msg.className = "msg ok";
+                    msg.innerText = "Şifreniz başarıyla güncellendi.";
+                    msg.style.display = "block";
+                    document.getElementById("cp-old-password").value = "";
+                    document.getElementById("cp-new-password").value = "";
+                    document.getElementById("cp-confirm-password").value = "";
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Şifre güncellenemedi.";
+                    msg.style.display = "block";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucu bağlantı hatası.";
+                msg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Şifremi Değiştir";
             }
         }
 
