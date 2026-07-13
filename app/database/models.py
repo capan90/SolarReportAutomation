@@ -221,5 +221,28 @@ class PlantStatus(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class DashboardUser(Base):
+    __tablename__ = "dashboard_users"
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    display_name = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    username = Column(String, nullable=False)
+    ip_address = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    details = Column(String, nullable=True)
+    success = Column(Boolean, default=True)
+
+
+
 
 

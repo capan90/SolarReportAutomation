@@ -250,6 +250,39 @@
     </style>
 </head>
 <body>
+    <!-- ================= USER HEADER (TOP RIGHT) ================= -->
+    <div id="user-header" style="position: absolute; top: 16px; right: 32px; display: none; align-items: center; gap: 12px; z-index: 50; background: var(--card); border: 1px solid var(--border); padding: 6px 14px; border-radius: 8px; font-size: 0.85rem;">
+        <span style="color: var(--muted); font-weight: 500;">👤 <span id="user-display-name">-</span></span>
+        <span style="color: var(--border);">|</span>
+        <button onclick="logout()" style="background: none; border: none; color: var(--red); cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 4px; font-family: inherit; font-size: 0.85rem;">
+            🚪 Çıkış
+        </button>
+    </div>
+
+    <!-- ================= LOGIN CONTAINER ================= -->
+    <div id="login-container" style="display: none; position: fixed; inset: 0; z-index: 9999; background: var(--bg); align-items: center; justify-content: center; padding: 20px;">
+        <div class="card" style="width: 100%; max-width: 400px; padding: 30px; border-radius: 14px; border: 1px solid var(--border); box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <span style="font-size: 2.5rem; display: block; margin-bottom: 10px;">🌟</span>
+                <h2 style="font-size: 1.4rem; font-weight: 700; color: var(--text);">Erdemsoft GES Enerji Sistemi</h2>
+                <p style="color: var(--muted); font-size: 0.85rem; margin-top: 6px;">Giriş Yapın</p>
+            </div>
+            <div class="field" style="margin-bottom: 16px;">
+                <label>Kullanıcı Adı</label>
+                <input id="login-username" type="text" placeholder="Kullanıcı adınızı girin">
+            </div>
+            <div class="field" style="margin-bottom: 20px;">
+                <label>Şifre</label>
+                <input id="login-password" type="password" placeholder="Şifrenizi girin" onkeydown="if(event.key==='Enter') login()">
+            </div>
+            <button class="btn green" id="login-btn" onclick="login()" style="color: #052e16;">Giriş Yap</button>
+            <div id="login-error-msg" class="msg bad" style="margin-top: 12px; text-align: center; display: none;"></div>
+            <div style="text-align: center; margin-top: 24px; color: var(--muted); font-size: 0.75rem;">
+                © 2026 Erdemsoft
+            </div>
+        </div>
+    </div>
+
     <!-- ================= CAPTCHA BANNER ================= -->
     <div id="captcha-banner" class="captcha-banner">
         <div>
@@ -632,60 +665,135 @@
             <!-- LOG VIEW -->
             <div id="dev-log-view" style="display:none;">
                 <div class="page-header">
-                    <div><h1>🔧 Sistem Logları</h1><p id="dev-log-stats">Yükleniyor...</p></div>
+                    <div><h1 id="dev-header-title">🔧 Developer Paneli</h1><p id="dev-log-stats">Yükleniyor...</p></div>
                     <div style="display:flex; gap:10px; align-items:center;">
                         <span id="dev-auto-refresh-badge" style="font-size:0.75rem; color:var(--muted);">⏱ Otomatik yenileme: 30s</span>
-                        <button class="btn outline" style="width:auto;" onclick="loadDevLogs()">🔄 Yenile</button>
                         <button class="btn outline" style="width:auto; color:var(--red);" onclick="devLogout()">Çıkış Yap</button>
                     </div>
                 </div>
-                <!-- Filtreler -->
-                <div class="card" style="margin-bottom:16px;">
-                    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-                        <div>
-                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SEVİYE</label>
-                            <div style="display:flex; gap:6px;">
-                                <button class="filter-btn active" id="dev-level-ALL" onclick="setDevLevel('ALL')">Tümü</button>
-                                <button class="filter-btn" id="dev-level-INFO" onclick="setDevLevel('INFO')">INFO</button>
-                                <button class="filter-btn" id="dev-level-WARNING" onclick="setDevLevel('WARNING')" style="color:var(--yellow);">WARNING</button>
-                                <button class="filter-btn" id="dev-level-ERROR" onclick="setDevLevel('ERROR')" style="color:var(--red);">ERROR</button>
+
+                <!-- DEV TAB NAV -->
+                <div class="tab-nav" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+                    <button class="tab-btn active" id="dev-tab-logs-btn" onclick="switchDevTab('dev-tab-system-logs')">🔧 Sistem Logları</button>
+                    <button class="tab-btn" id="dev-tab-audit-btn" onclick="switchDevTab('dev-tab-audit-logs')">📋 Denetim Günlüğü</button>
+                </div>
+
+                <!-- SYSTEM LOGS TAB CONTENT -->
+                <div id="dev-tab-system-logs" class="dev-tab">
+                    <!-- Filtreler -->
+                    <div class="card" style="margin-bottom:16px;">
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                            <div>
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SEVİYE</label>
+                                <div style="display:flex; gap:6px;">
+                                    <button class="filter-btn active" id="dev-level-ALL" onclick="setDevLevel('ALL')">Tümü</button>
+                                    <button class="filter-btn" id="dev-level-INFO" onclick="setDevLevel('INFO')">INFO</button>
+                                    <button class="filter-btn" id="dev-level-WARNING" onclick="setDevLevel('WARNING')" style="color:var(--yellow);">WARNING</button>
+                                    <button class="filter-btn" id="dev-level-ERROR" onclick="setDevLevel('ERROR')" style="color:var(--red);">ERROR</button>
+                                </div>
                             </div>
-                        </div>
-                        <div style="flex:1; min-width:200px;">
-                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">ARAMA</label>
-                            <input type="text" id="dev-search-input" placeholder="Kelime ara..." oninput="onDevSearch()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
-                        </div>
-                        <div>
-                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">DOSYA</label>
-                            <select id="dev-file-select" onchange="loadDevLogs()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
-                                <option value="app.log">app.log</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SAYFA</label>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <button class="filter-btn" onclick="devPagePrev()">‹</button>
-                                <span id="dev-page-info" style="font-size:0.82rem; color:var(--muted);">1/1</span>
-                                <button class="filter-btn" onclick="devPageNext()">›</button>
+                            <div style="flex:1; min-width:200px;">
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">ARAMA</label>
+                                <input type="text" id="dev-search-input" placeholder="Kelime ara..." oninput="onDevSearch()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                            </div>
+                            <div>
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">DOSYA</label>
+                                <select id="dev-file-select" onchange="loadDevLogs()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                                    <option value="app.log">app.log</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SAYFA</label>
+                                <div style="display:flex; gap:6px; align-items:center;">
+                                    <button class="filter-btn" onclick="devPagePrev()">‹</button>
+                                    <span id="dev-page-info" style="font-size:0.82rem; color:var(--muted);">1/1</span>
+                                    <button class="filter-btn" onclick="devPageNext()">›</button>
+                                </div>
                             </div>
                         </div>
                     </div>
+                    <!-- Log Tablosu -->
+                    <div class="card" style="padding:0; overflow:hidden;">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:170px;">ZAMAN</th>
+                                        <th style="width:90px;">SEVİYE</th>
+                                        <th style="width:200px;">MODÜL</th>
+                                        <th>MESAJ</th>
+                                        <th style="width:100px; text-align:center;">AI</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dev-log-tbody"><tr><td colspan="5" class="muted" style="text-align:center;padding:30px;">Yükleniyor...</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-                <!-- Log Tablosu -->
-                <div class="card" style="padding:0; overflow:hidden;">
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width:170px;">ZAMAN</th>
-                                    <th style="width:90px;">SEVİYE</th>
-                                    <th style="width:200px;">MODÜL</th>
-                                    <th>MESAJ</th>
-                                    <th style="width:100px; text-align:center;">AI</th>
-                                </tr>
-                            </thead>
-                            <tbody id="dev-log-tbody"><tr><td colspan="5" class="muted" style="text-align:center;padding:30px;">Yükleniyor...</td></tr></tbody>
-                        </table>
+
+                <!-- AUDIT LOGS TAB CONTENT -->
+                <div id="dev-tab-audit-logs" class="dev-tab" style="display:none;">
+                    <!-- Audit Log Filters -->
+                    <div class="card" style="margin-bottom:16px;">
+                        <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                            <div style="flex:1; min-width:150px;">
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">KULLANICI</label>
+                                <input type="text" id="audit-username-input" placeholder="Kullanıcı adı..." oninput="loadAuditLogs()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                            </div>
+                            <div style="flex:1; min-width:150px;">
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">AKSİYON TİPİ</label>
+                                <select id="audit-action-select" onchange="loadAuditLogs()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                                    <option value="">Tümü</option>
+                                    <option value="login_success">login_success</option>
+                                    <option value="login_failed">login_failed</option>
+                                    <option value="logout">logout</option>
+                                    <option value="settlement_trigger">settlement_trigger</option>
+                                    <option value="report_download">report_download</option>
+                                    <option value="settings_change">settings_change</option>
+                                    <option value="captcha_resolved">captcha_resolved</option>
+                                </select>
+                            </div>
+                            <div style="flex:1; min-width:150px;">
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SONUÇ</label>
+                                <select id="audit-success-select" onchange="loadAuditLogs()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                                    <option value="">Tümü</option>
+                                    <option value="true">Başarılı</option>
+                                    <option value="false">Başarısız</option>
+                                </select>
+                            </div>
+                            <div style="width:120px;">
+                                <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">LİMİT</label>
+                                <select id="audit-limit-select" onchange="loadAuditLogs()" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:#0b1220; color:var(--text); font-size:0.9rem; font-family:inherit;">
+                                    <option value="100">100 Kayıt</option>
+                                    <option value="250">250 Kayıt</option>
+                                    <option value="500">500 Kayıt</option>
+                                </select>
+                            </div>
+                            <div style="padding-top:16px;">
+                                <button class="btn outline" style="width:auto; padding: 8px 16px;" onclick="loadAuditLogs()">🔄 Yenile</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Audit Log Table -->
+                    <div class="card" style="padding:0; overflow:hidden;">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width:180px;">ZAMAN</th>
+                                        <th style="width:120px;">KULLANICI</th>
+                                        <th style="width:120px;">IP ADRESİ</th>
+                                        <th style="width:160px;">AKSİYON</th>
+                                        <th>DETAY</th>
+                                        <th style="width:100px; text-align:center;">SONUÇ</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="audit-log-tbody">
+                                    <tr><td colspan="6" class="muted" style="text-align:center;padding:30px;">Kayıt bulunamadı.</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -693,6 +801,25 @@
     </main>
 
     <script>
+        // Global Fetch Interceptor for Authentication
+        const originalFetch = window.fetch;
+        window.fetch = async function(url, options = {}) {
+            // Add authorization header if token is stored
+            if (url.startsWith("/api/") && url !== "/api/auth/login" && !url.startsWith("/api/dev/")) {
+                options.headers = options.headers || {};
+                const token = localStorage.getItem("dashboard_token");
+                if (token) {
+                    options.headers["Authorization"] = `Bearer ${token}`;
+                }
+            }
+            const res = await originalFetch(url, options);
+            if (res.status === 401 && url !== "/api/auth/login" && !url.startsWith("/api/dev/")) {
+                // If unauthorized and not auth endpoints, show login screen
+                showLoginScreen();
+            }
+            return res;
+        };
+
         // ------------------------------------------------------------
         // Yardımcılar
         // ------------------------------------------------------------
@@ -1808,15 +1935,182 @@
             }
         }
 
+        // ------------------------------------------------------------
+        // Authentication & Session Management
+        // ------------------------------------------------------------
+        function checkAuth() {
+            const token = localStorage.getItem("dashboard_token");
+            if (!token) {
+                showLoginScreen();
+            } else {
+                hideLoginScreen();
+                loadMe();
+                loadHome();
+                loadPlantStatuses();
+                checkCaptchaStatus();
+                initPastReportLimits();
+            }
+        }
+        
+        function showLoginScreen() {
+            document.getElementById("login-container").style.display = "flex";
+            document.getElementById("user-header").style.display = "none";
+        }
+        
+        function hideLoginScreen() {
+            document.getElementById("login-container").style.display = "none";
+            document.getElementById("user-header").style.display = "flex";
+        }
+        
+        async function loadMe() {
+            try {
+                const res = await fetch("/api/auth/me");
+                if (res.status === 200) {
+                    const data = await res.json();
+                    if (data.success && data.data) {
+                        document.getElementById("user-display-name").innerText = data.data.display_name;
+                    }
+                }
+            } catch (e) {
+                console.error("User info could not be fetched:", e);
+            }
+        }
+        
+        async function login() {
+            const usernameInput = document.getElementById("login-username").value.trim();
+            const passwordInput = document.getElementById("login-password").value;
+            const errorMsg = document.getElementById("login-error-msg");
+            
+            errorMsg.style.display = "none";
+            
+            if (!usernameInput || !passwordInput) {
+                errorMsg.innerText = "Kullanıcı adı ve şifre gereklidir.";
+                errorMsg.style.display = "block";
+                return;
+            }
+            
+            const btn = document.getElementById("login-btn");
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Giriş Yapılıyor...';
+            
+            try {
+                const res = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username: usernameInput, password: passwordInput })
+                });
+                
+                const data = await res.json();
+                if (res.ok && data.success && data.data) {
+                    localStorage.setItem("dashboard_token", data.data.token);
+                    hideLoginScreen();
+                    document.getElementById("user-display-name").innerText = data.data.display_name;
+                    
+                    // Load home and other info now that we are authenticated
+                    loadHome();
+                    loadPlantStatuses();
+                    checkCaptchaStatus();
+                    initPastReportLimits();
+                } else {
+                    errorMsg.innerText = data.error || "Giriş başarısız.";
+                    errorMsg.style.display = "block";
+                }
+            } catch (e) {
+                errorMsg.innerText = "Sunucu bağlantı hatası.";
+                errorMsg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Giriş Yap";
+            }
+        }
+        
+        async function logout() {
+            try {
+                await fetch("/api/auth/logout", { method: "POST" });
+            } catch (e) {
+                console.error("Logout failed:", e);
+            } finally {
+                localStorage.removeItem("dashboard_token");
+                showLoginScreen();
+            }
+        }
+
+        // ------------------------------------------------------------
+        // Developer Panel Audit Logs Tab
+        // ------------------------------------------------------------
+        function switchDevTab(tabId) {
+            document.querySelectorAll(".dev-tab").forEach(el => el.style.display = "none");
+            document.getElementById(tabId).style.display = "block";
+            
+            document.getElementById("dev-tab-logs-btn").classList.remove("active");
+            document.getElementById("dev-tab-audit-btn").classList.remove("active");
+            
+            if (tabId === "dev-tab-system-logs") {
+                document.getElementById("dev-tab-logs-btn").classList.add("active");
+                document.getElementById("dev-header-title").innerText = "🔧 Sistem Logları";
+                loadDevLogs();
+            } else if (tabId === "dev-tab-audit-logs") {
+                document.getElementById("dev-tab-audit-btn").classList.add("active");
+                document.getElementById("dev-header-title").innerText = "📋 Denetim Günlüğü";
+                loadAuditLogs();
+            }
+        }
+        
+        async function loadAuditLogs() {
+            const username = document.getElementById("audit-username-input").value.trim();
+            const action = document.getElementById("audit-action-select").value;
+            const success = document.getElementById("audit-success-select").value;
+            const limit = document.getElementById("audit-limit-select").value;
+            
+            let url = `/api/audit/logs?limit=${limit}`;
+            if (username) url += `&username=${encodeURIComponent(username)}`;
+            if (action) url += `&action=${encodeURIComponent(action)}`;
+            if (success) url += `&success=${encodeURIComponent(success)}`;
+            
+            const tbody = document.getElementById("audit-log-tbody");
+            tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px;"><span class="spinner"></span> Yükleniyor...</td></tr>';
+            
+            const data = await api(url);
+            if (!data) {
+                tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px;color:var(--red);">Veriler yüklenemedi.</td></tr>';
+                return;
+            }
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px;">Kayıt bulunamadı.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = data.map(log => {
+                const badgeClass = log.success ? "badge ok" : "badge bad";
+                const resultText = log.success ? "Başarılı" : "Başarısız";
+                const dateText = new Date(log.timestamp + "Z").toLocaleString("tr-TR");
+                
+                return `
+                    <tr>
+                        <td class="num">${dateText}</td>
+                        <td><strong>${log.username || "-"}</strong></td>
+                        <td class="num">${log.ip_address || "-"}</td>
+                        <td><code style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; font-weight:600; color:var(--blue);">${log.action}</code></td>
+                        <td>${log.details || "-"}</td>
+                        <td style="text-align:center;"><span class="${badgeClass}">${resultText}</span></td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
         setInterval(checkCaptchaStatus, 60000);
         setInterval(loadPlantStatuses, 60000);
-        setInterval(loadHome, 300000);
+        
+        // Only trigger interval load if logged in
+        setInterval(() => {
+            if (localStorage.getItem("dashboard_token")) {
+                loadHome();
+            }
+        }, 300000);
 
         window.addEventListener("DOMContentLoaded", () => {
-            loadHome();
-            loadPlantStatuses();
-            checkCaptchaStatus();
-            initPastReportLimits();
+            checkAuth();
         });
 
     </script>

@@ -12,6 +12,9 @@ from app.core.config import settings, BASE_DIR
 from app.core.logger import setup_logger
 from app.dashboard.service import DashboardService
 from app.analytics.service import AnalyticsService
+from app.dashboard.auth import DashboardAuth
+from app.database.db_session import SessionLocal
+from app.database.models import DashboardUser, AuditLog
 
 logger = setup_logger("DashboardWebServer")
 
@@ -67,6 +70,29 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     service = DashboardService()
     analytics_service = AnalyticsService()
     static_dir = Path(__file__).resolve().parent / "static"
+    auth = DashboardAuth()
+
+    def _get_client_ip(self) -> str:
+        return self.client_address[0]
+
+    def _get_auth_token(self) -> Optional[str]:
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header.replace("Bearer ", "", 1).strip()
+        parsed_url = urllib.parse.urlparse(self.path)
+        query = urllib.parse.parse_qs(parsed_url.query)
+        token_list = query.get("token")
+        if token_list:
+            return token_list[0].strip()
+        return None
+
+    def _authenticate(self) -> Optional[str]:
+        token = self._get_auth_token()
+        username = self.auth.verify_session(token)
+        if not username:
+            self._send_json_contract(None, "Yetkisiz erişim. Geçersiz veya eksik session token.", status_code=401)
+            return None
+        return username
 
     # ------------------------------------------------------------------
     # HTTP metod yönlendirmeleri
@@ -78,37 +104,48 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         # Neden: Binary (Excel) indirme endpoint'leri JSON sözleşmesinden ÖNCE ele
         # alınmalı; aksi halde çift başlık gönderimi dosyayı bozar (eski hata buydu).
-        if path == "/api/settlement/download" or path == "/api/settlement/download/latest/daily":
-            self._serve_excel(_find_latest_report(DAILY_REPORT_RE))
-            return
-        if path == "/api/settlement/download/latest/monthly":
-            self._serve_excel(_find_latest_report(MONTHLY_REPORT_RE))
-            return
+        if path in (
+            "/api/settlement/download",
+            "/api/settlement/download/latest/daily",
+            "/api/settlement/download/latest/monthly",
+        ) or path.startswith("/api/settlement/download/daily/") or path.startswith("/api/settlement/download/monthly/"):
+            username = self._authenticate()
+            if not username:
+                return
 
-        if path.startswith("/api/settlement/download/daily/"):
-            date_str = path.replace("/api/settlement/download/daily/", "").strip()
-            if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-                dt = datetime.strptime(date_str, "%Y-%m-%d")
-                month_str = dt.strftime("%Y-%m")
-                formatted_date = dt.strftime("%Y%m%d")
-                file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_date}.xlsx"
-                self._serve_excel(file_path)
-            else:
-                self.send_error(400, "Geçersiz tarih formatı.")
-            return
+            # Log audit log for report download
+            self.auth.log_action(username, self._get_client_ip(), "report_download", details=f"Downloaded: {path}")
 
-        if path.startswith("/api/settlement/download/monthly/"):
-            month_str = path.replace("/api/settlement/download/monthly/", "").strip()
-            if re.match(r"^\d{4}-\d{2}$", month_str):
-                year = int(month_str[:4])
-                month = int(month_str[5:7])
-                formatted_month = f"{year:04d}{month:02d}"
-                file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_month}_aylik.xlsx"
-                self._serve_excel(file_path)
-            else:
-                self.send_error(400, "Geçersiz ay formatı.")
-            return
+            if path == "/api/settlement/download" or path == "/api/settlement/download/latest/daily":
+                self._serve_excel(_find_latest_report(DAILY_REPORT_RE))
+                return
+            if path == "/api/settlement/download/latest/monthly":
+                self._serve_excel(_find_latest_report(MONTHLY_REPORT_RE))
+                return
 
+            if path.startswith("/api/settlement/download/daily/"):
+                date_str = path.replace("/api/settlement/download/daily/", "").strip()
+                if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+                    dt = datetime.strptime(date_str, "%Y-%m-%d")
+                    month_str = dt.strftime("%Y-%m")
+                    formatted_date = dt.strftime("%Y%m%d")
+                    file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_date}.xlsx"
+                    self._serve_excel(file_path)
+                else:
+                    self.send_error(400, "Geçersiz tarih formatı.")
+                return
+
+            if path.startswith("/api/settlement/download/monthly/"):
+                month_str = path.replace("/api/settlement/download/monthly/", "").strip()
+                if re.match(r"^\d{4}-\d{2}$", month_str):
+                    year = int(month_str[:4])
+                    month = int(month_str[5:7])
+                    formatted_month = f"{year:04d}{month:02d}"
+                    file_path = Path("outputs/reports") / month_str / f"mahsup_{formatted_month}_aylik.xlsx"
+                    self._serve_excel(file_path)
+                else:
+                    self.send_error(400, "Geçersiz ay formatı.")
+                return
 
         if path.startswith("/api/dev/"):
             self._handle_dev_api(path, query)
@@ -120,27 +157,54 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
-        if path in ("/api/settlement/trigger", "/api/settlement/trigger/daily"):
-            self._handle_settlement_trigger(mode="daily")
-        elif path == "/api/settlement/trigger/monthly":
-            self._handle_settlement_trigger(mode="monthly")
-        elif path == "/api/settlement/trigger/daily-date":
-            self._handle_settlement_trigger_daily_date()
-        elif path == "/api/settlement/trigger/monthly-date":
-            self._handle_settlement_trigger_monthly_date()
 
-        elif path == "/api/settings/smtp":
-            self._handle_smtp_settings()
-        elif path == "/api/gaosb/captcha-resolved":
-            self._handle_captcha_resolved()
-        elif path == "/api/dev/login":
-            self._handle_dev_login()
-        elif path == "/api/dev/logout":
-            self._handle_dev_logout()
-        elif path == "/api/dev/analyze-log":
-            self._handle_dev_analyze_log()
+        # 1. /api/auth/login is anonymous
+        if path == "/api/auth/login":
+            self._handle_auth_login()
+            return
+
+        # 2. Developer endpoints use developer-specific auth
+        if path.startswith("/api/dev/"):
+            if path == "/api/dev/login":
+                self._handle_dev_login()
+            elif path == "/api/dev/logout":
+                self._handle_dev_logout()
+            elif path == "/api/dev/analyze-log":
+                self._handle_dev_analyze_log()
+            else:
+                self._send_method_not_allowed()
+            return
+
+        # 3. All other POST requests require dashboard session token
+        if path.startswith("/api/"):
+            username = self._authenticate()
+            if not username:
+                return
+
+            if path == "/api/auth/logout":
+                self._handle_auth_logout(username)
+            elif path in ("/api/settlement/trigger", "/api/settlement/trigger/daily"):
+                self.auth.log_action(username, self._get_client_ip(), "settlement_trigger", details="Daily settlement manual trigger")
+                self._handle_settlement_trigger(mode="daily")
+            elif path == "/api/settlement/trigger/monthly":
+                self.auth.log_action(username, self._get_client_ip(), "settlement_trigger", details="Monthly settlement manual trigger")
+                self._handle_settlement_trigger(mode="monthly")
+            elif path == "/api/settlement/trigger/daily-date":
+                self.auth.log_action(username, self._get_client_ip(), "settlement_trigger", details="Daily settlement by date manual trigger")
+                self._handle_settlement_trigger_daily_date()
+            elif path == "/api/settlement/trigger/monthly-date":
+                self.auth.log_action(username, self._get_client_ip(), "settlement_trigger", details="Monthly settlement by date manual trigger")
+                self._handle_settlement_trigger_monthly_date()
+            elif path == "/api/settings/smtp":
+                self.auth.log_action(username, self._get_client_ip(), "settings_change", details="SMTP settings updated")
+                self._handle_smtp_settings()
+            elif path == "/api/gaosb/captcha-resolved":
+                self.auth.log_action(username, self._get_client_ip(), "captcha_resolved", details="Captcha resolution submitted")
+                self._handle_captcha_resolved()
+            else:
+                self._send_method_not_allowed()
         else:
-            self._send_method_not_allowed()
+            self._send_not_found()
 
     def do_PUT(self):
         self._send_method_not_allowed()
@@ -184,12 +248,63 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         Neden: REST API taleplerini karşılayarak standart JSON sözleşmesini dönmek.
         Yanıt önce hesaplanır, başlıklar sonra gönderilir (binary çakışması olmaz).
         """
+        username = self._authenticate()
+        if not username:
+            return
+
         response_data = None
         error_message = None
         not_found = False
 
         try:
-            if path == "/api/kpis":
+            if path == "/api/auth/me":
+                db = SessionLocal()
+                try:
+                    user = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+                    if user:
+                        response_data = {
+                            "username": user.username,
+                            "display_name": user.display_name,
+                            "is_active": user.is_active,
+                            "last_login": user.last_login.isoformat() if user.last_login else None
+                        }
+                    else:
+                        error_message = "Kullanıcı bulunamadı."
+                finally:
+                    db.close()
+            elif path == "/api/audit/logs":
+                limit_val = min(int(query.get("limit", ["100"])[0]), 1000)
+                user_filter = query.get("username", [""])[0].strip()
+                action_filter = query.get("action", [""])[0].strip()
+                success_filter = query.get("success", [""])[0].strip()
+                
+                db = SessionLocal()
+                try:
+                    q = db.query(AuditLog)
+                    if user_filter:
+                        q = q.filter(AuditLog.username.like(f"%{user_filter}%"))
+                    if action_filter:
+                        q = q.filter(AuditLog.action == action_filter)
+                    if success_filter:
+                        is_success = success_filter.lower() == "true"
+                        q = q.filter(AuditLog.success == is_success)
+                    
+                    logs = q.order_by(AuditLog.timestamp.desc()).limit(limit_val).all()
+                    response_data = [
+                        {
+                            "id": log.id,
+                            "timestamp": log.timestamp.isoformat(),
+                            "username": log.username,
+                            "ip_address": log.ip_address,
+                            "action": log.action,
+                            "details": log.details,
+                            "success": log.success
+                        }
+                        for log in logs
+                    ]
+                finally:
+                    db.close()
+            elif path == "/api/kpis":
                 response_data = self.service.get_executive_summary().to_dict()
             elif path == "/api/runs":
                 response_data = [r.to_dict() for r in self.service.get_pipeline_history(limit=15)]
@@ -679,6 +794,48 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return json.loads(raw.decode("utf-8"))
         except Exception:
             return {}
+
+    def _handle_auth_login(self) -> None:
+        body = self._read_json_body()
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+        ip = self._get_client_ip()
+        
+        if not username or not password:
+            self.auth.log_action(username or "unknown", ip, "login_failed", details="Missing username or password", success=False)
+            self._send_json_contract(None, "Kullanıcı adı ve şifre gereklidir.", status_code=400)
+            return
+            
+        success = self.auth.verify_user(username, password)
+        if success:
+            token = self.auth.create_session(username, ip)
+            display_name = username
+            db = SessionLocal()
+            try:
+                user = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+                if user:
+                    display_name = user.display_name
+            finally:
+                db.close()
+                
+            self.auth.log_action(username, ip, "login_success", details="Successful login")
+            self._send_json_contract({
+                "token": token,
+                "display_name": display_name,
+                "expires_in": 28800
+            }, None)
+        else:
+            self.auth.log_action(username, ip, "login_failed", details="Invalid credentials", success=False)
+            self._send_json_contract(None, "Hatalı kullanıcı adı veya şifre.", status_code=401)
+
+    def _handle_auth_logout(self, username: str) -> None:
+        token = self._get_auth_token()
+        if token:
+            self.auth.destroy_session(token)
+            self.auth.log_action(username, self._get_client_ip(), "logout", details="User logged out")
+            self._send_json_contract({"ok": True}, None)
+        else:
+            self._send_json_contract(None, "Token bulunamadı.", status_code=400)
 
     def _handle_settlement_trigger(self, mode: str) -> None:
         """
