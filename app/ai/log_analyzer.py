@@ -1,8 +1,11 @@
 import hashlib
 import json
+import logging
 import os
-import requests
+import time
 from pathlib import Path
+
+import requests
 
 
 class LogAnalyzer:
@@ -16,7 +19,9 @@ class LogAnalyzer:
         self.api_key = os.environ.get("GEMINI_API_KEY", "")
         self.project_id = os.environ.get("GEMINI_PROJECT_ID", "")
         self.location = os.environ.get("GEMINI_LOCATION", "us-central1")
-        self.model = "gemini-2.0-flash"
+        # Model seçimi — .env'den okunur; varsayılan: gemini-3.1-flash-lite
+        self.model = os.getenv("GEMINI_MODEL_DEFAULT", "gemini-3.1-flash-lite")
+        self.fallback_model = os.getenv("GEMINI_MODEL_FALLBACK", "gemini-3.5-flash")
 
         # Önbellek: aynı hata tekrar gelince API'ye sorma
         self.cache_file = Path("config/log_analysis_cache.json")
@@ -159,61 +164,167 @@ class LogAnalyzer:
     # Gemini API çağrısı
     # ------------------------------------------------------------------
     def _ask_gemini(self, log_entry: dict) -> dict | None:
-        """Gemini REST API'sine doğrudan istek gönder (SDK bağımlılığı yok)."""
+        """Gemini REST API'sine doğrudan istek gönder (SDK bağımlılığı yok).
+
+        - Auth: x-goog-api-key header (query param kullanılmaz)
+        - Hata yönetimi:
+            400 / 403 / 404 → retry yok
+            429             → 3 retry: 5 / 15 / 30 saniye
+            5xx             → exponential backoff (5s × 2^attempt, max 5 deneme)
+        - Token kullanımı loglanır; API key'i asla loglanmaz.
+        """
         if not self.api_key:
             return None
 
-        try:
+        prompt = (
+            "Sen bir yazılım sisteminin log analistisisin.\n"
+            "Aşağıdaki log kaydını analiz et ve Türkçe yanıt ver.\n\n"
+            f"Log Kaydı:\n"
+            f"- Zaman: {log_entry.get('timestamp', '-')}\n"
+            f"- Seviye: {log_entry.get('level', '-')}\n"
+            f"- Modül: {log_entry.get('module', '-')}\n"
+            f"- Mesaj: {log_entry.get('message', '-')}\n\n"
+            "Bu bir GES (Güneş Enerji Santrali) otomasyon sistemidir.\n"
+            "iSolar ve GAOSB portallarından veri çeker, mahsuplaşma hesaplar.\n\n"
+            "Yanıtı SADECE şu JSON formatında ver, başka hiçbir şey yazma:\n"
+            '{{\n'
+            '  "cause": "Kısa muhtemel sebep (max 100 karakter)",\n'
+            '  "solution": "Önerilen çözüm adımları (max 200 karakter)",\n'
+            '  "severity": "critical veya warning veya info"\n'
+            '}}'
+        )
+
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 256,
+            },
+        }
+
+        # ---- iç yardımcılar ----
+
+        def _post(model_name: str):
+            """API isteği gönder; hata olursa None döndür (key loglanmaz)."""
             url = (
-                f"https://generativelanguage.googleapis.com/v1beta/"
-                f"models/{self.model}:generateContent"
-                f"?key={self.api_key}"
+                f"https://generativelanguage.googleapis.com/v1beta"
+                f"/models/{model_name}:generateContent"
             )
-
-            prompt = f"""Sen bir yazılım sisteminin log analistisisin.
-Aşağıdaki log kaydını analiz et ve Türkçe yanıt ver.
-
-Log Kaydı:
-- Zaman: {log_entry.get('timestamp', '-')}
-- Seviye: {log_entry.get('level', '-')}
-- Modül: {log_entry.get('module', '-')}
-- Mesaj: {log_entry.get('message', '-')}
-
-Bu bir GES (Güneş Enerji Santrali) otomasyon sistemidir.
-iSolar ve GAOSB portallarından veri çeker, mahsuplaşma hesaplar.
-
-Yanıtı SADECE şu JSON formatında ver, başka hiçbir şey yazma:
-{{
-  "cause": "Kısa muhtemel sebep (max 100 karakter)",
-  "solution": "Önerilen çözüm adımları (max 200 karakter)",
-  "severity": "critical veya warning veya info"
-}}"""
-
-            payload = {
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "maxOutputTokens": 256,
-                },
+            headers = {
+                "x-goog-api-key": self.api_key,
+                "Content-Type": "application/json",
             }
+            try:
+                return requests.post(url, json=payload, headers=headers, timeout=10)
+            except requests.RequestException as exc:
+                logging.warning("Gemini isteği başarısız (network): %s", type(exc).__name__)
+                return None
 
-            response = requests.post(url, json=payload, timeout=10)
+        def _parse(response) -> dict | int | None:
+            """
+            Yanıtı işle.
+            - Başarı  → dict (result)
+            - 400/403/404 → None  (retry yok)
+            - 429 / 5xx → int (status kodu, retry edilecek)
+            - Diğer hata → None
+            """
+            if response is None:
+                return None
 
-            if response.status_code == 200:
-                data = response.json()
-                text = (
-                    data["candidates"][0]["content"]["parts"][0]["text"]
-                    .strip()
-                    .removeprefix("```json")
-                    .removeprefix("```")
-                    .removesuffix("```")
-                    .strip()
-                )
-                result = json.loads(text)
-                # Validate required keys
+            status = response.status_code
+
+            if status == 200:
+                try:
+                    data = response.json()
+                except Exception:
+                    return None
+
+                # Token kullanımını logla (key loglanmaz!)
+                usage = data.get("usageMetadata", {})
+                if usage:
+                    logging.info(
+                        "Gemini token kullanımı — prompt: %s, candidates: %s, toplam: %s",
+                        usage.get("promptTokenCount"),
+                        usage.get("candidatesTokenCount"),
+                        usage.get("totalTokenCount"),
+                    )
+
+                try:
+                    raw_text = (
+                        data["candidates"][0]["content"]["parts"][0]["text"]
+                        .strip()
+                        .removeprefix("```json")
+                        .removeprefix("```")
+                        .removesuffix("```")
+                        .strip()
+                    )
+                    result = json.loads(raw_text)
+                except Exception:
+                    return None
+
                 if all(k in result for k in ("cause", "solution", "severity")):
                     return result
+                return None
+
+            if status in (400, 403, 404):
+                logging.warning(
+                    "Gemini isteği %s hatası aldı — retry yapılmayacak", status
+                )
+                return None
+
+            if status == 429 or 500 <= status < 600:
+                return status  # retry için status kodu döndür
+
+            logging.warning("Gemini beklenmeyen HTTP durumu: %s", status)
             return None
 
-        except Exception:
-            return None
+        # ---- retry döngüsü ----
+
+        retry_429_delays = [5, 15, 30]
+        max_5xx_attempts = 5
+        backoff_base = 5  # saniye
+
+        for model_name in (self.model, self.fallback_model):
+            attempt = 0
+            while True:
+                resp = _post(model_name)
+                outcome = _parse(resp)
+
+                if isinstance(outcome, dict):
+                    return outcome  # başarı
+
+                if outcome is None:
+                    break  # kalıcı hata veya network hatası — fallback'e geç
+
+                # outcome = retry'a uygun HTTP durum kodu
+                status = outcome
+
+                if status == 429:
+                    if attempt < len(retry_429_delays):
+                        delay = retry_429_delays[attempt]
+                        logging.warning(
+                            "Gemini rate-limit (429) — retry %d/%d, %ds bekleniyor",
+                            attempt + 1, len(retry_429_delays), delay,
+                        )
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
+                    logging.error("Gemini 429 retry limiti aşıldı")
+                    break
+
+                if 500 <= status < 600:
+                    if attempt < max_5xx_attempts:
+                        delay = backoff_base * (2 ** attempt)
+                        logging.warning(
+                            "Gemini sunucu hatası %s — exponential backoff retry %d/%d, %ds bekleniyor",
+                            status, attempt + 1, max_5xx_attempts, delay,
+                        )
+                        time.sleep(delay)
+                        attempt += 1
+                        continue
+                    logging.error("Gemini 5xx retry limiti aşıldı")
+                    break
+
+                break  # beklenmeyen durum — fallback'e geç
+
+        return None
