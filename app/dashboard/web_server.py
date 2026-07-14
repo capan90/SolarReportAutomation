@@ -922,9 +922,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json_contract(None, "Ad Soyad alanı boş bırakılamaz.", status_code=400)
             return
 
-        success = self.auth.update_user(target_username, display_name, is_active, password if password else None)
+        # Audit kaydı update_user içinde atılır (başarısız denemeler dahil)
+        success = self.auth.update_user(target_username, display_name, is_active, password if password else None,
+                                        actor=current_username, ip=self._get_client_ip())
         if success:
-            self.auth.log_action(current_username, self._get_client_ip(), "user_update", details=f"Kullanıcı güncellendi: '{target_username}'")
             self._send_json_contract({"username": target_username}, None)
         else:
             self._send_json_contract(None, "Kullanıcı güncellenemedi.", status_code=400)
@@ -934,9 +935,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self._send_json_contract(None, "Kendi kullanıcınızı silemezsiniz.", status_code=400)
             return
 
-        success = self.auth.delete_user(target_username)
+        # Audit kaydı delete_user içinde atılır (başarısız denemeler dahil)
+        success = self.auth.delete_user(target_username, actor=current_username, ip=self._get_client_ip())
         if success:
-            self.auth.log_action(current_username, self._get_client_ip(), "user_delete", details=f"Kullanıcı silindi: '{target_username}'")
             self._send_json_contract({"ok": True}, None)
         else:
             self._send_json_contract(None, "Kullanıcı silinemedi veya bulunamadı.", status_code=400)

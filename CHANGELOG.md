@@ -6,6 +6,14 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Eklendi
+- **Kullanıcı Yönetimi (Dashboard Auth)**: `DashboardAuth` sınıfına `update_user`, `change_password` ve `delete_user` metotları; `DashboardUser` ve `AuditLog` modelleri `app.database` paketinden dışa aktarıldı.
+- **Denetim Günlüğü Genişletmesi**: Kullanıcı güncelleme ve silme işlemleri (başarısız denemeler dahil) aktör ve IP bilgisiyle `audit_log` tablosuna kaydediliyor.
+- **Dashboard Smoke Test Genişletmesi**: 401/login/token akışı ve kullanıcı yönetimi API'leri (`/api/users` CRUD, şifre değiştirme, kendini silme koruması) test kapsamına alındı.
+
+### Değiştirildi
+- **Güvenlik**: Smoke testteki sabit admin şifresi koddan çıkarıldı; `.env` üzerindeki `DASHBOARD_TEST_ADMIN_PASSWORD` değişkeninden okunuyor.
+
 ### Kaldırıldı
 - **Güvenlik**: Tracked durumdaki 9 `scratch/` dosyası Git index'ten çıkarıldı (diskte korunuyor); `scratch/` klasörü `.gitignore`'a eklendi. Not: `scratch/create_users.py` düz metin admin şifresi içeriyordu — şifre Git geçmişinde kaldığı için rotasyonu önerilir.
 

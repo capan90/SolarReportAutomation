@@ -126,3 +126,92 @@ class DashboardAuth:
             logger.error(f"Audit log kaydedilirken hata: {e}")
         finally:
             db.close()
+
+    def update_user(self, username: str, display_name: str, is_active: bool, password: Optional[str] = None,
+                    actor: Optional[str] = None, ip: Optional[str] = None) -> bool:
+        """Kullanıcı bilgilerini güncelle (ve varsa şifresini bcrypt ile hash'leyerek değiştir)"""
+        db = SessionLocal()
+        success = False
+        details = ""
+        try:
+            user = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+            if not user:
+                logger.warning(f"Kullanıcı güncelleme başarısız: '{username}' bulunamadı.")
+                details = f"Kullanıcı bulunamadı: '{username}'"
+            else:
+                user.display_name = display_name
+                user.is_active = is_active
+
+                if password:
+                    salt = bcrypt.gensalt()
+                    password_hash = bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+                    user.password_hash = password_hash
+
+                db.commit()
+                logger.info(f"Kullanıcı güncellendi: '{username}'")
+                details = f"Kullanıcı güncellendi: '{username}'" + (" (şifre değiştirildi)" if password else "")
+                success = True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Kullanıcı güncellenirken hata: {e}")
+            details = f"Kullanıcı güncellenemedi: '{username}' — {e}"
+        finally:
+            db.close()
+
+        # Denetim günlüğü zorunlu: session kapandıktan sonra yazılır (SQLite kilit riski yok)
+        self.log_action(actor or username, ip, "user_update", details=details, success=success)
+        return success
+
+    def change_password(self, username: str, old_password: str, new_password: str) -> bool:
+        """Kullanıcının kendi şifresini değiştirir (önce eski şifreyi doğrula)"""
+        # 1. Eski şifreyi doğrula
+        # verify_user contains db session handling and checks password via bcrypt
+        if not self.verify_user(username, old_password):
+            return False
+
+        # 2. Yeni şifreyi hash'le ve kaydet
+        db = SessionLocal()
+        try:
+            user = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+            if not user:
+                return False
+
+            salt = bcrypt.gensalt()
+            password_hash = bcrypt.hashpw(new_password.encode("utf-8"), salt).decode("utf-8")
+            user.password_hash = password_hash
+            db.commit()
+            logger.info(f"Kullanıcı kendi şifresini değiştirdi: '{username}'")
+            return True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Şifre değiştirilirken hata: {e}")
+            return False
+        finally:
+            db.close()
+
+    def delete_user(self, username: str, actor: Optional[str] = None, ip: Optional[str] = None) -> bool:
+        """Kullanıcı sil"""
+        db = SessionLocal()
+        success = False
+        details = ""
+        try:
+            user = db.query(DashboardUser).filter(DashboardUser.username == username).first()
+            if not user:
+                logger.warning(f"Kullanıcı silme başarısız: '{username}' bulunamadı.")
+                details = f"Kullanıcı bulunamadı: '{username}'"
+            else:
+                db.delete(user)
+                db.commit()
+                logger.info(f"Kullanıcı silindi: '{username}'")
+                details = f"Kullanıcı silindi: '{username}'"
+                success = True
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Kullanıcı silinirken hata: {e}")
+            details = f"Kullanıcı silinemedi: '{username}' — {e}"
+        finally:
+            db.close()
+
+        # Denetim günlüğü zorunlu: session kapandıktan sonra yazılır
+        self.log_action(actor or username, ip, "user_delete", details=details, success=success)
+        return success
