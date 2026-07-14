@@ -34,6 +34,15 @@ logs/*
 # Discovery / spike scriptleri (production'a karışmaz — CLAUDE.md)
 scratch/
 
+# Node.js
+node_modules/
+
+# Manuel test çıktıları
+outputs/manual_tests/
+
+# Claude Code makineye özel ayarlar
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/
