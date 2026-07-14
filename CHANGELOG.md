@@ -4,6 +4,13 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ---
 
+## [Unreleased]
+
+### Kaldırıldı
+- **Güvenlik**: Tracked durumdaki 9 `scratch/` dosyası Git index'ten çıkarıldı (diskte korunuyor); `scratch/` klasörü `.gitignore`'a eklendi. Not: `scratch/create_users.py` düz metin admin şifresi içeriyordu — şifre Git geçmişinde kaldığı için rotasyonu önerilir.
+
+---
+
 ## [1.0.0-GA] - 2026-06-30
 
 ### Eklendi

@@ -31,6 +31,9 @@ logs/*
 !outputs/raw_exports/.gitkeep
 !logs/.gitkeep
 
+# Discovery / spike scriptleri (production'a karışmaz — CLAUDE.md)
+scratch/
+
 # IDE
 .vscode/
 .idea/
