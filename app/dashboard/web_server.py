@@ -205,6 +205,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._handle_users_create(username)
             elif path == "/api/users/change-password":
                 self._handle_users_change_password(username)
+            elif path == "/api/chat":
+                self._handle_chat(username)
             else:
                 self._send_method_not_allowed()
         else:
@@ -1158,6 +1160,45 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             error_message = "Rapor yeniden hazırlanamadı. Lütfen daha sonra tekrar deneyin."
 
         self._send_json_contract(response_data, error_message)
+
+    def _handle_chat(self, username: str) -> None:
+        body = self._read_json_body()
+        message = body.get("message", "").strip()
+        
+        # Denetim günlüğüne kaydet (audit logs)
+        self.auth.log_action(username, self._get_client_ip(), "chat_query", details=message[:100])
+        
+        if not message:
+            self._send_json_contract({"response": "Lütfen bir mesaj yazın.", "data": {}}, None)
+            return
+            
+        try:
+            from app.chatbot import DateParser, MetricParser, QueryEngine, ResponseBuilder
+            
+            date_parser = DateParser()
+            metric_parser = MetricParser()
+            query_engine = QueryEngine()
+            response_builder = ResponseBuilder()
+            
+            try:
+                date_info = date_parser.parse(message)
+            except ValueError:
+                response_text = "⚠️ Gelecek tarihli veriler hakkında bilgi veremiyorum. Lütfen geçmiş veya bugüne dair bir soru sorun."
+                self._send_json_contract({"response": response_text, "data": {}}, None)
+                return
+                
+            metric_info = metric_parser.parse(message)
+            
+            query_result = query_engine.query(date_info, metric_info)
+            response_text = response_builder.build(message, date_info, metric_info, query_result.get("data", {}))
+            
+            self._send_json_contract({
+                "response": response_text,
+                "data": query_result.get("data", {})
+            }, None)
+        except Exception as e:
+            logger.error(f"Chatbot endpoint hatası: {e}")
+            self._send_json_contract({"response": "Sistem şu anda yanıt veremiyor.", "data": {}}, None)
 
     def _handle_smtp_settings(self) -> None:
         """

@@ -247,6 +247,193 @@
         }
         .month-only .flatpickr-days { display: none; }
         .month-only .flatpickr-monthDropdown-months { font-size: 16px; }
+
+        /* ---------- Chatbot Widget Styles ---------- */
+        #chat-widget-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 1000;
+            font-family: inherit;
+        }
+
+        #chat-open-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: var(--green);
+            color: #052e16;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+
+        #chat-open-btn:hover {
+            transform: scale(1.05);
+            background: #1eb052;
+        }
+
+        #chat-window {
+            display: none;
+            width: 380px;
+            height: 500px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            flex-direction: column;
+            overflow: hidden;
+            position: absolute;
+            bottom: 72px;
+            right: 0;
+            transition: all 0.3s ease;
+        }
+
+        #chat-window.visible {
+            display: flex;
+        }
+
+        #chat-header {
+            background: #0b1220;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        #chat-header h3 {
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #chat-close-btn {
+            background: none;
+            border: none;
+            color: var(--muted);
+            font-size: 1.1rem;
+            cursor: pointer;
+        }
+
+        #chat-close-btn:hover {
+            color: var(--text);
+        }
+
+        #chat-messages {
+            flex: 1;
+            padding: 16px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: #0f172a;
+        }
+
+        .chat-msg {
+            max-width: 80%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.88rem;
+            line-height: 1.45;
+            word-break: break-word;
+            white-space: pre-wrap;
+        }
+
+        .chat-msg.assistant {
+            background: #1e293b;
+            color: var(--text);
+            align-self: flex-start;
+            border-bottom-left-radius: 2px;
+            border: 1px solid var(--border);
+        }
+
+        .chat-msg.user {
+            background: var(--blue);
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 2px;
+        }
+
+        .chat-loading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            align-self: flex-start;
+            color: var(--muted);
+            font-size: 0.85rem;
+            padding: 4px 8px;
+        }
+
+        #chat-quick-actions {
+            padding: 8px 12px;
+            background: #0b1220;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+        }
+
+        .quick-action-btn {
+            background: #1e293b;
+            border: 1px solid var(--border);
+            color: var(--text);
+            border-radius: 16px;
+            padding: 5px 12px;
+            font-size: 0.78rem;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background-color 0.2s;
+        }
+
+        .quick-action-btn:hover {
+            background: var(--border);
+        }
+
+        #chat-input-area {
+            padding: 12px;
+            background: #0b1220;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 8px;
+        }
+
+        #chat-input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 0.88rem;
+            outline: none;
+        }
+
+        #chat-input:focus {
+            border-color: var(--blue);
+        }
+
+        #chat-send-btn {
+            background: var(--green);
+            color: #052e16;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.88rem;
+            cursor: pointer;
+        }
+
+        #chat-send-btn:hover {
+            filter: brightness(1.1);
+        }
     </style>
 </head>
 <body>
@@ -2259,11 +2446,15 @@
         function showLoginScreen() {
             document.getElementById("login-container").style.display = "flex";
             document.getElementById("user-header").style.display = "none";
+            document.getElementById("chat-widget-container").style.display = "none";
+            const chatWin = document.getElementById("chat-window");
+            if (chatWin) chatWin.classList.remove("visible");
         }
         
         function hideLoginScreen() {
             document.getElementById("login-container").style.display = "none";
             document.getElementById("user-header").style.display = "flex";
+            document.getElementById("chat-widget-container").style.display = "block";
         }
         
         async function loadMe() {
@@ -2417,6 +2608,105 @@
             checkAuth();
         });
 
+        // ------------------------------------------------------------
+        // Chatbot Widget Logic
+        // ------------------------------------------------------------
+        function toggleChatWindow() {
+            const chatWin = document.getElementById("chat-window");
+            chatWin.classList.toggle("visible");
+            if (chatWin.classList.contains("visible")) {
+                const msgs = document.getElementById("chat-messages");
+                msgs.scrollTop = msgs.scrollHeight;
+                document.getElementById("chat-input").focus();
+            }
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById("chat-input");
+            const message = input.value.trim();
+            if (!message) return;
+
+            input.value = "";
+            appendMessage("user", message);
+
+            // Add loading indicator
+            const loadingId = "chat-loading-" + Date.now();
+            const msgs = document.getElementById("chat-messages");
+            const loadingDiv = document.createElement("div");
+            loadingDiv.id = loadingId;
+            loadingDiv.className = "chat-loading";
+            loadingDiv.innerHTML = '<span class="spinner" style="width: 12px; height: 12px;"></span> Düşünüyor...';
+            msgs.appendChild(loadingDiv);
+            msgs.scrollTop = msgs.scrollHeight;
+
+            try {
+                const res = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                // Remove loading indicator
+                const ld = document.getElementById(loadingId);
+                if (ld) ld.remove();
+
+                if (res.status === 200) {
+                    const data = await res.json();
+                    if (data.success && data.data) {
+                        appendMessage("assistant", data.data.response || data.data.response === "" ? data.data.response : data.error);
+                    } else {
+                        appendMessage("assistant", data.error || "Bir hata oluştu.");
+                    }
+                } else if (res.status === 401) {
+                    appendMessage("assistant", "Oturumunuz sona ermiş. Lütfen tekrar giriş yapın.");
+                } else {
+                    appendMessage("assistant", "Sunucu ile bağlantı kurulamadı.");
+                }
+            } catch (e) {
+                const ld = document.getElementById(loadingId);
+                if (ld) ld.remove();
+                appendMessage("assistant", "Bağlantı hatası oluştu.");
+                console.error(e);
+            }
+        }
+
+        function appendMessage(sender, text) {
+            const msgs = document.getElementById("chat-messages");
+            const div = document.createElement("div");
+            div.className = `chat-msg ${sender}`;
+            div.innerText = text;
+            msgs.appendChild(div);
+            msgs.scrollTop = msgs.scrollHeight;
+        }
+
+        function sendQuickQuestion(question) {
+            document.getElementById("chat-input").value = question;
+            sendChatMessage();
+        }
+
     </script>
+
+    <!-- Chatbot HTML Widget -->
+    <div id="chat-widget-container" style="display: none;">
+        <button id="chat-open-btn" onclick="toggleChatWindow()">💬</button>
+        <div id="chat-window">
+            <div id="chat-header">
+                <h3>💬 GES Asistanı</h3>
+                <button id="chat-close-btn" onclick="toggleChatWindow()">✕</button>
+            </div>
+            <div id="chat-messages">
+                <div class="chat-msg assistant">Merhaba! GES verileriniz hakkında sorular sorabilirsiniz. (Örn: 'dün üretim ne kadar', 'bu ay mahsup özeti', 'santral durumu')</div>
+            </div>
+            <div id="chat-quick-actions">
+                <button class="quick-action-btn" onclick="sendQuickQuestion('dün özet')">Dün Özet</button>
+                <button class="quick-action-btn" onclick="sendQuickQuestion('bu ay mahsup özeti')">Bu Ay</button>
+                <button class="quick-action-btn" onclick="sendQuickQuestion('santral durumu nasıl')">Santral Durumu</button>
+            </div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Mesaj yazın..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+                <button id="chat-send-btn" onclick="sendChatMessage()">Gönder</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
