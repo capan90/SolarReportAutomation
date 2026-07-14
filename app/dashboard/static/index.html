@@ -228,6 +228,8 @@
         .muted { color: var(--muted); }
         .small { font-size: 0.8rem; }
 
+        .mobile-text { display: none; }
+
         /* ---------- Responsive ---------- */
         @media (max-width: 1250px) {
             .grid-5 { grid-template-columns: repeat(3, 1fr); }
@@ -374,11 +376,11 @@
                 min-height: 44px; /* Touch-friendly */
             }
 
-            .tab-btn .desktop-text {
+            .desktop-text {
                 display: none !important;
             }
 
-            .tab-btn .mobile-text {
+            .mobile-text {
                 display: inline !important;
             }
 
@@ -743,7 +745,7 @@
 
     <!-- ================= SIDEBAR ================= -->
     <nav class="sidebar">
-        <div class="logo"><span class="sun">&#9728;</span>Erdemsoft GES Enerji Yönetim Sistemi<small>Üretim &amp; Mahsuplaşma Takibi</small></div>
+        <div class="logo"><span class="sun">&#9728;</span><span class="desktop-text">Erdemsoft GES Enerji Yönetim Sistemi</span><span class="mobile-text">Erdemsoft GES</span><small>Üretim &amp; Mahsuplaşma Takibi</small></div>
         <ul class="menu">
             <li class="menu-item active" data-page="page-home">🏠 Ana Sayfa</li>
             <li class="menu-item" data-page="page-settlements">📋 Mahsuplaşmalarım</li>
@@ -761,7 +763,7 @@
         <section id="page-home" class="page active">
             <div class="page-header">
                 <div>
-                    <h1>Erdemsoft GES Enerji Yönetim Sistemi</h1>
+                    <h1><span class="desktop-text">Erdemsoft GES Enerji Yönetim Sistemi</span><span class="mobile-text">Erdemsoft GES</span></h1>
                     <p>Santrallerinizin üretim, tüketim ve mahsuplaşma durumu <span id="home-date-note" class="muted"></span></p>
                 </div>
                 <div id="last-update-time" class="muted small" style="font-size: 0.85rem; font-weight: 600; background: var(--card); border: 1px solid var(--border); padding: 6px 12px; border-radius: 8px;">Son güncelleme: -</div>
