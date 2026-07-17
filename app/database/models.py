@@ -71,7 +71,10 @@ class EtlRun(Base):
     __tablename__ = "etl_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(String(36), unique=True, nullable=False)
+    # Neden: run_id UUID (36) değil serbest formatlı olabilir; ör.
+    # "job-settlement-monthly-YYYY-MM-{ts}" 41+ karakterdir ve PostgreSQL'de
+    # varchar(36) taşmasına (StringDataRightTruncation) yol açar.
+    run_id = Column(String(100), unique=True, nullable=False)
     started_at = Column(DateTime, nullable=False)
     finished_at = Column(DateTime, nullable=False)
     duration_ms = Column(Integer, nullable=False)
@@ -105,7 +108,7 @@ class NotificationHistory(Base):
     __tablename__ = "notification_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(String(36), nullable=False)
+    run_id = Column(String(100), nullable=False)
     channel = Column(String(50), nullable=False)
     recipient = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False)  # SENT, FAILED
@@ -123,7 +126,7 @@ class RetryHistory(Base):
     __tablename__ = "retry_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(String(36), nullable=False)
+    run_id = Column(String(100), nullable=False)
     operation = Column(String(100), nullable=False)
     attempt = Column(Integer, nullable=False)
     delay_seconds = Column(Numeric(6, 2), nullable=False)
@@ -201,7 +204,7 @@ class PerformanceMetric(Base):
     __tablename__ = "performance_metrics"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    run_id = Column(String(36), nullable=False)
+    run_id = Column(String(100), nullable=False)
     stage_name = Column(String(100), nullable=True)
     metric_category = Column(String(50), nullable=False)  # system, application, business, operational
     metric_name = Column(String(100), nullable=False)
