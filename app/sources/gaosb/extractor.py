@@ -921,7 +921,16 @@ class GaosbExtractor(ISourceExtractor):
                 logger.info("Endeks kodu seçiliyor: P.01.1.9...")
                 try:
                     indexer = page.locator("#ctl00_ContentPlaceHolder1_cIndexer_I, #MainContent_cIndexer_I").first
-                    if indexer.is_visible(timeout=3000):
+                    try:
+                        indexer.wait_for(state="visible", timeout=5000)
+                    except Exception as we:
+                        # Neden: Endeks combobox'u yoksa varsayılan endeks belirsizdir;
+                        # yanlış endeksle sessizce sorgu atmak mahsup hesabını bozar.
+                        raise ValueError(
+                            "Endeks (cIndexer) combobox'u sayfada bulunamadı; "
+                            "P.01.1.9 seçimi yapılamadan devam edilemez."
+                        ) from we
+                    if indexer.is_visible():
                         # Mevcut değeri logla
                         current_val = indexer.input_value()
                         logger.info(f"Mevcut endeks: {current_val}")
@@ -958,32 +967,104 @@ class GaosbExtractor(ISourceExtractor):
                         page.wait_for_selector(option_selector, timeout=5000)
                         options = page.locator(option_selector).all()
 
-                        selected = False
-                        for opt in options:
-                            try:
-                                text = (opt.inner_text() or "").strip()
-                            except Exception:
-                                continue
-                            if not text:
-                                continue
-                            logger.info(f"  Option: {text}")
-                            if any(x in text for x in ["P.01", "01.1.9"]) or any(x in text.lower() for x in ["loadprofile", "1.8.0", "aktif"]):
-                                opt.click()
-                                selected = True
-                                logger.info(f"Endeks seçildi: {text}")
-                                break
+                        # Neden: Tüm seçenekleri önce topla ve logla; ardından öncelik
+                        # sırasına göre seç. Eski kod "aktif"/"1.8.0" gibi gevşek
+                        # kelimelerle İLK eşleşeni seçiyordu ve listede "1.8.0 Aktif
+                        # enerji" P.01.1.9'dan önce geldiği için yanlış OBIS kodu
+                        # (kümülatif sayaç) seçiliyordu — tüm mahsup hesabı bozuluyordu.
+                        def collect_options():
+                            opts = page.locator(option_selector).all()
+                            texts = []
+                            for opt in opts:
+                                try:
+                                    texts.append((opt.inner_text() or "").strip())
+                                except Exception:
+                                    texts.append("")
+                            return opts, texts
 
-                        if not selected:
-                            logger.warning("P.01.1.9 option bulunamadı, varsayılan kullanılıyor")
+                        # Öncelik 1: Tam OBIS kodu "P.01.1.9"
+                        # Öncelik 2: "Çekiş" içeren, "Veriş" içermeyen satır.
+                        # ASLA "aktif", "1.8.0" veya tek başına "loadprofile" ile
+                        # eşleştirme — "1.8.0 Aktif enerji" farklı (kümülatif) veri
+                        # setidir ve "P.01.2.9 Veriş (LoadProfile)" da loadprofile içerir.
+                        def find_target(texts) -> int:
+                            for i, t in enumerate(texts):
+                                if "P.01.1.9" in t:
+                                    return i
+                            for i, t in enumerate(texts):
+                                low = t.lower()
+                                if ("çekiş" in low or "cekis" in low) and \
+                                        "veriş" not in low and "veris" not in low:
+                                    return i
+                            return -1
+
+                        options, option_texts = collect_options()
+                        logger.info(f"Dropdown'da {len(option_texts)} seçenek bulundu:")
+                        for i, text in enumerate(option_texts):
+                            logger.info(f"  Option [{i}]: {text}")
+                        target_idx = find_target(option_texts)
+
+                        if target_idx < 0:
+                            # Neden: DevExpress ComboBox sunucu taraflı artımlı filtreleme
+                            # (incremental filtering) kullanıyor; dropdown ilk açıldığında
+                            # yalnızca kümülatif kodlar (1.8.0, 1.8.1, ...) geliyor.
+                            # P.01.x LoadProfile kodları ancak input'a yazılınca
+                            # filtrelenip listeleniyor (keşif: scratch/discover_indexer.py).
+                            logger.info(
+                                "P.01.1.9 ilk listede yok; input'a 'P.01.1.9' yazılarak "
+                                "sunucu taraflı filtreleme tetikleniyor..."
+                            )
+                            indexer.click()
+                            page.keyboard.press("Control+A")
+                            indexer.type("P.01.1.9", delay=100)
+                            time.sleep(2)
+
+                            options, option_texts = collect_options()
+                            logger.info(f"Filtre sonrası {len(option_texts)} seçenek:")
+                            for i, text in enumerate(option_texts):
+                                logger.info(f"  Option [{i}]: {text}")
+                            target_idx = find_target(option_texts)
+
+                        if target_idx < 0:
+                            logger.error(
+                                "P.01.1.9 / Çekiş endeksi dropdown'da bulunamadı "
+                                f"(filtreleme sonrası dahil). Mevcut seçenekler: {option_texts}"
+                            )
+                            raise ValueError(
+                                "GAOSB endeks dropdown'ında P.01.1.9 (Aktif enerji - Çekiş "
+                                "LoadProfile) seçeneği bulunamadı. Yanlış endeksle devam "
+                                "edilirse mahsup hesabı bozulur; işlem durduruldu."
+                            )
+
+                        options[target_idx].click()
+                        logger.info(
+                            f"Endeks seçildi (index={target_idx}): {option_texts[target_idx]}"
+                        )
 
                         # Neden: Seçim DevExpress callback tetikleyebilir; kısa bekleme ile
                         # değerin input'a yerleşmesini garanti altına al.
                         time.sleep(1)
                         try:
-                            logger.info(f"Seçim sonrası endeks değeri: {indexer.input_value()}")
+                            final_val = indexer.input_value() or ""
                         except Exception:
-                            pass
+                            final_val = ""
+                        logger.info(f"Seçim sonrası endeks değeri: {final_val}")
+                        # Neden: Tıklama sonrası input'a gerçekten doğru endeksin
+                        # yerleştiğini doğrula — yanlış endeksle sessizce devam etmek yasak.
+                        low_val = final_val.lower()
+                        if final_val and not (
+                            "p.01.1.9" in low_val or "loadprofile" in low_val
+                            or "çekiş" in low_val or "cekis" in low_val
+                        ):
+                            raise ValueError(
+                                f"Endeks seçimi doğrulanamadı: input değeri '{final_val}' "
+                                "P.01.1.9 / LoadProfile / Çekiş içermiyor."
+                            )
                         take_screenshot("04b_indexer_selected")
+                except ValueError:
+                    # Neden: Yanlış endeks = yanlış veri seti = bozuk mahsup.
+                    # Bu hata yukarı taşınmalı, sessizce yutulamaz.
+                    raise
                 except Exception as e:
                     logger.warning(f"Endeks seçimi atlandı: {e}")
 

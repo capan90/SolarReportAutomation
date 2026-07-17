@@ -1335,6 +1335,15 @@
         // ------------------------------------------------------------
         // Yardımcılar
         // ------------------------------------------------------------
+        // Neden: <a href> tıklaması ve window.location yönlendirmesi fetch
+        // interceptor'dan geçmez, Authorization header GİTMEZ. Sunucu ?token=
+        // query param'ını da kabul ettiğinden indirme URL'lerine token eklenir.
+        function withToken(url) {
+            if (!url || url === "#") return url;
+            const token = localStorage.getItem("dashboard_token");
+            if (!token) return url;
+            return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+        }
         const fmt = (v) => (v === null || v === undefined) ? "-" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 1 });
         const fmtDateTr = (iso) => {
             if (!iso) return "-";
@@ -1839,7 +1848,7 @@
             if (info) {
                 dateEl.innerText = kind === "monthly" ? fmtAyNokta(info.date) : info.date;
                 fileEl.innerText = `${info.filename} — ${info.size_kb} KB`;
-                btn.href = info.download_url;
+                btn.href = withToken(info.download_url);
                 btn.style.pointerEvents = "auto";
                 btn.style.opacity = "1";
             } else {
@@ -1872,7 +1881,7 @@
                 if (body.success && body.data && body.data.status === "SUCCESS") {
                     msg.className = "msg ok";
                     msg.innerText = "✓ Tamamlandı — rapor başarıyla hazırlandı.";
-                    dl.href = body.data.download_url || ("/api/settlement/download/latest/" + mode);
+                    dl.href = withToken(body.data.download_url || ("/api/settlement/download/latest/" + mode));
                     dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
                     loadHome();
@@ -2443,7 +2452,7 @@
                 if (body.success && body.data && body.data.status === "SUCCESS") {
                     msg.className = "msg ok";
                     msg.innerText = "✓ Rapor hazırlandı!";
-                    dl.href = body.data.download_url || "#";
+                    dl.href = withToken(body.data.download_url || "#");
                     dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
                     document.getElementById("captcha-banner").classList.remove("visible");
@@ -2557,19 +2566,19 @@
                     if (data.status === "cached") {
                         msg.className = "msg ok";
                         msg.innerText = "✓ Bu tarih daha önce hesaplandı. Rapor hazır, indiriliyor...";
-                        dl.href = data.download_url;
+                        dl.href = withToken(data.download_url);
                         dl.innerText = "Raporu İndir";
                         dl.style.display = "inline-flex";
-                        
-                        window.location.href = data.download_url;
+
+                        window.location.href = withToken(data.download_url);
                     } else if (data.status === "SUCCESS") {
                         msg.className = "msg ok";
                         msg.innerText = "✓ Rapor başarıyla hazırlandı.";
-                        dl.href = data.download_url;
+                        dl.href = withToken(data.download_url);
                         dl.innerText = "Raporu İndir";
                         dl.style.display = "inline-flex";
-                        
-                        window.location.href = data.download_url;
+
+                        window.location.href = withToken(data.download_url);
                     } else if (data.status === "CAPTCHA_REQUIRED") {
                         msg.className = "msg bad";
                         msg.innerText = "GAOSB Güvenlik Doğrulaması gerekiyor. Lütfen yukarıdaki uyarı bandından doğrulamayı tamamlayın.";
