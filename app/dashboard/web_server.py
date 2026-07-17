@@ -2,6 +2,8 @@ import os
 import re
 import json
 import uuid
+import asyncio
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime, timedelta
@@ -60,6 +62,41 @@ def _report_info(path: Optional[Path], kind: str) -> Optional[Dict[str, Any]]:
 # In-memory store for developer session tokens {token: issued_at_datetime}
 _DEV_TOKENS: Dict[str, datetime] = {}
 _DEV_TOKEN_TTL_HOURS = 8
+
+
+def _run_in_clean_thread(job_callable):
+    """
+    Neden: Playwright Sync API, içinde asyncio event loop bulunan/çalışan bir
+    thread'de başlatılamaz ("Playwright Sync API inside the asyncio loop").
+    Dashboard süreci uzun ömürlü olduğundan, bir tetiklemede Playwright hata ile
+    yarıda kalırsa loop/greenlet artığı handler thread'inde kalır ve SONRAKİ
+    tetiklemeler bu hatayla patlar (terminalde her koşu taze process olduğu için
+    görülmez). Çözüm: her job'u taze bir OS thread'inde çalıştırıp join etmek —
+    yeni thread'de event loop yoktur, thread ölünce Playwright'ın loop durumu da
+    onunla birlikte temizlenir. HTTP yanıtı job bitene kadar bekler (mevcut
+    eşzamanlı davranış korunur).
+    """
+    result_box: Dict[str, Any] = {}
+
+    def _target():
+        # Belt-and-suspenders: bu thread'e yanlışlıkla bir loop policy miras
+        # kaldıysa temizle.
+        try:
+            asyncio.set_event_loop(None)
+        except Exception:
+            pass
+        try:
+            result_box["result"] = job_callable()
+        except BaseException as e:
+            result_box["error"] = e
+
+    t = threading.Thread(target=_target, name="playwright-job", daemon=False)
+    t.start()
+    t.join()
+
+    if "error" in result_box:
+        raise result_box["error"]
+    return result_box.get("result")
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
@@ -966,11 +1003,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         try:
             if mode == "monthly":
                 from app.jobs.monthly_settlement_job import MonthlySettlementJob
-                result = MonthlySettlementJob().run(target_month=None)
+                result = _run_in_clean_thread(lambda: MonthlySettlementJob().run(target_month=None))
                 result["download_url"] = "/api/settlement/download/latest/monthly"
             else:
                 from app.jobs.daily_settlement_job import DailySettlementJob
-                result = DailySettlementJob().run(target_date=None)
+                result = _run_in_clean_thread(lambda: DailySettlementJob().run(target_date=None))
                 result["download_url"] = "/api/settlement/download/latest/daily"
             response_data = result
         except Exception as e:
@@ -1017,7 +1054,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 }
             else:
                 from app.jobs.daily_settlement_job import DailySettlementJob
-                result = DailySettlementJob().run(target_date=date_str)
+                result = _run_in_clean_thread(lambda: DailySettlementJob().run(target_date=date_str))
                 if result.get("status") == "SUCCESS":
                     result["download_url"] = f"/api/settlement/download/daily/{date_str}"
                 response_data = result
@@ -1075,7 +1112,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 }
             else:
                 from app.jobs.monthly_settlement_job import MonthlySettlementJob
-                result = MonthlySettlementJob().run(target_month=month_str)
+                result = _run_in_clean_thread(lambda: MonthlySettlementJob().run(target_month=month_str))
                 if result.get("status") == "SUCCESS":
                     result["download_url"] = f"/api/settlement/download/monthly/{month_str}"
                 response_data = result
@@ -1108,7 +1145,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         # 2. GaosbExtractor().renew_session() çalıştır
         from app.sources.gaosb.extractor import GaosbExtractor
-        success = GaosbExtractor().renew_session()
+        success = _run_in_clean_thread(lambda: GaosbExtractor().renew_session())
 
         if not success:
             # Revert flag status to pending so banner remains
@@ -1137,14 +1174,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         try:
             if job_type == "monthly":
                 from app.jobs.monthly_settlement_job import MonthlySettlementJob
-                result = MonthlySettlementJob().run(target_month=target)
+                result = _run_in_clean_thread(lambda: MonthlySettlementJob().run(target_month=target))
                 if target:
                     result["download_url"] = f"/api/settlement/download/monthly/{target}"
                 else:
                     result["download_url"] = "/api/settlement/download/latest/monthly"
             else:
                 from app.jobs.daily_settlement_job import DailySettlementJob
-                result = DailySettlementJob().run(target_date=target)
+                result = _run_in_clean_thread(lambda: DailySettlementJob().run(target_date=target))
                 if target:
                     result["download_url"] = f"/api/settlement/download/daily/{target}"
                 else:
