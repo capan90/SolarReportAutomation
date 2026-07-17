@@ -344,7 +344,7 @@ class MonthlySettlementJob:
                         ),
                         event_type="CAPTCHA_REQUIRED",
                         force=True,
-                        email_profile="monthly"
+                        email_profile="default"
                     )
                 except Exception as mail_err:
                     logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")

@@ -48,9 +48,18 @@
             font-size: 0.9rem;
             font-weight: 600;
             border-bottom: 1px solid rgba(0,0,0,0.25);
+            position: relative;
+            z-index: 999999;
         }
         .captcha-banner.visible { display: flex; }
         .captcha-banner .btn { width: auto; padding: 9px 18px; background: #fffbeb; color: #92400e; flex-shrink: 0; }
+
+        #user-header {
+            transition: top 0.3s ease;
+        }
+        body.captcha-active #user-header {
+            top: 80px !important;
+        }
 
         /* ---------- Modal ---------- */
         .modal-overlay {
@@ -304,6 +313,10 @@
             #user-header span:first-of-type,
             #user-header span:nth-of-type(2) {
                 display: none !important;
+            }
+
+            body.captcha-active #user-header {
+                top: 75px !important;
             }
 
             .sidebar {
@@ -1863,6 +1876,10 @@
                     dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
                     loadHome();
+                } else if (body.success && body.data && body.data.status === "CAPTCHA_REQUIRED") {
+                    msg.className = "msg bad";
+                    msg.innerText = "GAOSB Güvenlik Doğrulaması gerekiyor. Lütfen yukarıdaki uyarı bandından doğrulamayı tamamlayın.";
+                    checkCaptchaStatus();
                 } else {
                     msg.className = "msg bad";
                     msg.innerText = "Rapor hazırlanamadı. Lütfen daha sonra tekrar deneyin veya sistem yöneticinize başvurun.";
@@ -2396,8 +2413,10 @@
             const banner = document.getElementById("captcha-banner");
             if (st && st.captcha_required) {
                 banner.classList.add("visible");
+                document.body.classList.add("captcha-active");
             } else {
                 banner.classList.remove("visible");
+                document.body.classList.remove("captcha-active");
             }
         }
 
@@ -2428,10 +2447,11 @@
                     dl.innerText = "Raporu İndir";
                     dl.style.display = "inline-flex";
                     document.getElementById("captcha-banner").classList.remove("visible");
+                    document.body.classList.remove("captcha-active");
                     loadHome();
                 } else {
                     msg.className = "msg bad";
-                    msg.innerText = "Bağlantı kurulamadı, lütfen tekrar deneyin";
+                    msg.innerText = (body && body.error) ? body.error : "Bağlantı kurulamadı, lütfen tekrar deneyin";
                     checkCaptchaStatus();
                 }
             } catch (e) {
@@ -2836,8 +2856,16 @@
             }).join("");
         }
 
-        setInterval(checkCaptchaStatus, 60000);
-        setInterval(loadPlantStatuses, 60000);
+        setInterval(() => {
+            if (localStorage.getItem("dashboard_token")) {
+                checkCaptchaStatus();
+            }
+        }, 60000);
+        setInterval(() => {
+            if (localStorage.getItem("dashboard_token")) {
+                loadPlantStatuses();
+            }
+        }, 60000);
         
         // Only trigger interval load if logged in
         setInterval(() => {

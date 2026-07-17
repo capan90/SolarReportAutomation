@@ -235,21 +235,64 @@ class GaosbExtractor(ISourceExtractor):
         """
         try:
             logger.info("Kullanıcı kimlik bilgileri dolduruluyor...")
-            page.locator("#ctl00_ContentPlaceHolder1_eUserName_I").first.fill(username)
-            page.locator("#ctl00_ContentPlaceHolder1_ePassword_I").first.fill(password)
-
-            # EULA onay kutusu (görünürse)
-            eula_cb = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S").first
+            page.locator("#ctl00_ContentPlaceHolder1_eUserName_I, #eUserName_I").first.fill(username)
+            
+            # Neden: DevExpress maskeli şifre alanı boşken _CLND (Dummy) alanını gösterir.
+            # Gerçek şifre alanı gizlidir. İlk önce dummy alana tıklayıp gerçeği görünür yapmalıyız.
+            dummy_pw_sel = "#ctl00_ContentPlaceHolder1_ePassword_I_CLND, #ePassword_I_CLND"
             try:
-                if eula_cb.is_visible(timeout=2000):
-                    eula_cb.click()
-                    logger.info("EULA sözleşme onay kutusu işaretlendi.")
+                dummy_el = page.locator(dummy_pw_sel).first
+                if dummy_el.is_visible(timeout=2000):
+                    dummy_el.click()
+                    logger.info("Şifre maskesi/dummy tıklandı.")
+                    time.sleep(0.3)
             except Exception:
                 pass
 
+            password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I, #ePassword_I"
+            try:
+                page.wait_for_selector(password_sel, state="visible", timeout=5000)
+            except Exception:
+                pass
+            
+            password_el = page.locator(password_sel).first
+            password_el.fill(password)
+            
+            try:
+                filled_val = password_el.input_value()
+                logger.info(f"Şifre alanına yazılan değer uzunluğu: {len(filled_val or '')}")
+            except Exception as le:
+                logger.warning(f"Şifre değeri doğrulanamadı: {le}")
+
+            # EULA onay kutusu (görünürse ve işaretli değilse)
+            # DevExpress'te gerçek input (#chkReadcontract_S) opacity:0 olarak gizlidir.
+            # Tıklanabilir görsel alan #chkReadcontract_S_D (veya #chkReadcontract) span elementidir.
+            # İşaretli olup olmadığını anlamak için asıl input değeri ("C") veya görsel sınıf kontrol edilir.
+            try:
+                eula_container = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S_D, #chkReadcontract_S_D").first
+                eula_input = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S, #chkReadcontract_S").first
+                
+                if eula_container.is_visible(timeout=3000):
+                    class_attr = eula_container.get_attribute("class") or ""
+                    input_val = eula_input.input_value() if eula_input.count() > 0 else ""
+                    is_checked = "dxWeb_edtCheckBoxChecked" in class_attr or input_val == "C"
+                    logger.info(f"EULA durumu: is_checked={is_checked} (class={class_attr}, value={input_val})")
+                    
+                    if not is_checked:
+                        eula_container.click()
+                        time.sleep(0.3)
+                        class_attr_after = eula_container.get_attribute("class") or ""
+                        input_val_after = eula_input.input_value() if eula_input.count() > 0 else ""
+                        is_checked_after = "dxWeb_edtCheckBoxChecked" in class_attr_after or input_val_after == "C"
+                        logger.info(f"EULA işaretleme sonrası: is_checked={is_checked_after} (class={class_attr_after}, value={input_val_after})")
+                    else:
+                        logger.info("EULA zaten işaretli, tıklama atlandı.")
+            except Exception as e:
+                logger.error(f"EULA işaretleme hatası: {e}")
+
             # Neden: DevExpress butonu görünür <div class="dxb"> ile sarılı, arkasındaki
             # <input type="submit"> pointer events almıyor; görünür div'e tıklamak gerekir.
-            login_btn_div = page.locator("#ctl00_ContentPlaceHolder1_LoginButton_CD").first
+            login_btn_div = page.locator("#ctl00_ContentPlaceHolder1_LoginButton_CD, #LoginButton_CD").first
             try:
                 if login_btn_div.is_visible(timeout=3000):
                     login_btn_div.click()
@@ -261,8 +304,10 @@ class GaosbExtractor(ISourceExtractor):
                 logger.error(f"Login butonu tıklanamadı: {e}")
                 raise SourceAuthenticationError("gaosb") from e
 
-            page.wait_for_url("**/mainpage.aspx", timeout=60000, wait_until="domcontentloaded")
-            logger.info("Giriş başarılı, mainpage.aspx sayfasına ulaşıldı.")
+            import re
+            url_pattern = re.compile(r".*(mainpage|default)\.aspx", re.IGNORECASE)
+            page.wait_for_url(url_pattern, timeout=60000, wait_until="domcontentloaded")
+            logger.info(f"Giriş başarılı, landing sayfasına ulaşıldı: {page.url}")
         except SourceAuthenticationError:
             raise
         except Exception as e:
@@ -314,9 +359,9 @@ class GaosbExtractor(ISourceExtractor):
 
             # Adım 3: Captcha sonrası (veya doğrudan) sayfa durumunu sınıflandır.
             current_url = (page.url or "").lower()
-            if "mainpage" in current_url:
-                # Durum A: Portal doğrudan mainpage.aspx'e yönlendirmiş → giriş yapılmış.
-                logger.info("mainpage.aspx tespit edildi, giriş zaten yapılmış — login atlanıyor.")
+            if "mainpage" in current_url or "default.aspx" in current_url:
+                # Durum A: Portal doğrudan mainpage.aspx / default.aspx'e yönlendirmiş → giriş yapılmış.
+                logger.info("Mainpage (mainpage/default.aspx) tespit edildi, giriş zaten yapılmış — login atlanıyor.")
             elif self._is_captcha_page(page):
                 # Durum B: Kullanıcı captcha'yı geçmemiş / hâlâ challenge sayfasında.
                 logger.error("Captcha hâlâ çözülmemiş görünüyor; giriş yapılamıyor.")
@@ -363,7 +408,7 @@ class GaosbExtractor(ISourceExtractor):
                 username=username, password=password
             )
             final_url = page.url
-            logged_in = "mainpage" in (final_url or "").lower()
+            logged_in = any(x in (final_url or "").lower() for x in ["mainpage", "default.aspx"])
             profile_saved = USER_DATA_DIR.exists() and any(USER_DATA_DIR.iterdir())
             return {
                 "logged_in": logged_in,
@@ -420,9 +465,9 @@ class GaosbExtractor(ISourceExtractor):
                 except Exception:
                     pass
                 url = (p.url or "").lower()
-                if "mainpage" in url:
+                if "mainpage" in url or "default.aspx" in url:
                     return "mainpage"
-                elif any(x in url for x in ["login", "default.aspx", "elk.gaosb.org/"]):
+                elif any(x in url for x in ["login", "elk.gaosb.org/", "osos.gaosb.org"]):
                     return "login"
                 else:
                     return "unknown"
@@ -465,28 +510,67 @@ class GaosbExtractor(ISourceExtractor):
                     try:
                         logger.info(f"Login denemesi {attempt+1}/3")
                         # Kullanıcı adı
-                        username_sel = "#ctl00_ContentPlaceHolder1_eUserName_I"
+                        username_sel = "#ctl00_ContentPlaceHolder1_eUserName_I, #eUserName_I"
                         page.wait_for_selector(username_sel, timeout=10000)
                         page.fill(username_sel, username)
                         
                         # Şifre
-                        password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I"
-                        page.fill(password_sel, password)
-                        
-                        # EULA checkbox (DevExpress span olduğundan click kullanılmalı)
+                        # Neden: DevExpress maskeli şifre alanı boşken _CLND (Dummy) alanını gösterir.
+                        # Gerçek şifre alanı gizlidir. İlk önce dummy alana tıklayıp gerçeği görünür yapmalıyız.
+                        dummy_pw_sel = "#ctl00_ContentPlaceHolder1_ePassword_I_CLND, #ePassword_I_CLND"
                         try:
-                            checkbox = page.locator(
-                                "#ctl00_ContentPlaceHolder1_chkReadcontract_S"
-                            ).first
-                            if checkbox.is_visible(timeout=2000):
-                                checkbox.click()
-                                logger.info("EULA işaretlendi")
+                            dummy_el = page.locator(dummy_pw_sel).first
+                            if dummy_el.is_visible(timeout=2000):
+                                dummy_el.click()
+                                logger.info("Şifre maskesi/dummy tıklandı.")
+                                time.sleep(0.3)
+                        except Exception:
+                            pass
+
+                        password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I, #ePassword_I"
+                        try:
+                            page.wait_for_selector(password_sel, state="visible", timeout=5000)
+                        except Exception:
+                            pass
+                        
+                        password_el = page.locator(password_sel).first
+                        password_el.fill(password)
+                        
+                        try:
+                            filled_val = password_el.input_value()
+                            logger.info(f"Şifre alanına yazılan değer uzunluğu: {len(filled_val or '')}")
+                        except Exception as le:
+                            logger.warning(f"Şifre değeri doğrulanamadı: {le}")
+                        
+                        # EULA onay kutusu (görünürse ve işaretli değilse)
+                        # DevExpress'te gerçek input (#chkReadcontract_S) opacity:0 olarak gizlidir.
+                        # Tıklanabilir görsel alan #chkReadcontract_S_D (veya #chkReadcontract) span elementidir.
+                        # İşaretli olup olmadığını anlamak için asıl input değeri ("C") veya görsel sınıf kontrol edilir.
+                        try:
+                            eula_container = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S_D, #chkReadcontract_S_D").first
+                            eula_input = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S, #chkReadcontract_S").first
+                            
+                            if eula_container.is_visible(timeout=3000):
+                                class_attr = eula_container.get_attribute("class") or ""
+                                input_val = eula_input.input_value() if eula_input.count() > 0 else ""
+                                is_checked = "dxWeb_edtCheckBoxChecked" in class_attr or input_val == "C"
+                                logger.info(f"EULA durumu: is_checked={is_checked} (class={class_attr}, value={input_val})")
+                                
+                                if not is_checked:
+                                    eula_container.click()
+                                    time.sleep(0.3)
+                                    class_attr_after = eula_container.get_attribute("class") or ""
+                                    input_val_after = eula_input.input_value() if eula_input.count() > 0 else ""
+                                    is_checked_after = "dxWeb_edtCheckBoxChecked" in class_attr_after or input_val_after == "C"
+                                    logger.info(f"EULA işaretleme sonrası: is_checked={is_checked_after} (class={class_attr_after}, value={input_val_after})")
+                                else:
+                                    logger.info("EULA zaten işaretli, tıklama atlandı.")
                         except Exception as e:
                             logger.error(f"EULA işaretleme hatası: {e}")
                         
                         # Login butonu (DevExpress CD div veya form submit)
                         login_div = page.locator(
-                            "#ctl00_ContentPlaceHolder1_LoginButton_CD"
+                            "#ctl00_ContentPlaceHolder1_LoginButton_CD, #LoginButton_CD"
                         ).first
                         try:
                             if login_div.is_visible(timeout=3000):
@@ -738,7 +822,10 @@ class GaosbExtractor(ISourceExtractor):
             # Adım 3: Sayaç Sorgu Sayfasına Geç
             try:
                 logger.info("Sayaç sorgu sayfasına geçiş yapılıyor...")
-                page.evaluate("__doPostBack('ctl00$mnuQuery', '')")
+                if "osos.gaosb.org" in page.url:
+                    page.goto("https://osos.gaosb.org/meterQuery.aspx")
+                else:
+                    page.evaluate("__doPostBack('ctl00$mnuQuery', '')")
                 page.wait_for_load_state("domcontentloaded", timeout=20000)
                 time.sleep(2)
                 take_screenshot("03_query_page")
@@ -833,7 +920,7 @@ class GaosbExtractor(ISourceExtractor):
                 # Mahsuplaşma için Aktif enerji çekiş LoadProfile seçilmeli.
                 logger.info("Endeks kodu seçiliyor: P.01.1.9...")
                 try:
-                    indexer = page.locator("#ctl00_ContentPlaceHolder1_cIndexer_I").first
+                    indexer = page.locator("#ctl00_ContentPlaceHolder1_cIndexer_I, #MainContent_cIndexer_I").first
                     if indexer.is_visible(timeout=3000):
                         # Mevcut değeri logla
                         current_val = indexer.input_value()
@@ -843,6 +930,7 @@ class GaosbExtractor(ISourceExtractor):
                         # açılır ok butonuna (B-1) tıklamak, olmazsa Alt+Down göndermek gerekir.
                         dropdown_opened = False
                         for btn_sel in ["#ctl00_ContentPlaceHolder1_cIndexer_B-1",
+                                        "#MainContent_cIndexer_B-1",
                                         "[id*='cIndexer_B-1']",
                                         "[id*='cIndexer_B']"]:
                             try:
@@ -879,7 +967,7 @@ class GaosbExtractor(ISourceExtractor):
                             if not text:
                                 continue
                             logger.info(f"  Option: {text}")
-                            if "P.01" in text or "01.1.9" in text or "loadprofile" in text.lower():
+                            if any(x in text for x in ["P.01", "01.1.9"]) or any(x in text.lower() for x in ["loadprofile", "1.8.0", "aktif"]):
                                 opt.click()
                                 selected = True
                                 logger.info(f"Endeks seçildi: {text}")
@@ -922,6 +1010,7 @@ class GaosbExtractor(ISourceExtractor):
                 # Strateji 1: BtnSubmit veya bilinen ID'lere göre tıkla
                 known_query_ids = [
                     "#ctl00_ContentPlaceHolder1_BtnSubmit_CD",
+                    "#MainContent_BtnSubmit",
                     "#ctl00_ContentPlaceHolder1_btnQuery_CD",
                     "#ctl00_ContentPlaceHolder1_btnSorgula_CD",
                     "#ctl00_ContentPlaceHolder1_Button1_CD",
@@ -937,11 +1026,11 @@ class GaosbExtractor(ISourceExtractor):
                     except Exception:
                         continue
 
-                # Strateji 2: .dxb div içinde Sorgula/Listele/Ara metni ara
+                # Strateji 2: .dxb / .dxbButton div içinde Sorgula/Listele/Ara metni ara
                 if not query_clicked:
                     for text in ["Sorgula", "Listele", "Ara", "Query", "Getir"]:
                         try:
-                            el = page.locator(f".dxb:has-text('{text}')").first
+                            el = page.locator(f".dxb:has-text('{text}'), .dxbButton:has-text('{text}')").first
                             if el.is_visible(timeout=1000):
                                 el.click()
                                 logger.info(f"Sorgu butonu metin ile tıklandı: {text}")
@@ -953,12 +1042,14 @@ class GaosbExtractor(ISourceExtractor):
                 # Strateji 3: JavaScript PostBack ile dene
                 if not query_clicked:
                     logger.info("JavaScript PostBack ile sorgu deneniyor...")
-                    try:
-                        page.evaluate("__doPostBack('ctl00$ContentPlaceHolder1$BtnSubmit', '')")
-                        query_clicked = True
-                        logger.info("PostBack ile sorgu gönderildi.")
-                    except Exception as e:
-                        logger.warning(f"PostBack denemesi başarısız: {e}")
+                    for pb_target in ['ctl00$ContentPlaceHolder1$BtnSubmit', 'ctl00$MainContent$BtnSubmit']:
+                        try:
+                            page.evaluate(f"__doPostBack('{pb_target}', '')")
+                            query_clicked = True
+                            logger.info(f"PostBack ile sorgu gönderildi: {pb_target}")
+                            break
+                        except Exception as e:
+                            logger.warning(f"PostBack ({pb_target}) denemesi başarısız: {e}")
 
                 if not query_clicked:
                     logger.error("Sorgu butonu hiçbir yöntemle bulunamadı.")
