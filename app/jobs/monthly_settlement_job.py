@@ -386,8 +386,21 @@ class MonthlySettlementJob:
                 prev_totals = repo.get_monthly(prev_month_dt.year, prev_month_dt.month)
 
                 repo.upsert_hourly(settlements)  # tüm ay saatlik
+
+                # Neden: Dashboard'daki günlük grafikler ve "Mahsuplaşmalarım"
+                # settlement_daily'den beslenir; yalnızca hourly+monthly yazmak
+                # aylık job ile doldurulan ayları dashboard'da boş bırakıyordu.
+                # Saatlik kayıtlar güne gruplanıp her gün için daily upsert edilir.
+                by_day: dict = {}
+                for s in settlements:
+                    day_key = str(s.timestamp)[:10]  # "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DD"
+                    by_day.setdefault(day_key, []).append(s)
+                for day_key in sorted(by_day):
+                    repo.upsert_daily(day_key, by_day[day_key])
+                logger.info(f"settlement_daily yazıldı: {len(by_day)} gün")
+
                 repo.upsert_monthly(month_dt.year, month_dt.month, settlements)
-                logger.info("Mahsuplaşma sonuçları veritabanına yazıldı (hourly + monthly).")
+                logger.info("Mahsuplaşma sonuçları veritabanına yazıldı (hourly + daily + monthly).")
             except Exception as db_err:
                 logger.error(f"Mahsuplaşma DB yazımı başarısız (rapor üretimine devam ediliyor): {db_err}")
 
