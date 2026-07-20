@@ -15,6 +15,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Doğrulama Notu**: pytest/ruff bu ortamda kurulu olmadığından otomatik test koşulamadı; py_compile syntax kontrolü ve 6 senaryoluk render/subject doğrulama scripti ile manuel doğrulama yapıldı (test ortamı kurulumu ayrı görev).
 
 ### Eklendi
+- **Notification Servis Smoke Testleri**: politika kuralları ve fallback, kuyruk FIFO davranışı, force bypass, best-effort garantisi (sender hatası pipeline'ı bozmaz) — 6 test, stub sender ile SMTP/DB'siz.
 - **Validation Smoke Testleri**: SchemaValidator severity ayrımları (CRITICAL/ERROR/WARNING/INFO), tip uyumluluk kuralları, null/unique ihlalleri ve JSON rapor yazımı — 7 test, in-memory sentetik profil/şema nesneleriyle.
 - **Canonical Layer Smoke Testleri**: registry varsayılan mapping'leri, çift kayıt koruması, JSON export yapısı ve Türkçe karakter korunumu, alias→canonical çözümü, mapping veri bütünlüğü (benzersizlik, entity kümesi, required/nullable tutarlılığı, immutability) — 10 test.
 - **Settlement Engine Smoke Testleri**: kümülatif→delta hesabı, negatif delta sıfırlama, önceki gün referans satırı, GES kolon ayrışması, GAOSB endeksin doğrudan tüketim alınması, Excel seri tarih çözümü, +1 gün filtresi ve mahsup matematiği (min/max + inner join) — 9 test, tamamı sentetik Excel dosyalarıyla.
