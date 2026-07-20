@@ -195,7 +195,7 @@ class PlantStatusJob:
 
             # Durum Değişikliği: Normal -> Anormal (Abnormal / Offline)
             if (prev_status == "Normal" or prev_status is None) and status in ["Abnormal", "Offline"]:
-                subject = f"⚠️ GES Durum Uyarısı — {plant_name}"
+                subject = f"🔧 Erdemsoft GES — Arıza Tespit Edildi ({datetime.now().strftime('%d.%m.%Y')})"
                 
                 alert_template_path = Path("templates/plant_alert.html")
                 if alert_template_path.exists():
@@ -228,7 +228,7 @@ class PlantStatusJob:
                     minutes = int(duration.total_seconds() / 60)
                     duration_str = f"{minutes} dakika"
 
-                subject = f"✅ GES Normale Döndü — {plant_name}"
+                subject = f"✅ Erdemsoft GES — Arıza Giderildi ({datetime.now().strftime('%d.%m.%Y')})"
                 resolved_template_path = Path("templates/plant_resolved.html")
                 if resolved_template_path.exists():
                     html_content = resolved_template_path.read_text(encoding="utf-8")
@@ -248,7 +248,7 @@ class PlantStatusJob:
                 if latest_notified:
                     time_passed = datetime.utcnow() - latest_notified.timestamp
                     if time_passed >= timedelta(minutes=30):
-                        subject = "⚠️ GES Durum Uyarısı — Devam Ediyor"
+                        subject = f"⏳ Erdemsoft GES — Arıza Devam Ediyor ({datetime.now().strftime('%d.%m.%Y')})"
 
                         alert_template_path = Path("templates/plant_alert.html")
                         if alert_template_path.exists():
@@ -287,7 +287,7 @@ class PlantStatusJob:
                         notified_statuses[plant_name] = True
                 else:
                     # Daha önce hiç bildirim gitmemişse ilk tespittir
-                    subject = f"⚠️ GES Durum Uyarısı — {plant_name}"
+                    subject = f"🔧 Erdemsoft GES — Arıza Tespit Edildi ({datetime.now().strftime('%d.%m.%Y')})"
                     alert_template_path = Path("templates/plant_alert.html")
                     if alert_template_path.exists():
                         html_content = alert_template_path.read_text(encoding="utf-8")

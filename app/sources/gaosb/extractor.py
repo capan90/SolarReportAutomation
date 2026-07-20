@@ -150,7 +150,8 @@ class GaosbExtractor(ISourceExtractor):
             from email.message import EmailMessage
 
             msg = EmailMessage()
-            msg["Subject"] = "GAOSB otomasyon: manuel captcha gerekli"
+            from datetime import datetime as _dt
+            msg["Subject"] = f"🔐 Erdemsoft GES — Doğrulama Gerekiyor ({_dt.now().strftime('%d.%m.%Y')})"
             msg["From"] = os.environ.get("GAOSB_ALERT_EMAIL_FROM", to_addr)
             msg["To"] = to_addr
             msg.set_content(
