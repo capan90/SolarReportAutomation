@@ -831,10 +831,9 @@
 
             <!-- TAB 1: Sistem Durumu -->
             <div id="tab-system-status" class="home-tab active">
-                <div class="grid-5">
+                <div class="grid-4">
                     <div class="card kpi green" data-tip="Santrallerin seçili gündeki toplam elektrik üretimi (iSolar verisi)."><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
                     <div class="card kpi blue" data-tip="Tesisin aynı gündeki toplam elektrik tüketimi (GAOSB sayaç verisi)."><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
-                    <div class="card kpi green" data-tip="Üretimden tüketime sayılan miktar — aynı saatte üretilen ve tüketilen enerjinin kesişimi."><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
                     <div class="card kpi orange" data-tip="Üretimin yetmediği saatlerde şebekeden satın alınan enerji."><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
                     <div class="card kpi lightgreen" data-tip="Tüketimden artan ve şebekeye satılan üretim fazlası."><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
                 </div>
@@ -1827,7 +1826,6 @@
                 const g = summary.bugun || {};
                 document.getElementById("kpi-uretim").innerText = fmt(g.uretim);
                 document.getElementById("kpi-tuketim").innerText = fmt(g.tuketim);
-                document.getElementById("kpi-mahsup").innerText = fmt(g.mahsup);
                 document.getElementById("kpi-cekis").innerText = fmt(g.cekis);
                 document.getElementById("kpi-satis").innerText = fmt(g.satis);
                 const dateLabel = kpiDateLabel(g.tarih);
