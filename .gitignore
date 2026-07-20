@@ -59,3 +59,8 @@ playwright/.local-browsers/
 
 # Browser profiles (persistent context — BotGuard clearance + oturum çerezleri)
 config/gaosb_browser_profile/
+config/isolar_browser_profile/
+
+# Üretim rapor arşivi ve manuel test çıktıları (raw archive diskte korunur, Git'e girmez)
+outputs/reports/
+outputs/test_*
