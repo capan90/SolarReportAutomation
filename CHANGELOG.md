@@ -15,6 +15,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Doğrulama Notu**: pytest/ruff bu ortamda kurulu olmadığından otomatik test koşulamadı; py_compile syntax kontrolü ve 6 senaryoluk render/subject doğrulama scripti ile manuel doğrulama yapıldı (test ortamı kurulumu ayrı görev).
 
 ### Eklendi
+- **Chatbot Doğal Dil İyileştirmeleri**: Tarih (bu ayki/geçen ayki/ocakta/önceki gün/son 2 hafta vb.) ve metrik (ne ürettik/ne harcadık/şebekeye sattık/rekor vb.) kapsamı genişletildi. Yeni `IntentParser` ile selam, yardım ve desteklenmeyen kıyas sorularında bağlama duyarlı yönlendirme; tarih anlaşılmadığında sessizce "dün"e düşme bug'ı giderildi. Salt-okunur; LLM/API kullanılmadı. 53 smoke test (`test_chatbot.py`, paket 160'a ulaştı).
 - **Dashboard Mouse Tooltip**: sidebar, sekme, KPI kartı, sistem durumu, buton, filtre ve grafik başlıklarında (38 eleman) açıklayıcı hover tooltip'i — vanilla JS, event delegation, dokunmatik cihazlarda devre dışı, Chart.js ile çakışmıyor.
 - **HealthChecker + Adapter Import Smoke Testleri**: sağlık kontrolü orkestrasyonu (severity birleştirme, timeout koruması, rapor yazımı — sahte kontrollerle ağsız) ve 10 kritik modülün import edilebilirlik güvencesi — 14 test. Smoke paketi 107 teste ulaştı.
 - **Notification Servis Smoke Testleri**: politika kuralları ve fallback, kuyruk FIFO davranışı, force bypass, best-effort garantisi (sender hatası pipeline'ı bozmaz) — 6 test, stub sender ile SMTP/DB'siz.

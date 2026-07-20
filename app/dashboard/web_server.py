@@ -1210,25 +1210,53 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
             
         try:
-            from app.chatbot import DateParser, MetricParser, QueryEngine, ResponseBuilder
-            
+            from app.chatbot import DateParser, MetricParser, QueryEngine, ResponseBuilder, IntentParser
+
             date_parser = DateParser()
             metric_parser = MetricParser()
             query_engine = QueryEngine()
             response_builder = ResponseBuilder()
-            
+
+            # 1. Niyet sınıflandırması: veri sorgusu olmayan durumlarda yönlendir.
+            intent = IntentParser().classify(message)
+            kind = intent["kind"]
+            if kind == "greeting":
+                self._send_json_contract({"response": response_builder.greeting(), "data": {}}, None)
+                return
+            if kind == "help":
+                self._send_json_contract({"response": response_builder.help_menu(), "data": {}}, None)
+                return
+            if kind == "comparison_diff":
+                self._send_json_contract({"response": response_builder.comparison_guidance(), "data": {}}, None)
+                return
+
+            # 2. Veri sorgusu akışı
             try:
                 date_info = date_parser.parse(message)
             except ValueError:
                 response_text = "⚠️ Gelecek tarihli veriler hakkında bilgi veremiyorum. Lütfen geçmiş veya bugüne dair bir soru sorun."
                 self._send_json_contract({"response": response_text, "data": {}}, None)
                 return
-                
+
             metric_info = metric_parser.parse(message)
-            
+
+            # Tarih anlaşılmadı: metrik/santral belirtilmişse makul varsayılan (dün) + ipucu,
+            # hiçbir sinyal yoksa yönlendir.
+            hint = ""
+            if date_info is None:
+                if metric_info["explicit"] or intent["has_plant"]:
+                    date_info = date_parser.yesterday()
+                    # İpucu yalnızca dönem-bazlı düz metrik sorgusunda anlamlı;
+                    # santral durumu ve en çok/en az sorgularında gösterilmez.
+                    if "plant_status" not in metric_info["metrics"] and not metric_info["comparison"]:
+                        hint = "\n\n💡 Belirli bir dönem için 'bu ay ...' veya 'geçen ay ...' diyebilirsiniz."
+                else:
+                    self._send_json_contract({"response": response_builder._unrecognized_response(), "data": {}}, None)
+                    return
+
             query_result = query_engine.query(date_info, metric_info)
-            response_text = response_builder.build(message, date_info, metric_info, query_result.get("data", {}))
-            
+            response_text = response_builder.build(message, date_info, metric_info, query_result.get("data", {})) + hint
+
             self._send_json_contract({
                 "response": response_text,
                 "data": query_result.get("data", {})

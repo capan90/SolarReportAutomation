@@ -111,11 +111,47 @@ class ResponseBuilder:
             f"• Fazla Satış: {export_val} kWh"
         )
 
+    # ------------------------------------------------------------------
+    # Yönlendirme cevapları (veri sorgusu olmayan durumlar)
+    # ------------------------------------------------------------------
+    EXAMPLES = (
+        "• *Dün üretim ne kadar?*\n"
+        "• *Bu ay mahsup özeti*\n"
+        "• *Geçen ay tüketim*\n"
+        "• *En çok üretim hangi günde?*\n"
+        "• *Santral durumu nasıl?*"
+    )
+
+    def greeting(self) -> str:
+        return (
+            "Merhaba! 👋 GES verileriniz hakkında size yardımcı olabilirim — "
+            "üretim, tüketim ve mahsuplaşma rakamlarınızı sorabilirsiniz.\n\n"
+            "Örneğin:\n" + self.EXAMPLES
+        )
+
+    def help_menu(self) -> str:
+        return (
+            "🧭 Şunları sorabilirsiniz:\n\n"
+            "*Dönem seçin:* dün, bugün, bu hafta, geçen hafta, bu ay, geçen ay, "
+            "son 7 gün, son 30 gün, mayıs 2026 gibi.\n"
+            "*Kalem seçin:* üretim, tüketim, mahsup, şebekeden çekiş, fazla satış "
+            "veya genel özet.\n"
+            "*Diğer:* santral durumu, en çok/en az üretim günü.\n\n"
+            "Örnekler:\n" + self.EXAMPLES
+        )
+
+    def comparison_guidance(self) -> str:
+        return (
+            "Şu an iki değeri doğrudan kıyaslayamıyorum, ama her birini ayrı ayrı "
+            "gösterebilirim. Örneğin:\n"
+            "• *Bu ay üretim*\n"
+            "• *Bu ay tüketim*\n\n"
+            "Aradaki farkı bu iki sonuçtan görebilirsiniz. En yüksek/en düşük günü "
+            "sormak isterseniz: *En çok üretim hangi günde?*"
+        )
+
     def _unrecognized_response(self) -> str:
         return (
-            "🤔 Bu soruyu anlayamadım. Şunları sorabilirsiniz:\n"
-            "• 'Dün üretim ne kadar?'\n"
-            "• 'Bu ay mahsup özeti'\n"
-            "• 'En çok üretim hangi günde?'\n"
-            "• 'Santral durumu nasıl?'"
+            "🤔 Bu soruyu tam anlayamadım. Bir dönem ve bir kalem belirtmeyi deneyin.\n\n"
+            "Örneğin:\n" + self.EXAMPLES
         )
