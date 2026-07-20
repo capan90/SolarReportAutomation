@@ -15,6 +15,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Doğrulama Notu**: pytest/ruff bu ortamda kurulu olmadığından otomatik test koşulamadı; py_compile syntax kontrolü ve 6 senaryoluk render/subject doğrulama scripti ile manuel doğrulama yapıldı (test ortamı kurulumu ayrı görev).
 
 ### Eklendi
+- **Smoke Test Altyapısı**: `tests/smoke/` paketi + `pytest.ini` kuruldu; ilk modül `email_sender` (51 test — konu formatı, YYYYMM dönem çözümü, gövde render, SMTP güvenlik kapısı).
 - **Geliştirme Altyapısı**: pytest + ruff kuruldu (`requirements-dev.txt`); pre-commit ruff kontrolü, mevcut 101 ihlal temizlenene kadar geçici warn-only; teknik borç kayıtları ROADMAP'e eklendi.
 - **Geliştirme Altyapısı**: `CLAUDE.md` proje kılavuzu, Claude Code slash command'ları (`.claude/commands/`) ve pre-commit hook kaynağı (`.github/pre-commit.sh`) versiyon kontrolüne alındı.
 - **Kullanıcı Yönetimi (Dashboard Auth)**: `DashboardAuth` sınıfına `update_user`, `change_password` ve `delete_user` metotları; `DashboardUser` ve `AuditLog` modelleri `app.database` paketinden dışa aktarıldı.
