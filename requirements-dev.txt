@@ -1,0 +1,4 @@
+# Geliştirme bağımlılıkları (production kurulumunda gerekmez)
+# Kurulum: .venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+pytest==9.1.1
+ruff==0.15.22

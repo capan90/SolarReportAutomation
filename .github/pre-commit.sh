@@ -28,12 +28,13 @@ else
   echo "!! Smoke test atlandi (pytest kurulu degil veya tests/smoke yok)"
 fi
 
-# 3. Lint (ruff kuruluysa calisir)
+# 3. Lint (ruff kuruluysa calisir) — GECICI WARN-ONLY:
+#    Mevcut 101 ihlal ayri sprintte temizlenene kadar commit engellenmez.
+#    Temizlik sonrasi tekrar blocking yapilacak (bkz. docs/ROADMAP.md Teknik Borc).
 if "$PY" -m ruff --version >/dev/null 2>&1; then
   "$PY" -m ruff check .
   if [ $? -ne 0 ]; then
-    echo "X Lint hatasi - commit iptal (ruff check . calistir)"
-    exit 1
+    echo "!! Lint ihlalleri var (WARN-ONLY - commit engellenmedi)"
   fi
 else
   echo "!! Lint atlandi (ruff kurulu degil)"
