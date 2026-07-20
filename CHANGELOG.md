@@ -15,6 +15,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Doğrulama Notu**: pytest/ruff bu ortamda kurulu olmadığından otomatik test koşulamadı; py_compile syntax kontrolü ve 6 senaryoluk render/subject doğrulama scripti ile manuel doğrulama yapıldı (test ortamı kurulumu ayrı görev).
 
 ### Eklendi
+- **Settlement Engine Smoke Testleri**: kümülatif→delta hesabı, negatif delta sıfırlama, önceki gün referans satırı, GES kolon ayrışması, GAOSB endeksin doğrudan tüketim alınması, Excel seri tarih çözümü, +1 gün filtresi ve mahsup matematiği (min/max + inner join) — 9 test, tamamı sentetik Excel dosyalarıyla.
 - **Config Smoke Testleri**: SMTP_TO_* öncelik zinciri, bool/int çevrimleri, geçersiz APP_ENV → development fallback, validate() eksik değişken hatası ve Settings immutability — 10 test (importlib.reload ile izole, gerçek .env okunmadan).
 - **Smoke Test Altyapısı**: `tests/smoke/` paketi + `pytest.ini` kuruldu; ilk modül `email_sender` (51 test — konu formatı, YYYYMM dönem çözümü, gövde render, SMTP güvenlik kapısı).
 - **Geliştirme Altyapısı**: pytest + ruff kuruldu (`requirements-dev.txt`); pre-commit ruff kontrolü, mevcut 101 ihlal temizlenene kadar geçici warn-only; teknik borç kayıtları ROADMAP'e eklendi.
