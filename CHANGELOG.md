@@ -15,6 +15,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Doğrulama Notu**: pytest/ruff bu ortamda kurulu olmadığından otomatik test koşulamadı; py_compile syntax kontrolü ve 6 senaryoluk render/subject doğrulama scripti ile manuel doğrulama yapıldı (test ortamı kurulumu ayrı görev).
 
 ### Eklendi
+- **Dashboard Mouse Tooltip**: sidebar, sekme, KPI kartı, sistem durumu, buton, filtre ve grafik başlıklarında (38 eleman) açıklayıcı hover tooltip'i — vanilla JS, event delegation, dokunmatik cihazlarda devre dışı, Chart.js ile çakışmıyor.
 - **HealthChecker + Adapter Import Smoke Testleri**: sağlık kontrolü orkestrasyonu (severity birleştirme, timeout koruması, rapor yazımı — sahte kontrollerle ağsız) ve 10 kritik modülün import edilebilirlik güvencesi — 14 test. Smoke paketi 107 teste ulaştı.
 - **Notification Servis Smoke Testleri**: politika kuralları ve fallback, kuyruk FIFO davranışı, force bypass, best-effort garantisi (sender hatası pipeline'ı bozmaz) — 6 test, stub sender ile SMTP/DB'siz.
 - **Validation Smoke Testleri**: SchemaValidator severity ayrımları (CRITICAL/ERROR/WARNING/INFO), tip uyumluluk kuralları, null/unique ihlalleri ve JSON rapor yazımı — 7 test, in-memory sentetik profil/şema nesneleriyle.

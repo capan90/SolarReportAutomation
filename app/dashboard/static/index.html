@@ -655,6 +655,37 @@
         #chat-send-btn:hover {
             filter: brightness(1.1);
         }
+
+        /* ---------- Uygulama Tooltip Bileşeni (data-tip) ---------- */
+        /* Neden: Chart.js'in canvas tooltip'inden bağımsız, tek global div ile
+           çalışan hafif bilgi balonu. data-tip attribute'u taşıyan her eleman
+           otomatik tooltip kazanır (event delegation, bkz. sayfa sonu script). */
+        #app-tooltip {
+            position: fixed;
+            z-index: 100000; /* modal(100) üstü, captcha bandı(999999) altı */
+            max-width: 260px;
+            background: #0b1220;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            line-height: 1.45;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+        }
+        #app-tooltip.visible { opacity: 1; transform: translateY(0); }
+        #app-tooltip::after {
+            content: ""; position: absolute; top: 100%; left: var(--arrow-x, 16px);
+            border: 6px solid transparent; border-top-color: var(--border);
+        }
+        #app-tooltip.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--border); }
+        [data-tip] { cursor: help; }
+        button[data-tip], a[data-tip], li[data-tip] { cursor: pointer; }
     </style>
 </head>
 <body>
@@ -706,7 +737,7 @@
             &#9888;&#65039; <strong>GAOSB Güvenlik Doğrulaması Gerekiyor</strong> —
             Otomatik raporlama duraklatıldı. Doğrulamayı tamamlamak için tıklayın.
         </div>
-        <button class="btn" onclick="openCaptchaModal()">Doğrulamayı Yap</button>
+        <button class="btn" onclick="openCaptchaModal()" data-tip="GAOSB güvenlik doğrulama akışını başlatır.">Doğrulamayı Yap</button>
     </div>
 
     <!-- ================= CAPTCHA MODAL ================= -->
@@ -760,11 +791,11 @@
     <nav class="sidebar">
         <div class="logo"><span class="sun">&#9728;</span><span class="desktop-text">Erdemsoft GES Enerji Yönetim Sistemi</span><span class="mobile-text">Erdemsoft GES</span><small>Üretim &amp; Mahsuplaşma Takibi</small></div>
         <ul class="menu">
-            <li class="menu-item active" data-page="page-home">🏠 Ana Sayfa</li>
-            <li class="menu-item" data-page="page-settlements">📋 Mahsuplaşmalarım</li>
-            <li class="menu-item" data-page="page-analytics">📊 Analitik</li>
-            <li class="menu-item" data-page="page-settings">⚙️ Sistem Ayarları</li>
-            <li class="menu-item" data-page="page-developer" id="dev-menu-item" style="margin-top:auto; border-top:1px solid var(--border); padding-top:12px;">🔧 Developer</li>
+            <li class="menu-item active" data-page="page-home" data-tip="Günlük üretim, tüketim ve mahsuplaşma özet ekranı.">🏠 Ana Sayfa</li>
+            <li class="menu-item" data-page="page-settlements" data-tip="Günlük mahsuplaşma kayıtları ve aylık özet tabloları.">📋 Mahsuplaşmalarım</li>
+            <li class="menu-item" data-page="page-analytics" data-tip="Haftalık/aylık trendler ve santral bazlı üretim grafikleri.">📊 Analitik</li>
+            <li class="menu-item" data-page="page-settings" data-tip="E-posta, bildirim ve kullanıcı yönetimi ayarları.">⚙️ Sistem Ayarları</li>
+            <li class="menu-item" data-page="page-developer" id="dev-menu-item" style="margin-top:auto; border-top:1px solid var(--border); padding-top:12px;" data-tip="Sistem logları — yalnızca geliştirici erişimi.">🔧 Developer</li>
         </ul>
         <div class="sidebar-footer">Veriler otomatik olarak her gün güncellenir.<br><span id="side-last-update">-</span></div>
     </nav>
@@ -784,15 +815,15 @@
 
             <!-- TAB NAV BUTTONS -->
             <div class="tab-nav" style="display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
-                <button class="tab-btn active" onclick="switchHomeTab('tab-system-status')">
+                <button class="tab-btn active" onclick="switchHomeTab('tab-system-status')" data-tip="Günlük KPI'lar, santral ve sistem sağlık durumu.">
                     <span class="desktop-text">📊 Sistem Durumu</span>
                     <span class="mobile-text" style="display: none;">Durum</span>
                 </button>
-                <button class="tab-btn" onclick="switchHomeTab('tab-plant-monitor')">
+                <button class="tab-btn" onclick="switchHomeTab('tab-plant-monitor')" data-tip="Santral durum tablosu, anomali kayıtları ve 24 saatlik durum geçmişi.">
                     <span class="desktop-text">🔋 Santral İzleme</span>
                     <span class="mobile-text" style="display: none;">Santral</span>
                 </button>
-                <button class="tab-btn" onclick="switchHomeTab('tab-reports')">
+                <button class="tab-btn" onclick="switchHomeTab('tab-reports')" data-tip="Hazır raporları indirin veya manuel rapor oluşturun.">
                     <span class="desktop-text">📁 Raporlar</span>
                     <span class="mobile-text" style="display: none;">Raporlar</span>
                 </button>
@@ -801,11 +832,11 @@
             <!-- TAB 1: Sistem Durumu -->
             <div id="tab-system-status" class="home-tab active">
                 <div class="grid-5">
-                    <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
-                    <div class="card kpi blue"><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
-                    <div class="card kpi green"><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
-                    <div class="card kpi orange"><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
-                    <div class="card kpi lightgreen"><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi green" data-tip="Santrallerin seçili gündeki toplam elektrik üretimi (iSolar verisi)."><div class="kpi-date">-</div><div class="label">Üretim</div><div class="value" id="kpi-uretim">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi blue" data-tip="Tesisin aynı gündeki toplam elektrik tüketimi (GAOSB sayaç verisi)."><div class="kpi-date">-</div><div class="label">Tüketim</div><div class="value" id="kpi-tuketim">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi green" data-tip="Üretimden tüketime sayılan miktar — aynı saatte üretilen ve tüketilen enerjinin kesişimi."><div class="kpi-date">-</div><div class="label">Mahsup Edilen</div><div class="value" id="kpi-mahsup">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi orange" data-tip="Üretimin yetmediği saatlerde şebekeden satın alınan enerji."><div class="kpi-date">-</div><div class="label">Şebekeden Çekiş</div><div class="value" id="kpi-cekis">-</div><div class="unit">kWh</div></div>
+                    <div class="card kpi lightgreen" data-tip="Tüketimden artan ve şebekeye satılan üretim fazlası."><div class="kpi-date">-</div><div class="label">Fazla Satış</div><div class="value" id="kpi-satis">-</div><div class="unit">kWh</div></div>
                 </div>
 
                 <div class="grid-3" style="margin-top: 20px;">
@@ -819,11 +850,11 @@
                         </div>
                     </div>
                     <div class="card">
-                        <div class="card-title">Sistem Durumu</div>
-                        <div class="status-row"><span class="name">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
-                        <div class="status-row"><span class="name">Tüketim Verisi (GAOSB)</span><span id="st-gaosb" class="badge warn">-</span></div>
-                        <div class="status-row"><span class="name">E-Posta Bildirimi</span><span id="st-mail" class="badge warn">-</span></div>
-                        <div class="status-row"><span class="name">Son Çalışma</span><span id="st-lastrun" class="muted small">-</span></div>
+                        <div class="card-title" data-tip="Veri kaynaklarının ve bildirimlerin son çalışma durumları.">Sistem Durumu</div>
+                        <div class="status-row"><span class="name" data-tip="iSolar üretim verisinin son çekim durumu.">Üretim Verisi (iSolar)</span><span id="st-isolar" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name" data-tip="GAOSB tüketim verisinin son çekim durumu.">Tüketim Verisi (GAOSB)</span><span id="st-gaosb" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name" data-tip="Son rapor e-postasının gönderim durumu.">E-Posta Bildirimi</span><span id="st-mail" class="badge warn">-</span></div>
+                        <div class="status-row"><span class="name" data-tip="Otomatik raporlamanın en son tamamlandığı zaman.">Son Çalışma</span><span id="st-lastrun" class="muted small">-</span></div>
                     </div>
                     <div class="card">
                         <div class="card-title" id="mtd-title">Bu Ay Özeti</div>
@@ -905,13 +936,13 @@
                         <div class="card-title">Son Günlük Rapor</div>
                         <div class="rep-date" id="rep-daily-date">-</div>
                         <div class="rep-file" id="rep-daily-file">-</div>
-                        <a id="rep-daily-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
+                        <a id="rep-daily-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#" data-tip="Son hazırlanan günlük raporu Excel olarak indirir.">İndir</a>
                     </div>
                     <div class="card">
                         <div class="card-title">Son Aylık Rapor</div>
                         <div class="rep-date" id="rep-monthly-date">-</div>
                         <div class="rep-file" id="rep-monthly-file">-</div>
-                        <a id="rep-monthly-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#">İndir</a>
+                        <a id="rep-monthly-btn" class="btn green" style="width:auto; padding:9px 22px; pointer-events:none; opacity:.5;" href="#" data-tip="Son hazırlanan aylık raporu Excel olarak indirir.">İndir</a>
                     </div>
                 </div>
 
@@ -921,8 +952,8 @@
                         Raporlar her gün otomatik hazırlanır. Gerekirse aşağıdaki butonlarla hemen yeni bir rapor oluşturabilirsiniz (birkaç dakika sürebilir).
                     </p>
                     <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                        <button id="btn-daily" class="btn green" style="width:auto;" onclick="triggerJob('daily')">Günlük Mahsuplaşma Çalıştır</button>
-                        <button id="btn-monthly" class="btn blue" style="width:auto;" onclick="triggerJob('monthly')">Aylık Mahsuplaşma Çalıştır</button>
+                        <button id="btn-daily" class="btn green" style="width:auto;" onclick="triggerJob('daily')" data-tip="Bugüne ait günlük mahsuplaşma raporunu hemen hazırlar (birkaç dakika sürebilir).">Günlük Mahsuplaşma Çalıştır</button>
+                        <button id="btn-monthly" class="btn blue" style="width:auto;" onclick="triggerJob('monthly')" data-tip="İçinde bulunulan aya ait aylık raporu hemen hazırlar (birkaç dakika sürebilir).">Aylık Mahsuplaşma Çalıştır</button>
                     </div>
                     <div id="trigger-msg" class="msg"></div>
                     <a id="trigger-download" class="btn outline" style="display:none; margin-top:10px; width:auto;" href="#">Raporu İndir</a>
@@ -938,14 +969,14 @@
                             <label>Günlük Rapor:</label>
                             <div style="display: flex; gap: 8px;">
                                 <input type="text" id="daily-date-picker" placeholder="Tarih seçin" readonly>
-                                <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')">Raporu Hazırla</button>
+                                <button id="btn-get-daily" class="btn green" style="width: auto;" onclick="triggerPastReport('daily')" data-tip="Seçilen tarihe ait geçmiş günlük raporu hazırlar.">Raporu Hazırla</button>
                             </div>
                         </div>
                         <div class="field" style="display: flex; flex-direction: column; gap: 4px;">
                             <label>Aylık Rapor:</label>
                             <div style="display: flex; gap: 8px;">
                                 <input type="text" id="monthly-month-picker" placeholder="Ay/Yıl seçin" readonly>
-                                <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')">Raporu Hazırla</button>
+                                <button id="btn-get-monthly" class="btn blue" style="width: auto;" onclick="triggerPastReport('monthly')" data-tip="Seçilen aya ait geçmiş aylık raporu hazırlar.">Raporu Hazırla</button>
                             </div>
                         </div>
                     </div>
@@ -966,9 +997,9 @@
             <div class="card">
                 <div class="card-title"><span id="tbl-title">Son 7 Günlük Mahsuplaşma</span>
                     <span class="filters">
-                        <button class="filter-btn active" data-range="7" onclick="setDailyFilter('7', this)">Son 7 Gün</button>
-                        <button class="filter-btn" data-range="30" onclick="setDailyFilter('30', this)">Son 30 Gün</button>
-                        <button class="filter-btn" data-range="month" onclick="setDailyFilter('month', this)">Bu Ay</button>
+                        <button class="filter-btn active" data-range="7" onclick="setDailyFilter('7', this)" data-tip="Tabloyu son 7 güne göre filtreler.">Son 7 Gün</button>
+                        <button class="filter-btn" data-range="30" onclick="setDailyFilter('30', this)" data-tip="Tabloyu son 30 güne göre filtreler.">Son 30 Gün</button>
+                        <button class="filter-btn" data-range="month" onclick="setDailyFilter('month', this)" data-tip="Tabloyu içinde bulunulan aya göre filtreler.">Bu Ay</button>
                     </span>
                 </div>
                 <div class="table-wrap">
@@ -989,7 +1020,7 @@
                     <div class="status-row"><span class="name">Fazla Satış</span><strong id="ms-satis">-</strong></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Son 30 Gün: Üretim ve Tüketim</div>
+                    <div class="card-title" data-tip="Son 30 günün günlük üretim ve tüketim çubukları — değerleri görmek için grafiğin üzerine gelin.">Son 30 Gün: Üretim ve Tüketim</div>
                     <div class="chart-box"><canvas id="chart-30d"></canvas></div>
                 </div>
             </div>
@@ -1004,28 +1035,28 @@
 
             <div class="grid-2">
                 <div class="card">
-                    <div class="card-title">Haftalık Üretim ve Tüketim</div>
+                    <div class="card-title" data-tip="Haftalık toplam üretim ve tüketim karşılaştırması — haftalar arası trendi gösterir.">Haftalık Üretim ve Tüketim</div>
                     <div class="chart-box"><canvas id="chart-weekly"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Aylık Üretim ve Tüketim</div>
+                    <div class="card-title" data-tip="Aylık toplam üretim ve tüketim karşılaştırması — mevsimsel değişimi izlemek için kullanılır.">Aylık Üretim ve Tüketim</div>
                     <div class="chart-box"><canvas id="chart-monthly"></canvas></div>
                 </div>
             </div>
 
             <div class="grid-2">
                 <div class="card">
-                    <div class="card-title">Üretim ve Tüketim Karşılaştırması (Son 30 Gün)</div>
+                    <div class="card-title" data-tip="Üretim ve tüketimin günlük seyrini üst üste gösterir — aradaki fark şebeke alışverişini belirler.">Üretim ve Tüketim Karşılaştırması (Son 30 Gün)</div>
                     <div class="chart-box"><canvas id="chart-compare"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-title">Mahsup Oranı Trendi (Son 30 Gün) <span class="muted small">— yüksek oran, şebekeden daha az çekiş demektir</span></div>
+                    <div class="card-title" data-tip="Tüketimin ne kadarının kendi üretiminizle karşılandığını gösterir — oran yükseldikçe şebekeden çekiş azalır.">Mahsup Oranı Trendi (Son 30 Gün) <span class="muted small">— yüksek oran, şebekeden daha az çekiş demektir</span></div>
                     <div class="chart-box"><canvas id="chart-ratio"></canvas></div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">Santral Bazlı Üretim Dağılımı (Son 30 Gün)</div>
+                <div class="card-title" data-tip="Toplam üretimin santraller (GES) arasındaki dağılımı — düşük kalan santral, performans sorununa işaret edebilir.">Santral Bazlı Üretim Dağılımı (Son 30 Gün)</div>
                 <div class="chart-box"><canvas id="chart-ges"></canvas></div>
             </div>
         </section>
@@ -1198,10 +1229,10 @@
                             <div>
                                 <label style="font-size:0.75rem; color:var(--muted); display:block; margin-bottom:4px;">SEVİYE</label>
                                 <div style="display:flex; gap:6px;">
-                                    <button class="filter-btn active" id="dev-level-ALL" onclick="setDevLevel('ALL')">Tümü</button>
-                                    <button class="filter-btn" id="dev-level-INFO" onclick="setDevLevel('INFO')">INFO</button>
-                                    <button class="filter-btn" id="dev-level-WARNING" onclick="setDevLevel('WARNING')" style="color:var(--yellow);">WARNING</button>
-                                    <button class="filter-btn" id="dev-level-ERROR" onclick="setDevLevel('ERROR')" style="color:var(--red);">ERROR</button>
+                                    <button class="filter-btn active" id="dev-level-ALL" onclick="setDevLevel('ALL')" data-tip="Tüm log seviyelerini gösterir.">Tümü</button>
+                                    <button class="filter-btn" id="dev-level-INFO" onclick="setDevLevel('INFO')" data-tip="Yalnızca bilgi (INFO) loglarını gösterir.">INFO</button>
+                                    <button class="filter-btn" id="dev-level-WARNING" onclick="setDevLevel('WARNING')" style="color:var(--yellow);" data-tip="Yalnızca uyarı (WARNING) loglarını gösterir.">WARNING</button>
+                                    <button class="filter-btn" id="dev-level-ERROR" onclick="setDevLevel('ERROR')" style="color:var(--red);" data-tip="Yalnızca hata (ERROR) loglarını gösterir.">ERROR</button>
                                 </div>
                             </div>
                             <div style="flex:1; min-width:200px;">
@@ -2997,5 +3028,76 @@
             </div>
         </div>
     </div>
+
+    <script>
+        // ------------------------------------------------------------
+        // Uygulama Tooltip Bileşeni (data-tip)
+        // Neden: Tek global div + event delegation — dinamik render edilen
+        // elemanlarda da (tablo satırı, santral durumu) ekstra kod gerekmeden
+        // çalışır. Chart.js canvas'larına data-tip verilmez; canvas'ın kendi
+        // veri balonu bu bileşenden tamamen bağımsızdır.
+        // Yalnızca hover destekleyen cihazlarda kurulur (dokunmatikte kapalı).
+        // ------------------------------------------------------------
+        (function () {
+            if (!window.matchMedia || !window.matchMedia("(hover: hover)").matches) return;
+
+            const tip = document.createElement("div");
+            tip.id = "app-tooltip";
+            document.body.appendChild(tip);
+
+            let showTimer = null;
+            let activeEl = null;
+            const DELAY_MS = 300;
+
+            function hideTip() {
+                clearTimeout(showTimer);
+                showTimer = null;
+                activeEl = null;
+                tip.classList.remove("visible");
+            }
+
+            function positionTip(el) {
+                const r = el.getBoundingClientRect();
+                const pad = 10;
+                tip.style.left = "0px"; tip.style.top = "0px"; // ölçüm için sıfırla
+                const tw = tip.offsetWidth, th = tip.offsetHeight;
+                let x = r.left + r.width / 2 - tw / 2;
+                x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+                let y = r.top - th - pad;
+                tip.classList.remove("below");
+                if (y < 8) { // üstte yer yoksa elemanın altına aç
+                    y = r.bottom + pad;
+                    tip.classList.add("below");
+                }
+                const arrowX = r.left + r.width / 2 - x - 6;
+                tip.style.setProperty("--arrow-x", Math.max(10, Math.min(arrowX, tw - 22)) + "px");
+                tip.style.left = x + "px";
+                tip.style.top = y + "px";
+            }
+
+            document.addEventListener("mouseover", (e) => {
+                const el = e.target.closest("[data-tip]");
+                if (!el || el === activeEl) return;
+                hideTip();
+                activeEl = el;
+                showTimer = setTimeout(() => {
+                    if (!document.contains(el)) return; // dinamik eleman kaldırıldıysa
+                    tip.textContent = el.getAttribute("data-tip");
+                    positionTip(el);
+                    tip.classList.add("visible");
+                }, DELAY_MS);
+            });
+
+            document.addEventListener("mouseout", (e) => {
+                const el = e.target.closest("[data-tip]");
+                if (el && (!e.relatedTarget || !el.contains(e.relatedTarget))) hideTip();
+            });
+
+            // Kaydırma/tıklama/boyut değişiminde takılı tooltip kalmasın
+            document.addEventListener("scroll", hideTip, true);
+            document.addEventListener("mousedown", hideTip, true);
+            window.addEventListener("resize", hideTip);
+        })();
+    </script>
 </body>
 </html>
