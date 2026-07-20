@@ -39,6 +39,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ### Düzeltildi
 - **PlantStatusJob WinError 5**: Task Scheduler System32 cwd'siyle başlattığında göreli `config/isolar_browser_profile` yolu korumalı `System32\config` dizinine çözülüp erişim hatası veriyordu — santral izleme yalnızca dashboard tetiklerinde çalışabiliyordu. Profil ve 4 şablon yolu `PROJECT_ROOT`'a sabitlendi; zamanlanmış izleme (15 dk) artık gerçekten çalışıyor.
+- **PlantStatusJob Konsol Penceresi**: Zamanlanmış çalışmada `python.exe`'nin masaüstünde açtığı konsol penceresi gizlendi. Görev artık `wscript.exe` + `scripts/run_plant_status_hidden.vbs` gizli başlatıcısıyla çağrılıyor (pencere stili 0). python.exe korundu (pythonw.exe'nin `print()` → RuntimeError riski elendi), headless=True tarayıcı ve login akışı değişmedi.
 
 ### Kaldırıldı
 - **Güvenlik**: Tracked durumdaki 9 `scratch/` dosyası Git index'ten çıkarıldı (diskte korunuyor); `scratch/` klasörü `.gitignore`'a eklendi. Not: `scratch/create_users.py` düz metin admin şifresi içeriyordu — şifre Git geçmişinde kaldığı için rotasyonu önerilir.
