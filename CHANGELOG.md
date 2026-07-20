@@ -36,6 +36,9 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Güvenlik**: Smoke testteki sabit admin şifresi koddan çıkarıldı; `.env` üzerindeki `DASHBOARD_TEST_ADMIN_PASSWORD` değişkeninden okunuyor.
 - **`.gitignore`**: `node_modules/`, `outputs/manual_tests/` ve `.claude/settings.local.json` ignore listesine eklendi.
 
+### Düzeltildi
+- **PlantStatusJob WinError 5**: Task Scheduler System32 cwd'siyle başlattığında göreli `config/isolar_browser_profile` yolu korumalı `System32\config` dizinine çözülüp erişim hatası veriyordu — santral izleme yalnızca dashboard tetiklerinde çalışabiliyordu. Profil ve 4 şablon yolu `PROJECT_ROOT`'a sabitlendi; zamanlanmış izleme (15 dk) artık gerçekten çalışıyor.
+
 ### Kaldırıldı
 - **Güvenlik**: Tracked durumdaki 9 `scratch/` dosyası Git index'ten çıkarıldı (diskte korunuyor); `scratch/` klasörü `.gitignore`'a eklendi. Not: `scratch/create_users.py` düz metin admin şifresi içeriyordu — şifre Git geçmişinde kaldığı için rotasyonu önerilir.
 

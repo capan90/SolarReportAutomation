@@ -13,6 +13,11 @@ from app.core.logger import setup_logger
 
 logger = setup_logger("PlantStatusJob")
 
+# Neden: Task Scheduler bu job'ı System32 cwd'siyle başlatır; göreli yollar
+# C:\Windows\System32\config\... gibi korumalı dizinlere çözülüp WinError 5
+# üretir. Tüm dosya yolları proje köküne sabitlenir (gaosb/extractor.py kalıbı).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 def send_status_email(subject: str, html_body: str) -> bool:
     """SMTP üzerinden GES durum uyarısı e-postası gönderir."""
     if not settings.smtp_enabled:
@@ -79,7 +84,7 @@ class PlantStatusJob:
             return {"status": "SKIPPED", "reason": "Dış çalışma saatleri"}
 
         from playwright.sync_api import sync_playwright
-        ISOLAR_PROFILE_DIR = Path("config/isolar_browser_profile")
+        ISOLAR_PROFILE_DIR = PROJECT_ROOT / "config" / "isolar_browser_profile"
 
         results = {}
         error_msg = None
@@ -197,7 +202,7 @@ class PlantStatusJob:
             if (prev_status == "Normal" or prev_status is None) and status in ["Abnormal", "Offline"]:
                 subject = f"🔧 Erdemsoft GES — Arıza Tespit Edildi ({datetime.now().strftime('%d.%m.%Y')})"
                 
-                alert_template_path = Path("templates/plant_alert.html")
+                alert_template_path = PROJECT_ROOT / "templates" / "plant_alert.html"
                 if alert_template_path.exists():
                     html_content = alert_template_path.read_text(encoding="utf-8")
                 else:
@@ -229,7 +234,7 @@ class PlantStatusJob:
                     duration_str = f"{minutes} dakika"
 
                 subject = f"✅ Erdemsoft GES — Arıza Giderildi ({datetime.now().strftime('%d.%m.%Y')})"
-                resolved_template_path = Path("templates/plant_resolved.html")
+                resolved_template_path = PROJECT_ROOT / "templates" / "plant_resolved.html"
                 if resolved_template_path.exists():
                     html_content = resolved_template_path.read_text(encoding="utf-8")
                 else:
@@ -250,7 +255,7 @@ class PlantStatusJob:
                     if time_passed >= timedelta(minutes=30):
                         subject = f"⏳ Erdemsoft GES — Arıza Devam Ediyor ({datetime.now().strftime('%d.%m.%Y')})"
 
-                        alert_template_path = Path("templates/plant_alert.html")
+                        alert_template_path = PROJECT_ROOT / "templates" / "plant_alert.html"
                         if alert_template_path.exists():
                             html_content = alert_template_path.read_text(encoding="utf-8")
                         else:
@@ -288,7 +293,7 @@ class PlantStatusJob:
                 else:
                     # Daha önce hiç bildirim gitmemişse ilk tespittir
                     subject = f"🔧 Erdemsoft GES — Arıza Tespit Edildi ({datetime.now().strftime('%d.%m.%Y')})"
-                    alert_template_path = Path("templates/plant_alert.html")
+                    alert_template_path = PROJECT_ROOT / "templates" / "plant_alert.html"
                     if alert_template_path.exists():
                         html_content = alert_template_path.read_text(encoding="utf-8")
                     else:
