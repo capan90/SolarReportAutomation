@@ -30,6 +30,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Dashboard Smoke Test Genişletmesi**: 401/login/token akışı ve kullanıcı yönetimi API'leri (`/api/users` CRUD, şifre değiştirme, kendini silme koruması) test kapsamına alındı.
 
 ### Değiştirildi
+- **Dashboard Kullanıcı Kartı**: Sağ üstteki kullanıcı bilgisi ve "Son güncelleme" pill'leri tek birleşik kartta toplandı (üst üste binme giderildi); baş harfli avatar, hover'da belirginleşen nötr çıkış butonu ve canlılık hissi veren pulse noktası eklendi. Logout ve saat güncelleme mantığı değişmedi.
 - **Depo Düzeni**: `docs/PROJECT_CONTEXT.md`, `docs/prompts/`, Mimari Keşif Raporu (güvenli dosya adına taşındı), `run_settlement.bat` ve `tests/test_historical_api.py` versiyon kontrolüne alındı; `config/isolar_browser_profile/`, `outputs/reports/` ve `outputs/test_*` `.gitignore`'a eklendi; kullanılmayan `package*.json` silindi.
 - **Dashboard**: Ana Sayfa Sistem Durumu'ndaki "Mahsup Edilen" KPI kartı kaldırıldı (backend hesaplaması ve diğer ekranlardaki mahsup gösterimleri değişmedi); KPI satırı 4 sütunlu düzene geçti.
 - **Güvenlik**: Smoke testteki sabit admin şifresi koddan çıkarıldı; `.env` üzerindeki `DASHBOARD_TEST_ADMIN_PASSWORD` değişkeninden okunuyor.
