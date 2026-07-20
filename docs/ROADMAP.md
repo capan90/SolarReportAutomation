@@ -22,5 +22,5 @@ Bu doküman, SolarReportAutomation projesinin geçmiş, şimdiki ve gelecek sür
 ## Teknik Borç Takibi (Technical Debt Tracker)
 - **Kuyruk Dayanıklılığı (Sprint 12'den kalan)**: In-memory bildirim kuyruğunun PostgreSQL DB queue veya Redis Queue ile değiştirilmesi.
 - **Log Rotasyonu (Sprint 12'den kalan)**: `app.log` boyutu için rotasyon limitlerinin eklenmesi.
-- **Ruff Temizliği (2026-07-20)**: 101 ihlal (90 F401 unused-import ağırlıklı) — ayrı sprintte `ruff check --fix` (89 otomatik) + 9 elle düzeltme yapılacak; sonrasında pre-commit hook'taki ruff kontrolü tekrar blocking yapılacak.
+- **Ruff Temizliği (2026-07-20, güncellendi)**: 101 ihlal (90 F401 unused-import ağırlıklı) + 124 dosyalık `ruff format` bekliyor. Ön koşul TAMAMLANDI: 107 testlik smoke güvenlik ağı kuruldu (tests/smoke/, pre-commit'te blocking). Sıradaki adım tek izole commit'te: `ruff format .` + `ruff check --fix` → `pytest tests/smoke/` ile davranış değişmediğini doğrula → hook'taki ruff kontrolünü warn-only'den tekrar blocking'e al. Elle düzeltilecek 9 ihlal (E701/F841/E712) ve F823 bug'ı (ayrı madde) bu kapsamda ele alınacak.
 - **F823 Potansiyel Bug (2026-07-20)**: `app/dashboard/web_server.py:422` — fonksiyon içi yerel `import re` nedeniyle olası `UnboundLocalError`, incelenmeli ve düzeltilmeli.
