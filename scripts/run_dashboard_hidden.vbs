@@ -18,6 +18,11 @@ Set sh = CreateObject("WScript.Shell")
 sh.CurrentDirectory = projRoot
 cmd = """" & projRoot & "\.venv\Scripts\python.exe"" -m app.dashboard.web_server"
 
+' Dongu pes ettiginde (art arda 4 cokme) sistem yoneticisine e-posta uyarisi
+' gonderilir — aksi halde dashboard'in kapali kaldigi ancak biri fark edince
+' anlasiliyor (2026-07-21 olayi). Best-effort: uyari da basarisiz olsa yutulur.
+alertCmd = """" & projRoot & "\.venv\Scripts\python.exe"" """ & projRoot & "\scripts\send_dashboard_down_alert.py"""
+
 attempts = 0
 Do
     rc = sh.Run(cmd, 0, True)
@@ -25,7 +30,12 @@ Do
         attempts = 0
     ElseIf rc <> 0 Then
         attempts = attempts + 1
-        If attempts > 3 Then Exit Do
+        If attempts > 3 Then
+            On Error Resume Next
+            sh.Run alertCmd, 0, True
+            On Error GoTo 0
+            Exit Do
+        End If
         WScript.Sleep 60000
     End If
 Loop While rc <> 0

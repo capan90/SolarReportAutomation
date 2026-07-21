@@ -35,6 +35,14 @@ MONTHLY_REPORT_RE = re.compile(r"^mahsup_(\d{6})_aylik\.xlsx$")
 # beklemeden sonlanmalı; HTTP yanıtı gönderildikten sonra tetiklendiği için güvenlidir.
 RESTART_EXIT_CODE = 10
 
+
+class _ExclusiveHTTPServer(HTTPServer):
+    # Neden: HTTPServer varsayılanı SO_REUSEADDR açar; Windows'ta bu, ikinci bir
+    # instance'ın aynı porta sessizce bağlanıp istekleri rastgele paylaşmasına izin
+    # verir (2026-07-21 çift dinleyici olayı). Kapalıyken ikinci bind WinError 10048
+    # ile anında reddedilir ve start() net bir logla fail eder.
+    allow_reuse_address = False
+
 def _schedule_restart(delay_seconds: float = 1.0) -> threading.Timer:
     timer = threading.Timer(delay_seconds, os._exit, args=(RESTART_EXIT_CODE,))
     timer.daemon = True
@@ -1505,7 +1513,14 @@ class SolarDashboardServer:
         host = "0.0.0.0" if access_mode == "network" else "127.0.0.1"
 
         server_address = (host, self.port)
-        self.httpd = HTTPServer(server_address, DashboardRequestHandler)
+        try:
+            self.httpd = _ExclusiveHTTPServer(server_address, DashboardRequestHandler)
+        except OSError as e:
+            logger.error(
+                f"Port {self.port} bağlanamadı — büyük olasılıkla başka bir dashboard "
+                f"instance'ı zaten çalışıyor (elle başlatılmış olabilir): {e}"
+            )
+            raise
 
         logger.info(f"Dashboard Web Server BAŞLATILDI: http://{host if host != '0.0.0.0' else 'localhost'}:{self.port} (Mod: {access_mode})")
         try:
