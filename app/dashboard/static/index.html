@@ -229,6 +229,7 @@
         }
         .btn.green { background: var(--green); color: #052e16; }
         .btn.blue { background: var(--blue); }
+        .btn.red { background: var(--red); }
         .btn.outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
         .btn:disabled { opacity: 0.55; cursor: not-allowed; }
         .btn:hover:not(:disabled) { filter: brightness(1.08); }
@@ -840,16 +841,17 @@
             <h3>Dashboard Yeniden Başlatılsın mı?</h3>
             <p class="muted" style="font-size: 0.9rem; line-height: 1.7; margin-bottom: 14px;">
                 Kaydedilen ayarların etkili olması için dashboard'ın yeniden başlatılması gerekir.
-                Bu işlem sırasında <b>yaklaşık 1 dakika kesinti</b> olur ve açık oturumlar kapanır
-                (yeniden giriş yapmanız gerekir).
+                Bu işlem sırasında <b>kısa bir kesinti</b> olur (genellikle birkaç saniye) ve açık
+                oturumlar kapanır (yeniden giriş yapmanız gerekir).
             </p>
             <p class="muted" style="font-size: 0.8rem; line-height: 1.6; margin-bottom: 18px;">
-                Not: Bu işlem dashboard'ın zamanlanmış görevle (SolarReportAutomation_Dashboard)
-                çalıştığını varsayar; uygulama elle başlatıldıysa otomatik geri gelmez.
+                Not: Bu işlem dashboard'ın gizli başlatıcı (run_dashboard_hidden.vbs) üzerinden
+                çalıştığını varsayar — zamanlanmış görev bunu kullanır. Uygulama elle başlatıldıysa
+                otomatik geri gelmez.
             </p>
             <div style="display: flex; gap: 10px; justify-content: flex-end;">
                 <button class="btn outline" onclick="closeRestartModal()">Şimdi Değil</button>
-                <button class="btn" id="btn-restart-confirm" onclick="confirmRestart()">Yeniden Başlat</button>
+                <button class="btn red" id="btn-restart-confirm" onclick="confirmRestart()">Yeniden Başlat</button>
             </div>
             <div id="restart-modal-msg" class="msg"></div>
         </div>
@@ -860,7 +862,7 @@
         <div class="modal" style="text-align: center;">
             <h3><span class="spinner"></span> Dashboard yeniden başlatılıyor…</h3>
             <p class="muted" style="font-size: 0.9rem; line-height: 1.7; margin-top: 12px;">
-                Yaklaşık 1 dakika sürebilir. Bağlantı geldiğinde sayfa otomatik yenilenecek —
+                Genellikle birkaç saniye sürer. Bağlantı geldiğinde sayfa otomatik yenilenecek —
                 bu pencereyi kapatmayın.
             </p>
         </div>
@@ -2360,7 +2362,7 @@
         function showRestartWait() {
             document.getElementById("restart-wait").classList.add("visible");
             // Process'in kapanması için kısa bir gecikmeyle yoklamaya başla
-            setTimeout(pollRestart, 5000);
+            setTimeout(pollRestart, 3000);
         }
 
         async function pollRestart() {
@@ -2368,7 +2370,7 @@
                 const res = await fetch("/?_ts=" + Date.now(), { cache: "no-store" });
                 if (res.ok) { location.reload(); return; }
             } catch (e) { /* sunucu henüz dönmedi, tekrar denenecek */ }
-            setTimeout(pollRestart, 5000);
+            setTimeout(pollRestart, 3000);
         }
 
         // ================= KULLANICI YÖNETİMİ JS =================

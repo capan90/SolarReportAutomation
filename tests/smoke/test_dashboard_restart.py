@@ -42,7 +42,7 @@ def test_schedule_restart_timer_yapisi():
         assert timer.daemon is True
         assert timer.function is os._exit
         assert timer.args == (web_server.RESTART_EXIT_CODE,)
-        assert web_server.RESTART_EXIT_CODE != 0  # 0 olursa Task Scheduler restart etmez
+        assert web_server.RESTART_EXIT_CODE != 0  # 0, VBS döngüsünde temiz kapanış sayılır — restart tetiklemez
     finally:
         timer.cancel()  # Gerçek restart asla tetiklenmemeli
 

@@ -27,11 +27,12 @@ DAILY_REPORT_RE = re.compile(r"^mahsup_(\d{8})\.xlsx$")
 MONTHLY_REPORT_RE = re.compile(r"^mahsup_(\d{6})_aylik\.xlsx$")
 
 # Neden: "Kaydet ve Yeniden Başlat" akışı — frozen settings nesnesi yalnızca process
-# başlangıcında kurulduğu için .env değişiklikleri restart gerektirir. Process sıfır
-# olmayan exit koduyla sonlanır; Task Scheduler'ın restart-on-failure ayarı uygulamayı
-# taze konfigürasyonla geri getirir. os._exit kullanılır çünkü serve_forever başka
-# thread'den temiz kapatma beklemeden sonlanmalı; HTTP yanıtı gönderildikten sonra
-# tetiklendiği için güvenlidir.
+# başlangıcında kurulduğu için .env değişiklikleri restart gerektirir. Process bu
+# kodla sonlanır; gizli VBS başlatıcısındaki döngü (run_dashboard_hidden.vbs) process'i
+# taze konfigürasyonla hemen yeniden başlatır. Task Scheduler'ın restart-on-failure
+# ayarına GÜVENİLMEZ: nonzero exit kodunu failure saymadığı deneyle doğrulandı
+# (2026-07-21). os._exit kullanılır çünkü serve_forever başka thread'den temiz kapatma
+# beklemeden sonlanmalı; HTTP yanıtı gönderildikten sonra tetiklendiği için güvenlidir.
 RESTART_EXIT_CODE = 10
 
 def _schedule_restart(delay_seconds: float = 1.0) -> threading.Timer:
@@ -1377,7 +1378,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         Neden: .env tabanlı ayarlar frozen settings nesnesine yalnızca process
         başlangıcında yüklenir; bu endpoint dashboard'ı kontrollü olarak yeniden
         başlatır. Yanıt gönderildikten sonra process RESTART_EXIT_CODE ile sonlanır,
-        Task Scheduler'ın restart-on-failure ayarı taze konfigürasyonla geri getirir.
+        gizli VBS başlatıcısındaki döngü taze konfigürasyonla hemen geri getirir.
         Yönetici şifresi zorunludur; kabul ve ret audit_log'a yazılır.
         """
         body = self._read_json_body()
@@ -1391,10 +1392,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
 
         self.auth.log_action(username, self._get_client_ip(), "dashboard_restart", details="Ayarların etkinleşmesi için kontrollü yeniden başlatma")
-        logger.info(f"Dashboard kontrollü yeniden başlatılıyor (istek: {username}); Task Scheduler taze config ile geri getirecek.")
+        logger.info(f"Dashboard kontrollü yeniden başlatılıyor (istek: {username}); VBS başlatıcı taze config ile geri getirecek.")
         self._send_json_contract({
             "restarting": True,
-            "note": "Dashboard yeniden başlatılıyor; yaklaşık 1 dakika içinde tekrar erişilebilir olacak.",
+            "note": "Dashboard yeniden başlatılıyor; birkaç saniye içinde tekrar erişilebilir olacak.",
         }, None)
         _schedule_restart()
 

@@ -1,8 +1,14 @@
 ' SolarReportAutomation - Dashboard web sunucusu gizli (windowless) baslatici
 ' Neden: Task Scheduler python.exe'yi interaktif oturumda calistirinca masaustunde
 ' konsol penceresi beliriyordu (PlantStatus ile ayni sorun). Bu VBS sunucuyu gizli
-' pencere (0) ile baslatir ve bitmesini BEKLER (True): sunucu cokerse exit kodu
-' gorev sonucuna yansir ve Task Scheduler'in "restart on failure" ayari devreye girer.
+' pencere (0) ile baslatir ve bitmesini BEKLER (True).
+' Yeniden baslatma dongusu BURADADIR: Task Scheduler'in "restart on failure" ayari
+' yalnizca gorev BASLATILAMAZSA devreye girer; calisan programin sifir olmayan exit
+' koduyla bitmesini failure saymaz (2026-07-21'de deneyle dogrulandi). Bu yuzden:
+'   - rc = 10 (RESTART_EXIT_CODE, kontrollu restart / ayar degisikligi)
+'     -> hemen yeniden baslat (kesinti birkac saniye)
+'   - rc <> 0 (cokme) -> 1 dk bekle, art arda en fazla 3 deneme
+'   - rc = 0  (temiz kapanis) -> donguden cik
 ' Proje koku script konumundan turetilir (dev laptop ve prod APPS sunucusunda ayni
 ' dosya calisir, sabit yol yok). CurrentDirectory atamasi sart: Task Scheduler
 ' cwd'si System32 olabilir (WinError 5).
@@ -10,5 +16,17 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 projRoot = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 Set sh = CreateObject("WScript.Shell")
 sh.CurrentDirectory = projRoot
-rc = sh.Run("""" & projRoot & "\.venv\Scripts\python.exe"" -m app.dashboard.web_server", 0, True)
+cmd = """" & projRoot & "\.venv\Scripts\python.exe"" -m app.dashboard.web_server"
+
+attempts = 0
+Do
+    rc = sh.Run(cmd, 0, True)
+    If rc = 10 Then
+        attempts = 0
+    ElseIf rc <> 0 Then
+        attempts = attempts + 1
+        If attempts > 3 Then Exit Do
+        WScript.Sleep 60000
+    End If
+Loop While rc <> 0
 WScript.Quit rc
