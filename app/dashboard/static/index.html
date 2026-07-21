@@ -2229,6 +2229,12 @@
                 msg.innerText = "Lütfen yönetici şifresini girin.";
                 return;
             }
+            const portVal = document.getElementById("f-port").value.trim();
+            if (portVal !== "" && (!/^\d+$/.test(portVal) || +portVal < 1 || +portVal > 65535)) {
+                msg.className = "msg bad";
+                msg.innerText = "Port 1-65535 arasında bir sayı olmalıdır.";
+                return;
+            }
             const payload = {
                 admin_password: adminPass,
                 smtp: {

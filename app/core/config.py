@@ -1,9 +1,37 @@
+import logging
 import os
 from pathlib import Path
 from dataclasses import dataclass
 
 # Neden: Proje kök dizinini dinamik olarak tespit etmek ve dosya yolları için referans almak
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+logger = logging.getLogger("Config")
+
+
+def _env_int(key: str, default: int) -> int:
+    """
+    Neden: Boş/bozuk ortam değişkeni uygulamayı başlatılamaz hale getirmemeli;
+    çevrilemeyen değerde loglayıp varsayılana düşer (sessiz hata yok).
+    os.environ.get'in varsayılanı yalnızca anahtar yokken devreye girer,
+    boş string'de girmez — bu yardımcı o boşluğu da kapatır.
+    """
+    raw = os.environ.get(key, "").strip()
+    if raw == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(f"{key}='{raw}' geçerli bir tam sayı değil; varsayılan {default} kullanılıyor.")
+        return default
+
+
+def _env_bool(key: str, default: bool) -> bool:
+    """Neden: Boş string bool alanı sessizce False'a düşürüyordu; boşta varsayılan korunur."""
+    raw = os.environ.get(key, "").strip().lower()
+    if raw == "":
+        return default
+    return raw == "true"
 
 def load_dotenv():
     """
@@ -119,10 +147,10 @@ settings = Settings(
     report_directory=BASE_DIR / Path(os.environ.get("REPORT_OUTPUT_DIR", "outputs/pdf")),
     chart_directory=BASE_DIR / Path(os.environ.get("CHART_OUTPUT_DIR", "outputs/charts")),
     app_env=raw_env,
-    headless=os.environ.get("ISOLAR_HEADLESS", "true").lower() == "true",
+    headless=_env_bool("ISOLAR_HEADLESS", True),
     database_url=os.environ.get("DATABASE_URL", ""),
     smtp_host=os.environ.get("SMTP_HOST", ""),
-    smtp_port=int(os.environ.get("SMTP_PORT", "587")),
+    smtp_port=_env_int("SMTP_PORT", 587),
     smtp_username=os.environ.get("SMTP_USERNAME", ""),
     smtp_password=os.environ.get("SMTP_PASSWORD", ""),
     smtp_from=os.environ.get("SMTP_FROM", ""),
@@ -131,10 +159,10 @@ settings = Settings(
     smtp_to_monthly=os.environ.get("SMTP_TO_MONTHLY", os.environ.get("SMTP_TO", "")),
     smtp_to_plant_alert=os.environ.get("SMTP_TO_PLANT_ALERT", os.environ.get("SMTP_TO", "")),
     smtp_to_system=os.environ.get("SMTP_TO_SYSTEM", os.environ.get("SMTP_TO", "")),
-    smtp_enabled=os.environ.get("SMTP_ENABLED", "false").lower() == "true",
-    smtp_use_tls=os.environ.get("SMTP_USE_TLS", "true").lower() == "true",
+    smtp_enabled=_env_bool("SMTP_ENABLED", False),
+    smtp_use_tls=_env_bool("SMTP_USE_TLS", True),
     dashboard_access_mode=os.environ.get("DASHBOARD_ACCESS_MODE", "localhost").lower(),
-    dashboard_port=int(os.environ.get("DASHBOARD_PORT", "8080")),
+    dashboard_port=_env_int("DASHBOARD_PORT", 8080),
     log_level=p_log_level,
     timeout_multiplier=p_timeout_mult,
     dry_run=p_dry_run,

@@ -856,6 +856,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             "log_level": settings.log_level,
             "smtp_status": smtp_status,
             "smtp_host": settings.smtp_host,
+            "smtp_port": settings.smtp_port,
             "smtp_username": settings.smtp_username,
             "smtp_password_masked": "********" if settings.smtp_password else "",
             "smtp_to": settings.alert_email,
@@ -1313,18 +1314,29 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 if to_val is not None:
                     updates[env_key] = str(to_val).strip()
 
-        # 2. Genel SMTP Ayarları
+        # 2. Genel SMTP Ayarları — port zorunlu ve sayısal; diğer boş alanlar "değiştirme" demektir.
+        # Boş string .env'e yazılırsa config.py restart sonrası varsayılana düşemez (get()
+        # varsayılanı yalnızca anahtar yokken kullanır), bu yüzden boş değer asla yazılmaz.
         smtp_data = body.get("smtp")
         if isinstance(smtp_data, dict):
+            port_raw = smtp_data.get("port")
+            if port_raw is not None:
+                port_str = str(port_raw).strip()
+                if port_str == "":
+                    self._send_json_contract(None, "Port boş olamaz.")
+                    return
+                if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
+                    self._send_json_contract(None, "Port 1-65535 arasında bir sayı olmalıdır.")
+                    return
+                updates["SMTP_PORT"] = port_str
             smtp_key_map = {
                 "host": "SMTP_HOST",
-                "port": "SMTP_PORT",
                 "username": "SMTP_USERNAME",
                 "password": "SMTP_PASSWORD",
             }
             for smtp_key, env_key in smtp_key_map.items():
                 val = smtp_data.get(smtp_key)
-                if val is not None:
+                if val is not None and str(val).strip() != "":
                     updates[env_key] = str(val).strip()
 
         # 3. Geriye Dönük Düz JSON Desteği

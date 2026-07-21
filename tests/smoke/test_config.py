@@ -88,6 +88,26 @@ def test_int_cevirimleri_ve_varsayilanlar(reload_config):
     assert modul.settings.dashboard_port == 8080
 
 
+def test_bos_string_int_alanlar_varsayilana_duser(reload_config):
+    # Kök neden senaryosu: .env'de SMTP_PORT= (boş) kalırsa crash değil varsayılan
+    modul = reload_config(SMTP_PORT="", DASHBOARD_PORT="")
+    assert modul.settings.smtp_port == 587
+    assert modul.settings.dashboard_port == 8080
+
+
+def test_gecersiz_int_alanlar_varsayilana_duser(reload_config):
+    modul = reload_config(SMTP_PORT="abc", DASHBOARD_PORT="80x")
+    assert modul.settings.smtp_port == 587
+    assert modul.settings.dashboard_port == 8080
+
+
+def test_bos_string_bool_alanlar_varsayilana_duser(reload_config):
+    modul = reload_config(ISOLAR_HEADLESS="", SMTP_USE_TLS="", SMTP_ENABLED="")
+    assert modul.settings.headless is True
+    assert modul.settings.smtp_use_tls is True
+    assert modul.settings.smtp_enabled is False
+
+
 def test_gecersiz_app_env_development_profili(reload_config):
     modul = reload_config(APP_ENV="sacma_deger")
     assert modul.settings.app_env == "development"
