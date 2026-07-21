@@ -1942,7 +1942,7 @@
             if (cfg) {
                 setBadge("st-isolar", cfg.isolar_status === "AKTİF", cfg.isolar_status);
                 setBadge("st-gaosb", cfg.gaosb_status === "AKTİF", cfg.gaosb_status);
-                setBadge("st-mail", cfg.smtp_status === "aktif", cfg.smtp_status === "aktif" ? "AKTİF" : "PASİF");
+                setMailBadge(cfg.smtp_status);
                 document.getElementById("st-lastrun").innerText =
                     cfg.last_run_time ? cfg.last_run_time.replace("T", " ").slice(0, 16) : "-";
             }
@@ -1956,6 +1956,21 @@
             const el = document.getElementById(id);
             el.innerText = text || (ok ? "AKTİF" : "PASİF");
             el.className = "badge " + (ok ? "ok" : "bad");
+        }
+
+        // E-posta rozeti üç durumu ayırır: "eksik" (SMTP açık ama alan boş) daha önce
+        // PASİF diye gösterilip yanlış teşhise yol açıyordu (2026-07-21).
+        function setMailBadge(status) {
+            const states = {
+                aktif: { cls: "ok",   text: "AKTİF", tip: "SMTP yapılandırması tam; bildirimler gönderilebilir." },
+                eksik: { cls: "warn", text: "EKSİK", tip: "SMTP açık ama sunucu, kullanıcı adı, şifre veya alıcı adresinden en az biri boş — Ayarlar sayfasından tamamlayıp yeniden başlatın." },
+                pasif: { cls: "bad",  text: "PASİF", tip: "SMTP_ENABLED kapalı (.env) — hiçbir e-posta gönderilmez." }
+            };
+            const s = states[status] || { cls: "warn", text: "-", tip: "" };
+            const el = document.getElementById("st-mail");
+            el.innerText = s.text;
+            el.className = "badge " + s.cls;
+            el.setAttribute("data-tip", s.tip);
         }
 
         function bindReport(prefix, info, kind) {
