@@ -26,6 +26,20 @@ REPORTS_DIR = Path("outputs/reports")
 DAILY_REPORT_RE = re.compile(r"^mahsup_(\d{8})\.xlsx$")
 MONTHLY_REPORT_RE = re.compile(r"^mahsup_(\d{6})_aylik\.xlsx$")
 
+# Neden: "Kaydet ve Yeniden Başlat" akışı — frozen settings nesnesi yalnızca process
+# başlangıcında kurulduğu için .env değişiklikleri restart gerektirir. Process sıfır
+# olmayan exit koduyla sonlanır; Task Scheduler'ın restart-on-failure ayarı uygulamayı
+# taze konfigürasyonla geri getirir. os._exit kullanılır çünkü serve_forever başka
+# thread'den temiz kapatma beklemeden sonlanmalı; HTTP yanıtı gönderildikten sonra
+# tetiklendiği için güvenlidir.
+RESTART_EXIT_CODE = 10
+
+def _schedule_restart(delay_seconds: float = 1.0) -> threading.Timer:
+    timer = threading.Timer(delay_seconds, os._exit, args=(RESTART_EXIT_CODE,))
+    timer.daemon = True
+    timer.start()
+    return timer
+
 # Neden: GAOSB captcha bekleme işareti — extractor yazar, dashboard okur/siler.
 CAPTCHA_FLAG_PATH = BASE_DIR / "config" / "gaosb_captcha_flag.txt"
 
@@ -235,6 +249,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/settings/smtp":
                 self.auth.log_action(username, self._get_client_ip(), "settings_change", details="SMTP settings updated")
                 self._handle_smtp_settings()
+            elif path == "/api/settings/restart":
+                self._handle_restart(username)
             elif path == "/api/gaosb/captcha-resolved":
                 self.auth.log_action(username, self._get_client_ip(), "captcha_resolved", details="Captcha resolution submitted")
                 self._handle_captcha_resolved()
@@ -1350,11 +1366,37 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             logger.info(f"SMTP ayarları güncellendi: {sorted(updates.keys())}")
             self._send_json_contract({
                 "updated_keys": sorted(updates.keys()),
-                "note": "Ayarlar kaydedildi. Değişikliklerin tam olarak etkinleşmesi için uygulamanın yeniden başlatılması gerekebilir.",
+                "note": "Ayarlar kaydedildi. Bu ayarların etkili olması için dashboard'ın yeniden başlatılması gerekir — uygulama yapılandırmayı yalnızca başlangıçta yükler.",
             }, None)
         except Exception as e:
             logger.error(f"SMTP ayarları .env dosyasına yazılamadı: {e}")
             self._send_json_contract(None, "Ayarlar kaydedilemedi. Lütfen sistem yöneticinizle iletişime geçin.")
+
+    def _handle_restart(self, username: str) -> None:
+        """
+        Neden: .env tabanlı ayarlar frozen settings nesnesine yalnızca process
+        başlangıcında yüklenir; bu endpoint dashboard'ı kontrollü olarak yeniden
+        başlatır. Yanıt gönderildikten sonra process RESTART_EXIT_CODE ile sonlanır,
+        Task Scheduler'ın restart-on-failure ayarı taze konfigürasyonla geri getirir.
+        Yönetici şifresi zorunludur; kabul ve ret audit_log'a yazılır.
+        """
+        body = self._read_json_body()
+        admin_password = str(body.get("admin_password", ""))
+        expected = os.environ.get("DASHBOARD_ADMIN_PASSWORD", "")
+
+        if not expected or admin_password != expected:
+            self.auth.log_action(username, self._get_client_ip(), "dashboard_restart_denied", details="Yönetici şifresi hatalı")
+            logger.warning("Dashboard yeniden başlatma isteği reddedildi: yönetici şifresi hatalı.")
+            self._send_json_contract(None, "Yönetici şifresi hatalı.")
+            return
+
+        self.auth.log_action(username, self._get_client_ip(), "dashboard_restart", details="Ayarların etkinleşmesi için kontrollü yeniden başlatma")
+        logger.info(f"Dashboard kontrollü yeniden başlatılıyor (istek: {username}); Task Scheduler taze config ile geri getirecek.")
+        self._send_json_contract({
+            "restarting": True,
+            "note": "Dashboard yeniden başlatılıyor; yaklaşık 1 dakika içinde tekrar erişilebilir olacak.",
+        }, None)
+        _schedule_restart()
 
     # ------------------------------------------------------------------
     # Ortak yanıt yardımcıları

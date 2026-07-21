@@ -833,6 +833,39 @@
         </div>
     </div>
 
+    <!-- ============ YENİDEN BAŞLATMA ONAY MODALI ============ -->
+    <div id="restart-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeRestartModal()">✕</button>
+            <h3>Dashboard Yeniden Başlatılsın mı?</h3>
+            <p class="muted" style="font-size: 0.9rem; line-height: 1.7; margin-bottom: 14px;">
+                Kaydedilen ayarların etkili olması için dashboard'ın yeniden başlatılması gerekir.
+                Bu işlem sırasında <b>yaklaşık 1 dakika kesinti</b> olur ve açık oturumlar kapanır
+                (yeniden giriş yapmanız gerekir).
+            </p>
+            <p class="muted" style="font-size: 0.8rem; line-height: 1.6; margin-bottom: 18px;">
+                Not: Bu işlem dashboard'ın zamanlanmış görevle (SolarReportAutomation_Dashboard)
+                çalıştığını varsayar; uygulama elle başlatıldıysa otomatik geri gelmez.
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button class="btn outline" onclick="closeRestartModal()">Şimdi Değil</button>
+                <button class="btn" id="btn-restart-confirm" onclick="confirmRestart()">Yeniden Başlat</button>
+            </div>
+            <div id="restart-modal-msg" class="msg"></div>
+        </div>
+    </div>
+
+    <!-- ============ YENİDEN BAŞLATMA BEKLEME EKRANI ============ -->
+    <div id="restart-wait" class="modal-overlay" style="z-index: 100001;">
+        <div class="modal" style="text-align: center;">
+            <h3><span class="spinner"></span> Dashboard yeniden başlatılıyor…</h3>
+            <p class="muted" style="font-size: 0.9rem; line-height: 1.7; margin-top: 12px;">
+                Yaklaşık 1 dakika sürebilir. Bağlantı geldiğinde sayfa otomatik yenilenecek —
+                bu pencereyi kapatmayın.
+            </p>
+        </div>
+    </div>
+
     <!-- ================= SIDEBAR ================= -->
     <nav class="sidebar">
         <div class="logo"><span class="sun">&#9728;</span><span class="desktop-text">Erdemsoft GES Enerji Yönetim Sistemi</span><span class="mobile-text">Erdemsoft GES</span><small>Üretim &amp; Mahsuplaşma Takibi</small></div>
@@ -2218,6 +2251,7 @@
                     msg.innerText = "Sunucu ayarları başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
                     document.getElementById("f-admin").value = "";
                     loadSettingsPage();
+                    offerRestart(adminPass);
                 } else {
                     msg.className = "msg bad";
                     msg.innerText = body.error || "Ayarlar kaydedilemedi.";
@@ -2261,6 +2295,7 @@
                     msg.innerText = "Bildirim alıcıları başarıyla kaydedildi." + (body.data && body.data.note ? " " + body.data.note : "");
                     document.getElementById("f-admin-profiles").value = "";
                     loadSettingsPage();
+                    offerRestart(adminPass);
                 } else {
                     msg.className = "msg bad";
                     msg.innerText = body.error || "Ayarlar kaydedilemedi.";
@@ -2272,6 +2307,68 @@
                 btn.disabled = false;
                 btn.innerText = "Bildirim Ayarlarını Kaydet";
             }
+        }
+
+        // ============ KAYDET VE YENİDEN BAŞLAT JS ============
+        // Neden: .env tabanlı ayarlar çalışan process'e yansımaz (frozen settings);
+        // kayıt sonrası kullanıcıya kontrollü restart teklif edilir. Kayıt ve restart
+        // bilinçli olarak ayrı adımlardır: kayıt başarısızsa restart gündeme gelmez.
+        let pendingRestartPassword = null;
+
+        function offerRestart(adminPass) {
+            pendingRestartPassword = adminPass;
+            const msg = document.getElementById("restart-modal-msg");
+            msg.className = "msg";
+            msg.innerText = "";
+            document.getElementById("restart-modal").classList.add("visible");
+        }
+
+        function closeRestartModal() {
+            pendingRestartPassword = null;
+            document.getElementById("restart-modal").classList.remove("visible");
+        }
+
+        async function confirmRestart() {
+            const btn = document.getElementById("btn-restart-confirm");
+            const msg = document.getElementById("restart-modal-msg");
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Gönderiliyor...';
+            try {
+                const res = await fetch("/api/settings/restart", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ admin_password: pendingRestartPassword })
+                });
+                const body = await res.json();
+                if (body.success) {
+                    document.getElementById("restart-modal").classList.remove("visible");
+                    showRestartWait();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Yeniden başlatma isteği reddedildi.";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucuya ulaşılamadı. Lütfen tekrar deneyin.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Yeniden Başlat";
+                pendingRestartPassword = null;
+            }
+        }
+
+        function showRestartWait() {
+            document.getElementById("restart-wait").classList.add("visible");
+            // Process'in kapanması için kısa bir gecikmeyle yoklamaya başla
+            setTimeout(pollRestart, 5000);
+        }
+
+        async function pollRestart() {
+            try {
+                const res = await fetch("/?_ts=" + Date.now(), { cache: "no-store" });
+                if (res.ok) { location.reload(); return; }
+            } catch (e) { /* sunucu henüz dönmedi, tekrar denenecek */ }
+            setTimeout(pollRestart, 5000);
         }
 
         // ================= KULLANICI YÖNETİMİ JS =================
