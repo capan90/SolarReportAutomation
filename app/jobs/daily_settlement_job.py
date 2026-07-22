@@ -19,6 +19,11 @@ from app.core.config import settings
 # Logger kurulumu
 logger = setup_logger("DailySettlementJob")
 
+# Neden: Task Scheduler cwd'si System32 olabilir (WorkingDirectory boş bırakılmış
+# görev tanımı, 2026-07-22 olayı) — göreli yol System32 altına çözülüp işi sessizce
+# öldürür. Tüm çıktı yolları proje köküne sabitlenir (plant_status_job.py kalıbı).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 class DailySettlementJob:
     """
     Neden: Günlük mahsuplaşma akışını (iSolar veri çekme, GAOSB veri çekme, 
@@ -55,7 +60,7 @@ class DailySettlementJob:
 
         # 2. output_dir: outputs/reports/YYYY-MM/ oluştur
         month_str = dt.strftime("%Y-%m")
-        output_dir = Path("outputs/reports") / month_str
+        output_dir = PROJECT_ROOT / "outputs" / "reports" / month_str
         output_dir.mkdir(parents=True, exist_ok=True)
 
         run_id = f"job-settlement-{target_date}-{int(time.time())}"

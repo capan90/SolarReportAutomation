@@ -83,7 +83,11 @@ def run():
                 print(f"Hata: {result['error']}")
             sys.exit(0 if result['status'] == 'SUCCESS' else 1)
         except Exception as e:
+            # Neden: Yakalanmamış istisna scheduled bağlamda stderr'e gidip kayboluyor
+            # (2026-07-22 olayı) — kullanıcıya log kuyruklu uyarı maili atılır (best-effort).
             print(f"Monthly Settlement Job hatası: {e}")
+            from app.notifications.system_alert import send_job_failure_alert
+            send_job_failure_alert("Aylık Mahsup", str(e))
             sys.exit(1)
 
     if args and args.settlement:
@@ -101,7 +105,11 @@ def run():
                 print(f"Hata: {result['error']}")
             sys.exit(0 if result['status'] == 'SUCCESS' else 1)
         except Exception as e:
+            # Neden: Yakalanmamış istisna scheduled bağlamda stderr'e gidip kayboluyor
+            # (2026-07-22 olayı) — kullanıcıya log kuyruklu uyarı maili atılır (best-effort).
             print(f"Settlement Job hatası: {e}")
+            from app.notifications.system_alert import send_job_failure_alert
+            send_job_failure_alert("Günlük Mahsup", str(e))
             sys.exit(1)
 
     if args and getattr(args, 'plant_status', False):

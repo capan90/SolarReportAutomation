@@ -40,6 +40,13 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Güvenlik**: Smoke testteki sabit admin şifresi koddan çıkarıldı; `.env` üzerindeki `DASHBOARD_TEST_ADMIN_PASSWORD` değişkeninden okunuyor.
 - **`.gitignore`**: `node_modules/`, `outputs/manual_tests/` ve `.claude/settings.local.json` ignore listesine eklendi.
 
+### Sprint S2 — Zamanlanmış İş Dayanıklılığı (docs/sprints/PLAN-S2.md)
+- **Kök neden (2026-07-22 canlı olayı)**: DailySettlement görevi WorkingDirectory boş tanımlandığından System32 cwd'siyle çalışıyor, `Path("outputs/reports")` göreli yolu System32 altına çözülüyor ve iş "BAŞLADI" satırından sonra tek log üretmeden exit 1 ile ölüyordu — hata stderr'e gittiği için görünmüyor, günlük rapor maili sessizce kesiliyordu (21-22 Temmuz). Görev tanımları sunucuda düzeltildi (WorkingDirectory eklendi, aylık görev dahil); bu sprint kod tarafını kalıcı kapattı.
+- **Mutlak Çıktı Yolları**: `daily_settlement_job`, `monthly_settlement_job` ve iSolar extractor screenshot dizini `PROJECT_ROOT` kalıbına geçirildi — görev tanımı yanlış bile olsa işler System32'ye yazamaz/ölemez. GAOSB extractor `output_dir`'i çağırandan aldığı için otomatik kapsandı.
+- **Sessiz Ölüm Uyarısı**: yeni `app/notifications/system_alert.py` — `main.py`'nin settlement/settlement-monthly `except` dalları yakalanmamış istisnada SMTP_TO_SYSTEM'e hata + son 40 log satırıyla uyarı maili atıyor (best-effort, exit kodu korunur). Graceful FAILED yolu zaten `notify_pipeline` ile maillendiğinden çift bildirim oluşmaz.
+- **Captcha Mail Güvenliği**: `app/sources/gaosb/extractor.py`'deki çıplak `int(GAOSB_ALERT_SMTP_PORT)` `_env_int`'e geçirildi — boş değer artık captcha uyarısını crash edemez.
+- **GES Durum Maili Retry**: `send_status_email` 3 deneme / 10 sn arayla — geçici ağ hatası (2026-07-21 `getaddrinfo failed` örneği) kritik arıza uyarısını artık kaybettirmiyor. 5 yeni smoke test (paket 179'a ulaştı).
+
 ### Sprint S1 — Oturum, Log Erişimi ve Ayar Güvenliği (docs/sprints/PLAN-S1.md)
 - **Oturum Sayfa/Yetki Mirası Kapatıldı**: Çıkış yapan kullanıcının açık sayfası ve developer oturumu sonraki kullanıcıya geçiyordu — çıkışta artık dev token düşürülüyor (`devLogout`), ayar kilidi kapanıyor ve ana sayfaya dönülüyor; her yeni giriş ana sayfadan başlıyor. Güvenlik notu: dev token `sessionStorage`'da çıkışta silinmiyordu, ikinci kullanıcı loglara şifresiz erişebiliyordu — kapatıldı.
 - **Sistem Ayarları Şifre Kilidi**: Ayarlar sayfası Developer paneliyle aynı kalıpla kilitlendi — görüntülemek için geliştirici şifresi gerekiyor (mevcut `/api/dev/login`, 8 saatlik ortak token; backend değişikliği yok). Kayıt endpoint'lerindeki yönetici şifresi zorunluluğu ayrıca sürüyor.

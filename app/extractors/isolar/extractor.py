@@ -23,6 +23,10 @@ from app.core.exceptions import (
 
 logger = setup_logger("IsolarExtractor")
 
+# Neden: Task Scheduler cwd'si System32 olabilir — göreli screenshot yolu
+# System32 altına yazmaya çalışıp erişim hatası üretir (2026-07-22 olayı).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
 class IsolarExtractor:
     """
     Neden: İsOlar Cloud portalına özgü sayfa etkileşimlerini, login akışını,
@@ -510,7 +514,7 @@ class IsolarExtractor:
 
     def _take_screenshot(self, name: str) -> None:
         try:
-            screenshot_dir = Path("outputs/test_isolar_curve/screenshots")
+            screenshot_dir = PROJECT_ROOT / "outputs" / "test_isolar_curve" / "screenshots"
             screenshot_dir.mkdir(parents=True, exist_ok=True)
             self.page.screenshot(path=str(screenshot_dir / f"{name}.png"))
             logger.info(f"Ekran görüntüsü kaydedildi: {name}.png")

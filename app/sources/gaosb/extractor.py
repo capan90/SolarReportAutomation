@@ -159,7 +159,8 @@ class GaosbExtractor(ISourceExtractor):
                 "Lütfen sunucuda açılan tarayıcıda captcha'yı çözüp GAOSB'ye giriş yapın, "
                 "ardından terminalde Enter'a basın."
             )
-            port = int(os.environ.get("GAOSB_ALERT_SMTP_PORT", "587"))
+            from app.core.config import _env_int
+            port = _env_int("GAOSB_ALERT_SMTP_PORT", 587)
             user = os.environ.get("GAOSB_ALERT_SMTP_USER")
             pwd = os.environ.get("GAOSB_ALERT_SMTP_PASS")
             with smtplib.SMTP(smtp_host, port, timeout=20) as smtp:

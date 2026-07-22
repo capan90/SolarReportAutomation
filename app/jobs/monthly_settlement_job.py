@@ -20,6 +20,10 @@ from app.core.config import settings
 
 logger = setup_logger("MonthlySettlementJob")
 
+# Neden: Task Scheduler cwd'si System32 olabilir — göreli yol işi sessizce öldürür
+# (2026-07-22 DailySettlement olayı). Çıktı yolları proje köküne sabitlenir.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
 AY_ADLARI = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
              "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
@@ -264,7 +268,7 @@ class MonthlySettlementJob:
             next_month = month_dt.replace(month=month_dt.month + 1)
         date_to = next_month.strftime("%Y-%m-01")
 
-        output_dir = Path("outputs/reports") / target_month
+        output_dir = PROJECT_ROOT / "outputs" / "reports" / target_month
         output_dir.mkdir(parents=True, exist_ok=True)
 
         run_id = f"job-settlement-monthly-{target_month}-{int(time.time())}"

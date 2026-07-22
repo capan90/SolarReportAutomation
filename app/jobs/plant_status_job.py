@@ -1,5 +1,6 @@
 import os
 import smtplib
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
@@ -18,8 +19,14 @@ logger = setup_logger("PlantStatusJob")
 # üretir. Tüm dosya yolları proje köküne sabitlenir (gaosb/extractor.py kalıbı).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Neden: GES arıza/düzeldi uyarıları tek denemeyle gidiyordu; geçici ağ hatası
+# (örn. 2026-07-21 getaddrinfo failed) kritik uyarıyı tamamen kaybettiriyordu.
+EMAIL_MAX_ATTEMPTS = 3
+EMAIL_RETRY_WAIT_SECONDS = 10
+
+
 def send_status_email(subject: str, html_body: str) -> bool:
-    """SMTP üzerinden GES durum uyarısı e-postası gönderir."""
+    """SMTP üzerinden GES durum uyarısı e-postası gönderir (3 deneme, 10 sn arayla)."""
     if not settings.smtp_enabled:
         logger.info("SMTP devre dışı. E-posta gönderilmedi.")
         return False
@@ -34,32 +41,35 @@ def send_status_email(subject: str, html_body: str) -> bool:
     msg["Subject"] = subject
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    server = None
-    try:
-        if settings.smtp_port == 465:
-            server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=10.0)
-        else:
-            server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10.0)
-            server.ehlo()
-            if settings.smtp_use_tls and server.has_extn("starttls"):
-                server.starttls()
+    for attempt in range(1, EMAIL_MAX_ATTEMPTS + 1):
+        server = None
+        try:
+            if settings.smtp_port == 465:
+                server = smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=10.0)
+            else:
+                server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=10.0)
                 server.ehlo()
+                if settings.smtp_use_tls and server.has_extn("starttls"):
+                    server.starttls()
+                    server.ehlo()
 
-        if settings.smtp_username and settings.smtp_password:
-            server.login(settings.smtp_username, settings.smtp_password)
+            if settings.smtp_username and settings.smtp_password:
+                server.login(settings.smtp_username, settings.smtp_password)
 
-        server.send_message(msg)
-        logger.info(f"E-posta başarıyla gönderildi: {subject}")
-        return True
-    except Exception as e:
-        logger.error(f"E-posta gönderimi başarısız: {e}")
-        return False
-    finally:
-        if server:
-            try:
-                server.quit()
-            except Exception:
-                pass
+            server.send_message(msg)
+            logger.info(f"E-posta başarıyla gönderildi: {subject}")
+            return True
+        except Exception as e:
+            logger.error(f"E-posta gönderimi başarısız (deneme {attempt}/{EMAIL_MAX_ATTEMPTS}): {e}")
+            if attempt < EMAIL_MAX_ATTEMPTS:
+                time.sleep(EMAIL_RETRY_WAIT_SECONDS)
+        finally:
+            if server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
+    return False
 
 
 class PlantStatusJob:
