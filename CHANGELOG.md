@@ -40,6 +40,13 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Güvenlik**: Smoke testteki sabit admin şifresi koddan çıkarıldı; `.env` üzerindeki `DASHBOARD_TEST_ADMIN_PASSWORD` değişkeninden okunuyor.
 - **`.gitignore`**: `node_modules/`, `outputs/manual_tests/` ve `.claude/settings.local.json` ignore listesine eklendi.
 
+### Sprint S1 — Oturum, Log Erişimi ve Ayar Güvenliği (docs/sprints/PLAN-S1.md)
+- **Oturum Sayfa/Yetki Mirası Kapatıldı**: Çıkış yapan kullanıcının açık sayfası ve developer oturumu sonraki kullanıcıya geçiyordu — çıkışta artık dev token düşürülüyor (`devLogout`), ayar kilidi kapanıyor ve ana sayfaya dönülüyor; her yeni giriş ana sayfadan başlıyor. Güvenlik notu: dev token `sessionStorage`'da çıkışta silinmiyordu, ikinci kullanıcı loglara şifresiz erişebiliyordu — kapatıldı.
+- **Sistem Ayarları Şifre Kilidi**: Ayarlar sayfası Developer paneliyle aynı kalıpla kilitlendi — görüntülemek için geliştirici şifresi gerekiyor (mevcut `/api/dev/login`, 8 saatlik ortak token; backend değişikliği yok). Kayıt endpoint'lerindeki yönetici şifresi zorunluluğu ayrıca sürüyor.
+- **Ayar Kartlarına Uyarı Kutuları**: SMTP ve bildirim kartlarına 2026-07-21 olayının derslerini özetleyen dikkat kutuları eklendi (boş alan değiştirilmez, şifre boş = korunur, port 1-65535, alıcı kutusu tamamen boşaltılmaz, kayıt sonrası yeniden başlat).
+- **Uyarı Mailine Log Kuyruğu**: "Dashboard Kapalı" uyarı e-postasına en güncel log dosyasının son 40 satırı gömülüyor (HTML escape'li) — sunucuya erişim olmadan çökme nedeni görülebiliyor; log okunamazsa mail yine gider, nedeni belirtilir.
+- **Not — Chrome "şifrenizi değiştirin" uyarısı**: Dashboard kaynaklı değil; Chrome Şifre Denetimi girilen şifreyi bilinen sızıntı listelerinde bulunca gösteriyor. Çözüm kod değil, kullanıcı şifrelerinin güçlü/benzersiz değerlerle değiştirilmesi.
+
 ### Eklendi (Dashboard Dayanıklılık)
 - **Paylaşımsız Port Bağlama**: `HTTPServer` varsayılanındaki `SO_REUSEADDR`, elle başlatılan ikinci bir dashboard instance'ının görevin instance'ıyla aynı anda 8081'i dinlemesine izin veriyordu (istekler rastgele dağılıp "ayar uygulanmadı" hayalet hataları üretiyordu — 2026-07-21 canlı olayı). `_ExclusiveHTTPServer` ile kapatıldı; ikinci bind artık WinError 10048 ile anında reddediliyor ve net bir hata loglanıyor.
 - **Kapalı-Kalma E-posta Uyarısı**: `run_dashboard_hidden.vbs` art arda 4 çökmede pes ettiğinde `scripts/send_dashboard_down_alert.py` çağrılıyor — sistem alıcısına (SMTP_TO_SYSTEM, yedek SMTP_TO) "🔴 Erdemsoft GES — Dashboard Kapalı" konulu, sunucu adı + aksiyon adımlı uyarı gidiyor. Best-effort: gönderim hatası VBS'i bloklamaz, sonuç her durumda loglanır. 4 smoke test (paket 171'e ulaştı).

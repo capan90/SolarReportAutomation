@@ -45,3 +45,28 @@ def test_uyari_govdesi_aksiyon_icerir():
     assert "APPS" in govde
     assert "Start-ScheduledTask SolarReportAutomation_Dashboard" in govde
     assert "otomatik olarak oluşturulmuştur" in govde
+
+
+def test_uyari_govdesi_log_kuyrugu_icerir_ve_escape_eder():
+    now = datetime(2026, 7, 21, 16, 30)
+    govde = alert_mod.build_body(now, "APPS", log_tail="[ERROR] port <8081> kullanımda")
+    assert "Son log kayıtları" in govde
+    assert "&lt;8081&gt;" in govde  # HTML injection'a karşı escape
+
+
+def test_log_kuyrugu_gercek_logdan_okunur():
+    kuyruk = alert_mod.collect_log_tail(lines=5)
+    # Dev ortamında logs/ dolu — içerik gelmeli; boş ortamda da crash değil açıklama döner
+    assert isinstance(kuyruk, str) and len(kuyruk) > 0
+
+
+def test_ayarlar_sayfasi_kilitli():
+    icerik = (PROJECT_ROOT / "app" / "dashboard" / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'id="settings-lock-view"' in icerik
+    assert 'id="settings-content" style="display:none;"' in icerik
+    # Kilit kontrolü loadSettingsPage'in ilk işi olmalı
+    assert 'if (!_devToken) { showSettingsLockView(); return; }' in icerik
+    # Çıkışta dev token düşürülüp ana sayfaya dönülmeli (oturum mirası engeli)
+    logout_govde = icerik.split("async function logout()")[1][:600]
+    assert "devLogout();" in logout_govde
+    assert "goToHomePage();" in logout_govde

@@ -1142,6 +1142,24 @@
 
         <!-- ============ SİSTEM AYARLARI ============ -->
         <section id="page-settings" class="page">
+            <!-- KİLİT EKRANI: Ayarlar yalnızca geliştirici şifresiyle görüntülenir -->
+            <div id="settings-lock-view">
+                <div class="page-header"><div><h1>⚙️ Sistem Ayarları</h1><p>Bu alan yalnızca yetkili erişim içindir.</p></div></div>
+                <div style="max-width:400px; margin: 60px auto;">
+                    <div class="card">
+                        <div class="card-title" style="margin-bottom:20px;">🔒 Güvenli Giriş</div>
+                        <div class="field" style="margin-bottom:16px;">
+                            <label>Geliştirici Şifresi</label>
+                            <input type="password" id="settings-password-input" placeholder="Şifrenizi girin" onkeydown="if(event.key==='Enter') unlockSettings()">
+                        </div>
+                        <button class="btn green" onclick="unlockSettings()" id="settings-unlock-btn">Kilidi Aç</button>
+                        <div id="settings-unlock-msg" class="msg" style="margin-top:12px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AYAR İÇERİĞİ -->
+            <div id="settings-content" style="display:none;">
             <div class="page-header">
                 <h1>Sistem Ayarları</h1>
                 <p>E-posta ayarları ve sistem bilgileri</p>
@@ -1151,7 +1169,13 @@
                 <div style="display:flex; flex-direction:column; gap:16px;">
                     <div class="card">
                         <div class="card-title">E-Posta (Mail) Ayarları</div>
-                        <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Boş bırakılan alanlar değiştirilmez.</p>
+                        <p class="muted small" style="margin-bottom:10px;">Değişiklik yapmak için yönetici şifresi gereklidir.</p>
+                        <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                            ⚠️ <b>Dikkat:</b>
+                            Boş bıraktığın alan <b>değiştirilmez</b> — Mail Şifresi'ni boş bırakırsan mevcut şifre korunur.
+                            Port <b>1-65535</b> arasında olmalıdır (genellikle 587).
+                            Kayıttan sonra ayarların etkinleşmesi için <b>"Kaydet ve Yeniden Başlat"</b> teklifini onayla.
+                        </div>
                         <div class="form-grid">
                             <div class="field"><label>Mail Sunucusu</label><input id="f-host" type="text" placeholder="smtp.ornek.com"></div>
                             <div class="field"><label>Port</label><input id="f-port" type="number" placeholder="587"></div>
@@ -1166,7 +1190,13 @@
 
                     <div class="card">
                         <div class="card-title">📧 Email Bildirimleri</div>
-                        <p class="muted small" style="margin-bottom:14px;">Değişiklik yapmak için yönetici şifresi gereklidir. Birden fazla alıcı için virgülle ayırın.</p>
+                        <p class="muted small" style="margin-bottom:10px;">Değişiklik yapmak için yönetici şifresi gereklidir.</p>
+                        <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                            ⚠️ <b>Dikkat:</b>
+                            Birden fazla alıcıyı <b>virgülle</b> ayır (boşluksuz).
+                            Bir kutuyu <b>tamamen boşaltıp kaydetme</b> — boş kaydedilen profilin maili kimseye gitmez.
+                            Adreslerin alan adını kontrol et (örn. <code>@erdemsofttextile.com</code>).
+                        </div>
                         <div class="form-grid">
                             <div class="field">
                                 <label>Günlük Rapor Alıcıları:</label>
@@ -1259,6 +1289,7 @@
                     </div>
                 </div>
             </div>
+            </div><!-- /settings-content -->
         </section>
 
         <!-- ============ DEVELOPER LOG SAYFASI ============ -->
@@ -2203,7 +2234,47 @@
         // ------------------------------------------------------------
         // SİSTEM AYARLARI
         // ------------------------------------------------------------
+        // Ayarlar sayfası geliştirici şifresiyle kilitlidir; token dev paneliyle
+        // ortaktır (aynı /api/dev/login), çıkışta ikisi birden kilitlenir.
+        function showSettingsLockView() {
+            document.getElementById("settings-lock-view").style.display = "";
+            document.getElementById("settings-content").style.display = "none";
+        }
+
+        async function unlockSettings() {
+            const btn = document.getElementById("settings-unlock-btn");
+            const msg = document.getElementById("settings-unlock-msg");
+            const pw = document.getElementById("settings-password-input").value;
+            if (!pw) { msg.className = "msg bad"; msg.innerText = "Şifre boş bırakılamaz."; return; }
+            btn.disabled = true; btn.innerText = "Doğrulanıyor...";
+            try {
+                const resp = await fetch("/api/dev/login", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({password: pw})
+                });
+                const j = await resp.json();
+                if (j.success && j.data && j.data.token) {
+                    _devToken = j.data.token;
+                    sessionStorage.setItem("devToken", _devToken);
+                    document.getElementById("settings-password-input").value = "";
+                    msg.className = "msg";
+                    msg.innerText = "";
+                    loadSettingsPage();
+                } else {
+                    msg.className = "msg bad"; msg.innerText = j.error || "Hatalı şifre.";
+                }
+            } catch (e) {
+                msg.className = "msg bad"; msg.innerText = "Bağlantı hatası.";
+            } finally {
+                btn.disabled = false; btn.innerText = "Kilidi Aç";
+            }
+        }
+
         async function loadSettingsPage() {
+            if (!_devToken) { showSettingsLockView(); return; }
+            document.getElementById("settings-lock-view").style.display = "none";
+            document.getElementById("settings-content").style.display = "";
             const cfg = await api("/api/settings");
             if (!cfg) return;
             document.getElementById("si-version").innerText = cfg.version || "-";
@@ -2973,9 +3044,9 @@
                     localStorage.setItem("dashboard_token", data.data.token);
                     hideLoginScreen();
                     setUserHeader(data.data.display_name);
-                    
-                    // Load home and other info now that we are authenticated
-                    loadHome();
+
+                    // Her giriş ana sayfadan başlar (önceki oturumun sayfası miras kalmasın)
+                    goToHomePage();
                     loadPlantStatuses();
                     checkCaptchaStatus();
                     initPastReportLimits();
@@ -2992,6 +3063,11 @@
             }
         }
         
+        function goToHomePage() {
+            const homeItem = document.querySelector('.menu-item[data-page="page-home"]');
+            if (homeItem) homeItem.click();
+        }
+
         async function logout() {
             try {
                 await fetch("/api/auth/logout", { method: "POST" });
@@ -2999,6 +3075,11 @@
                 console.error("Logout failed:", e);
             } finally {
                 localStorage.removeItem("dashboard_token");
+                // Sonraki kullanıcı öncekinin sayfasını ve dev/ayar yetkisini devralmasın:
+                // dev token düşürülür (ayar kilidi de aynı token'ı kullanır) ve ana sayfaya dönülür.
+                devLogout();
+                showSettingsLockView();
+                goToHomePage();
                 showLoginScreen();
             }
         }
