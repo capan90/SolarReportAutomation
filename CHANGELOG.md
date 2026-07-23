@@ -12,6 +12,7 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 - **Launch Dayanıklılığı**: Launch timeout 180→60 sn; başarısızlıkta profil kilidini tutan artık Chromium süreçleri temizlenip bir kez daha deneniyor. `renew_session` da aynı ortak launch yolunu kullanıyor.
 - **Net Hata Sınıflandırması**: Yeni `GaosbBrowserLaunchError` — hata maili "portalden rapor alınamadı" yerine olası nedeni (profil kilidi / aktif masaüstü oturumu yok) ve yapılacak kontrolü söylüyor.
 - **tscon Sigortası**: `scripts/disconnect_keep_console.ps1` — sunucudan çıkarken RDP'yi X ile kapatmak yerine oturumu konsola devrederek masaüstünü aktif bırakır (parola/kilit politikası değişmez); headless mod sunucuda doğrulanana kadar yedek çözüm.
+- **Login Teşhisi + Login-Sonrası Fallback**: 11:15 sunucu testinde headless launch/form aşamaları geçti ama login yönlendirmesi timeout oldu ve sayfanın nerede kaldığı görülemiyordu. Login başarısızlığında artık URL + başlık + captcha imzası loglanıyor ve `outputs/gaosb_diag/` altına ekran görüntüsü kaydediliyor; headless login gönderimi BotGuard challenge'ına takılırsa otomatik görünür moda düşülüyor (masaüstü aktifse rapor kesintisiz tamamlanır).
 
 ### E-posta Bildirim İyileştirmeleri
 - **Konu Başlıkları**: Tüm bildirim senaryoları tek kurumsal formata geçirildi: "{emoji} Erdemsoft GES — {Durum} ({Tarih/Dönem})" (maksimum 60 karakter). Aylık rapor konusu artık ay adını içeriyor (örn. "Aylık Mahsuplaşma Raporu (Temmuz 2026)") — dönem, ek dosya adındaki YYYYMM deseninden çözülüyor (eski davranışta aylık maile yanlışlıkla günün tarihi düşüyordu).
