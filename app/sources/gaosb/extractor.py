@@ -424,8 +424,43 @@ class GaosbExtractor(ISourceExtractor):
         except SourceAuthenticationError:
             raise
         except Exception as e:
+            self._log_login_failure_diagnostics(page)
             logger.error(f"Kullanıcı girişi veya yönlendirme başarısız oldu: {e}")
             raise SourceAuthenticationError("gaosb") from e
+
+    def _log_login_failure_diagnostics(self, page) -> None:
+        """
+        Neden: Login sonrası yönlendirme timeout'unda sayfanın NEREDE kaldığı (hâlâ login
+        mi, BotGuard challenge mi, portal hata mesajı mı) loglardan görülemiyordu
+        (2026-07-23 sunucu headless koşusu). URL + başlık + captcha imzası loglanır ve
+        headless'ta da işe yarayan bir ekran görüntüsü outputs/gaosb_diag/ altına kaydedilir.
+        """
+        try:
+            url = page.url
+        except Exception:
+            url = "<okunamadı>"
+        try:
+            title = page.title()
+        except Exception:
+            title = "<okunamadı>"
+        try:
+            is_captcha = self._is_captcha_page(page)
+        except Exception:
+            is_captcha = "<okunamadı>"
+        logger.error(
+            "Login teşhisi — URL: %s | Başlık: %r | Captcha sayfası: %s",
+            url, title, is_captcha,
+        )
+        try:
+            from datetime import datetime as _dt
+
+            diag_dir = PROJECT_ROOT / "outputs" / "gaosb_diag"
+            diag_dir.mkdir(parents=True, exist_ok=True)
+            shot = diag_dir / f"login_failure_{_dt.now().strftime('%Y%m%d_%H%M%S')}.png"
+            page.screenshot(path=str(shot))
+            logger.error("Login teşhis ekran görüntüsü: %s", shot)
+        except Exception as ex:
+            logger.warning("Login teşhis ekran görüntüsü alınamadı: %s", ex)
 
     def _goto_portal(self, page, gaosb_url: str) -> None:
         """Neden: Portal ana sayfası açılışı iki yerden (ilk deneme + headed fallback) çağrılır."""
@@ -435,6 +470,25 @@ class GaosbExtractor(ISourceExtractor):
         except Exception as e:
             logger.error("GAOSB portal ana sayfasına ulaşılamadı: %s", e)
             raise SourceAuthenticationError("gaosb") from e
+
+    def _relaunch_headed(self, pw, context, gaosb_url: str):
+        """
+        Neden: Headless deneme BotGuard'a takıldığında (sayfa açılışında veya login
+        gönderiminde) görünür moda geçiş iki yerden yapılır; kapatma + yeniden başlatma
+        + sayfaya dönme adımları tek yerde toplanır. (pw, context, page) döner.
+        """
+        try:
+            context.close()
+        except Exception:
+            pass
+        try:
+            pw.stop()
+        except Exception:
+            pass
+        pw, context = self._launch_persistent(headless=False)
+        page = context.new_page()
+        self._goto_portal(page, gaosb_url)
+        return pw, context, page
 
     def _ensure_authenticated(self, username: str, password: str):
         """
@@ -477,17 +531,7 @@ class GaosbExtractor(ISourceExtractor):
                 logger.warning(
                     "Headless modda BotGuard captcha görüldü; görünür tarayıcıya geçiliyor..."
                 )
-                try:
-                    context.close()
-                except Exception:
-                    pass
-                try:
-                    pw.stop()
-                except Exception:
-                    pass
-                pw, context = self._launch_persistent(headless=False)
-                page = context.new_page()
-                self._goto_portal(page, gaosb_url)
+                pw, context, page = self._relaunch_headed(pw, context, gaosb_url)
 
             # Adım 2: BotGuard captcha sayfası ise kullanıcı çözene kadar bekle.
             # (Bu noktada tarayıcı görünür; yeniden başlatmaya gerek yok.)
@@ -509,7 +553,26 @@ class GaosbExtractor(ISourceExtractor):
             else:
                 # Durum C: Login sayfasındayız → otomatik login yap.
                 logger.info("Login sayfası tespit edildi, otomatik login yapılıyor...")
-                self._perform_login(page, username, password)
+                try:
+                    self._perform_login(page, username, password)
+                except SourceAuthenticationError:
+                    # Neden: BotGuard, headless parmak izini bazen login GÖNDERİMİNDE
+                    # yakalayıp challenge gösteriyor (2026-07-23 sunucu koşusu şüphesi).
+                    # Sayfada captcha imzası varsa görünür moda düşüp standart captcha
+                    # akışına (bildirim + bekleme / flag) devredilir; yoksa hata gerçek.
+                    if not (mode == "new" and self._is_captcha_page(page)):
+                        raise
+                    captcha_encountered = True
+                    logger.warning(
+                        "Headless login BotGuard challenge'ına takıldı; görünür tarayıcıya geçiliyor..."
+                    )
+                    pw, context, page = self._relaunch_headed(pw, context, gaosb_url)
+                    if self._is_captcha_page(page):
+                        self._notify_captcha_required()
+                        self._wait_for_manual_captcha()
+                    current_url = (page.url or "").lower()
+                    if not ("mainpage" in current_url or "default.aspx" in current_url):
+                        self._perform_login(page, username, password)
 
             return pw, context, page, captcha_encountered
         except Exception:
