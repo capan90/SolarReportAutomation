@@ -23,6 +23,16 @@ class GaosbCaptchaRequiredError(Exception):
     pass
 
 
+class GaosbBrowserLaunchError(Exception):
+    """
+    Neden: Tarayıcı daha portala ulaşamadan (launch aşamasında) başlatılamadığında
+    fırlatılır. "Portalden rapor alınamadı" gibi genel bir mesaj yerine, hata
+    mailinde eyleme dönük teşhis (profil kilidi / aktif masaüstü oturumu yok)
+    görünsün diye ayrı tiptir (2026-07-23 prod olayı).
+    """
+    pass
+
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 # Neden: Captcha bekleyen koşuların işareti; dashboard bu dosyayı okuyup kullanıcıya
@@ -40,6 +50,11 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Neden: Playwright'ın 180 sn'lik varsayılan launch timeout'u, profil kilidi gibi
+# kalıcı bir engelde işi 3 dk bloklar; 60 sn'de pes edip temizlik + retry yapmak
+# toplamda daha hızlı toparlanır (2026-07-23 prod olayı).
+LAUNCH_TIMEOUT_MS = 60_000
 
 
 class GaosbExtractor(ISourceExtractor):
@@ -81,17 +96,73 @@ class GaosbExtractor(ISourceExtractor):
     # ------------------------------------------------------------------
     # Persistent context yardımcıları
     # ------------------------------------------------------------------
+    def _headless_mode(self) -> str:
+        """
+        Neden: GAOSB_HEADLESS_MODE ortam değişkeni günlük çekimin tarayıcı modunu seçer:
+        'new' (varsayılan) → tam Chromium'un yeni headless modu; aktif masaüstü oturumu
+        gerektirmez, mevcut BotGuard clearance profildeyken captcha görmeden çalışır.
+        'headed' → eski davranış, her zaman görünür tarayıcı (geri dönüş anahtarı).
+        Clearance yenileme (captcha çözümü) her durumda görünür modda yapılır.
+        """
+        mode = os.environ.get("GAOSB_HEADLESS_MODE", "new").strip().lower()
+        if mode not in ("new", "headed"):
+            logger.warning("GAOSB_HEADLESS_MODE geçersiz (%r); 'new' varsayılıyor.", mode)
+            return "new"
+        return mode
+
+    def _kill_stale_profile_processes(self) -> int:
+        """
+        Neden: Önceki koşudan artakalan bir Chromium süreci profil kilidini tutuyorsa
+        yeni launch timeout ile ölür (2026-07-23 prod olayı şüphelisi). Komut satırında
+        bu profilin adı geçen tarayıcı süreçleri sonlandırılır. Yalnızca launch timeout
+        SONRASI çağrılır ki canlı bir manuel oturum (renew_session) sebepsiz ölmesin.
+        Öldürülen süreç sayısını döner; hata durumunda 0 (best-effort).
+        """
+        if sys.platform != "win32":
+            return 0
+        import subprocess
+
+        # Neden: Name filtresi şart — bu PowerShell komutunun kendi CommandLine'ı da
+        # profil adını içerir, filtre olmasa komut kendini öldürürdü.
+        ps_cmd = (
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -match '^(chrome|chromium|headless_shell|msedge)' "
+            f"-and $_.CommandLine -match '{USER_DATA_DIR.name}' }} | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                capture_output=True, text=True, timeout=30,
+            )
+            pids = [p.strip() for p in (out.stdout or "").split() if p.strip().isdigit()]
+            if pids:
+                logger.warning(
+                    "Profil kilidini tutan %d artık tarayıcı süreci sonlandırıldı (PID: %s)",
+                    len(pids), ", ".join(pids),
+                )
+            else:
+                logger.info("Profili tutan artık tarayıcı süreci bulunamadı.")
+            return len(pids)
+        except Exception as ex:
+            logger.warning("Artık süreç temizliği yapılamadı (best-effort): %s", ex)
+            return 0
+
     def _launch_persistent(self, headless: bool):
         """
         Neden: Kalıcı Chromium profiliyle bir persistent context başlatır. Böylece BotGuard
         clearance çerezi ve oturum bilgileri diske yazılır ve sonraki çalıştırmalarda yeniden
         kullanılır. (pw, context) döner; çağıran taraf kapatmaktan sorumludur.
+
+        headless=True → channel="chromium" ile tam Chromium'un YENİ headless modu açılır;
+        eski headless-shell'e göre çok daha az otomasyon parmak izi bırakır (BotGuard).
+        Launch timeout olursa artık süreç temizliği yapılıp bir kez daha denenir; yine
+        olmazsa GaosbBrowserLaunchError fırlatılır (eyleme dönük hata maili için).
         """
         from playwright.sync_api import sync_playwright
 
         USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-        pw = sync_playwright().start()
-        context = pw.chromium.launch_persistent_context(
+        launch_kwargs = dict(
             user_data_dir=str(USER_DATA_DIR),
             headless=headless,
             args=[
@@ -102,9 +173,49 @@ class GaosbExtractor(ISourceExtractor):
             user_agent=USER_AGENT,
             viewport={"width": 1280, "height": 800},
             accept_downloads=True,
+            timeout=LAUNCH_TIMEOUT_MS,
         )
-        logger.info("Persistent context başlatıldı (headless=%s, profil=%s)", headless, USER_DATA_DIR)
-        return pw, context
+        if headless:
+            launch_kwargs["channel"] = "chromium"
+
+        pw = sync_playwright().start()
+        attempts_left = 2
+        cleaned = False
+        while True:
+            try:
+                context = pw.chromium.launch_persistent_context(**launch_kwargs)
+                logger.info(
+                    "Persistent context başlatıldı (headless=%s, channel=%s, profil=%s)",
+                    headless, launch_kwargs.get("channel", "-"), USER_DATA_DIR,
+                )
+                return pw, context
+            except Exception as e:
+                # Neden: channel="chromium" binarisi kurulu değilse timeout değil kurulum
+                # hatası döner; deneme hakkı yakmadan standart headless'a düşülür
+                # (captcha çıkarsa _ensure_authenticated görünür moda geçecektir).
+                if "channel" in launch_kwargs and "Timeout" not in str(e):
+                    logger.warning("channel='chromium' başlatılamadı, standart headless deneniyor: %s", e)
+                    launch_kwargs.pop("channel", None)
+                    continue
+                attempts_left -= 1
+                if attempts_left <= 0:
+                    try:
+                        pw.stop()
+                    except Exception:
+                        pass
+                    raise GaosbBrowserLaunchError(
+                        f"GAOSB tarayıcısı başlatılamadı: {e}. Olası nedenler: "
+                        "(1) profil kilidini tutan artık tarayıcı süreci (otomatik temizlik denendi), "
+                        "(2) görünür mod için sunucuda aktif masaüstü oturumu yok — "
+                        "APPS sunucusunda 'apps' kullanıcısının RDP oturumunu kontrol edin."
+                    ) from e
+                logger.warning(
+                    "Tarayıcı launch başarısız (kalan deneme: %d): %s", attempts_left, e
+                )
+                if not cleaned:
+                    cleaned = True
+                    self._kill_stale_profile_processes()
+                time.sleep(5)
 
     def _is_captcha_page(self, page) -> bool:
         """
@@ -316,20 +427,33 @@ class GaosbExtractor(ISourceExtractor):
             logger.error(f"Kullanıcı girişi veya yönlendirme başarısız oldu: {e}")
             raise SourceAuthenticationError("gaosb") from e
 
+    def _goto_portal(self, page, gaosb_url: str) -> None:
+        """Neden: Portal ana sayfası açılışı iki yerden (ilk deneme + headed fallback) çağrılır."""
+        try:
+            logger.info("GAOSB adresine gidiliyor: %s", gaosb_url)
+            page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            logger.error("GAOSB portal ana sayfasına ulaşılamadı: %s", e)
+            raise SourceAuthenticationError("gaosb") from e
+
     def _ensure_authenticated(self, username: str, password: str):
         """
-        Neden: Persistent context'i (HER ZAMAN headless=False) başlatır, sayfa durumunu
-        (mainpage / login / captcha) sınıflandırır ve gereğini yapar; mainpage.aspx'e ulaşmış
+        Neden: Persistent context'i başlatır, sayfa durumunu (mainpage / login / captcha)
+        sınıflandırır ve gereğini yapar; mainpage.aspx'e ulaşmış
         (pw, context, page, captcha_encountered) döner.
 
-        Neden headless=False sabit: BotGuard clearance çerezi headless modda üretilmiyor/geçmiyor.
-        Uygulama sunucu değil masaüstünde çalıştığından görünür tarayıcı sorun değil
-        (scheduler'da ~30 sn açılıp kapanır). Bu yüzden GAOSB_HEADLESS yok sayılır.
+        Mod seçimi (GAOSB_HEADLESS_MODE, bkz. _headless_mode):
+          - 'new' (varsayılan): Yeni headless Chromium ile dene. Profildeki BotGuard
+            clearance geçerliyse captcha görünmez ve iş, aktif masaüstü oturumu olmadan
+            (kilitli/bağlantısız RDP, 2026-07-23 prod olayı) tamamlanır.
+            Captcha sayfası görülürse görünür moda düşülür (clearance yenileme headed şart).
+          - 'headed': Eski davranış — doğrudan görünür tarayıcı.
 
         Akış:
-          1. headless=False ile başlat, ana sayfaya git
-          2. Captcha sayfası ise → bildir + kullanıcı çözene kadar bekle
-          3. page.url'ye göre sınıflandır:
+          1. Moda göre başlat, ana sayfaya git
+          2. Headless'ta captcha görüldüyse → görünür modda yeniden başlat + tekrar git
+          3. Captcha (görünür modda) ise → bildir + kullanıcı çözene kadar bekle
+          4. page.url'ye göre sınıflandır:
                - "mainpage" içeriyorsa → giriş zaten yapılmış, login atla
                - hâlâ captcha sayfası ise → hata (çözülmemiş)
                - aksi halde (login sayfası) → _perform_login()
@@ -338,21 +462,35 @@ class GaosbExtractor(ISourceExtractor):
         Hata durumunda açılan context/pw kapatılır ve istisna yeniden fırlatılır.
         """
         gaosb_url = os.environ.get("GAOSB_URL", "https://elk.gaosb.org/")
-        # Neden: Her zaman görünür tarayıcı — BotGuard clearance yalnızca headed modda geçerli.
-        pw, context = self._launch_persistent(headless=False)
+        mode = self._headless_mode()
+        pw, context = self._launch_persistent(headless=(mode == "new"))
         try:
             page = context.new_page()
             captcha_encountered = False
 
-            try:
-                logger.info("GAOSB adresine gidiliyor: %s", gaosb_url)
-                page.goto(gaosb_url, wait_until="domcontentloaded", timeout=30000)
-            except Exception as e:
-                logger.error("GAOSB portal ana sayfasına ulaşılamadı: %s", e)
-                raise SourceAuthenticationError("gaosb") from e
+            self._goto_portal(page, gaosb_url)
+
+            # Adım 1b: Headless denemede captcha çıktıysa görünür moda düş —
+            # BotGuard clearance yenilemesi yalnızca görünür tarayıcıda yapılabilir.
+            if mode == "new" and self._is_captcha_page(page):
+                captcha_encountered = True
+                logger.warning(
+                    "Headless modda BotGuard captcha görüldü; görünür tarayıcıya geçiliyor..."
+                )
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                try:
+                    pw.stop()
+                except Exception:
+                    pass
+                pw, context = self._launch_persistent(headless=False)
+                page = context.new_page()
+                self._goto_portal(page, gaosb_url)
 
             # Adım 2: BotGuard captcha sayfası ise kullanıcı çözene kadar bekle.
-            # (Zaten headless=False olduğundan tarayıcı görünür; yeniden başlatmaya gerek yok.)
+            # (Bu noktada tarayıcı görünür; yeniden başlatmaya gerek yok.)
             if self._is_captcha_page(page):
                 captcha_encountered = True
                 logger.warning("BotGuard captcha tespit edildi.")
@@ -392,8 +530,7 @@ class GaosbExtractor(ISourceExtractor):
         Test ve health-check için hafif bir yol sağlar (export tetiklemez).
 
         Not: headless parametresi geriye dönük uyumluluk için tutulur ancak YOK SAYILIR;
-        BotGuard clearance yalnızca görünür (headless=False) modda geçerli olduğundan her
-        zaman headed çalışılır.
+        mod artık GAOSB_HEADLESS_MODE ortam değişkeninden çözümlenir (bkz. _headless_mode).
 
         Dönüş: logged_in, captcha_encountered, final_url, headless, profile_dir, profile_saved
         """
@@ -416,7 +553,7 @@ class GaosbExtractor(ISourceExtractor):
                 "logged_in": logged_in,
                 "captcha_encountered": captcha_encountered,
                 "final_url": final_url,
-                "headless": False,
+                "headless": self._headless_mode() == "new",
                 "profile_dir": str(USER_DATA_DIR),
                 "profile_saved": profile_saved,
             }
@@ -436,21 +573,13 @@ class GaosbExtractor(ISourceExtractor):
         pw = None
         context = None
         try:
-            from playwright.sync_api import sync_playwright
             import time
-            
-            USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
             logger.info(f"renew_session başlatılıyor, profil: {USER_DATA_DIR}")
-            
-            pw = sync_playwright().start()
-            context = pw.chromium.launch_persistent_context(
-                user_data_dir=str(USER_DATA_DIR),
-                headless=False,
-                args=["--disable-blink-features=AutomationControlled"],
-                user_agent=USER_AGENT,
-                viewport={"width": 1280, "height": 800},
-                accept_downloads=True,
-            )
+
+            # Neden: Clearance yenileme her zaman görünür tarayıcı ister; ortak launch
+            # yolu artık süreç temizliği + retry de sağlar.
+            pw, context = self._launch_persistent(headless=False)
             page = context.new_page()
             logger.info("Tarayıcı açıldı")
             
@@ -724,8 +853,8 @@ class GaosbExtractor(ISourceExtractor):
             logger.error("GAOSB_USERNAME veya GAOSB_PASSWORD ortam değişkenleri eksik.")
             raise ValueError("GAOSB kimlik bilgileri eksik (GAOSB_USERNAME / GAOSB_PASSWORD).")
 
-        # Neden: headless modu artık çözümlenmiyor — GAOSB_HEADLESS ve headless kwargs YOK SAYILIR.
-        # BotGuard clearance yalnızca görünür tarayıcıda geçerli olduğundan her zaman headed çalışılır.
+        # Neden: headless kwargs YOK SAYILIR; mod GAOSB_HEADLESS_MODE ortam değişkeninden
+        # çözümlenir (varsayılan 'new' — bkz. _headless_mode ve _ensure_authenticated akışı).
 
         # Tarih formatlama yardımcı fonksiyonları (Türkçe portal için DD.MM.YYYY)
         def format_date_tr(date_str: str) -> str:

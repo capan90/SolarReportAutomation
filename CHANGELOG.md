@@ -6,6 +6,13 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### GAOSB Headless Geçişi ve Launch Dayanıklılığı (2026-07-23 canlı olayı)
+- **Kök neden**: DailySettlement görevi "Interactive only" tanımlı ve RDP oturumu X ile kapatılınca (disconnected) aktif masaüstü kalmıyor; GAOSB'nin zorunlu görünür tarayıcısı `launch_persistent_context` aşamasında 180 sn timeout ile ölüyor, günlük mahsuplaşma maili yerine hata maili gidiyordu. Aynı koşuda iSolar aşamasının (headless) sorunsuz geçmesi teşhisi doğruladı.
+- **Headless=new Geçişi**: `GAOSB_HEADLESS_MODE` ortam değişkeni (varsayılan `new`) — günlük çekim artık tam Chromium'un yeni headless moduyla (`channel="chromium"`) koşuyor; aktif masaüstü oturumu gerekmiyor. Profildeki BotGuard clearance ile gerçek portala captcha'sız headless giriş laptop'ta doğrulandı. Captcha çıkarsa otomatik görünür moda düşülüyor (clearance yenileme headed şart); `headed` değeri eski davranışa dönüş anahtarı.
+- **Launch Dayanıklılığı**: Launch timeout 180→60 sn; başarısızlıkta profil kilidini tutan artık Chromium süreçleri temizlenip bir kez daha deneniyor. `renew_session` da aynı ortak launch yolunu kullanıyor.
+- **Net Hata Sınıflandırması**: Yeni `GaosbBrowserLaunchError` — hata maili "portalden rapor alınamadı" yerine olası nedeni (profil kilidi / aktif masaüstü oturumu yok) ve yapılacak kontrolü söylüyor.
+- **tscon Sigortası**: `scripts/disconnect_keep_console.ps1` — sunucudan çıkarken RDP'yi X ile kapatmak yerine oturumu konsola devrederek masaüstünü aktif bırakır (parola/kilit politikası değişmez); headless mod sunucuda doğrulanana kadar yedek çözüm.
+
 ### E-posta Bildirim İyileştirmeleri
 - **Konu Başlıkları**: Tüm bildirim senaryoları tek kurumsal formata geçirildi: "{emoji} Erdemsoft GES — {Durum} ({Tarih/Dönem})" (maksimum 60 karakter). Aylık rapor konusu artık ay adını içeriyor (örn. "Aylık Mahsuplaşma Raporu (Temmuz 2026)") — dönem, ek dosya adındaki YYYYMM deseninden çözülüyor (eski davranışta aylık maile yanlışlıkla günün tarihi düşüyordu).
 - **Arıza Bildirimleri**: Üç durum gelen kutusunda emoji ile ayrışıyor: 🔧 Arıza Tespit Edildi / ⏳ Arıza Devam Ediyor / ✅ Arıza Giderildi.
