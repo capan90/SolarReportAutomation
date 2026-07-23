@@ -403,23 +403,53 @@ class GaosbExtractor(ISourceExtractor):
             except Exception as e:
                 logger.error(f"EULA işaretleme hatası: {e}")
 
-            # Neden: DevExpress butonu görünür <div class="dxb"> ile sarılı, arkasındaki
-            # <input type="submit"> pointer events almıyor; görünür div'e tıklamak gerekir.
-            login_btn_div = page.locator("#ctl00_ContentPlaceHolder1_LoginButton_CD, #LoginButton_CD").first
+            # Neden: DevExpress butonları sayfa yüklendikten sonra JS ile bağlanır;
+            # istemci kütüphanesi hazır olmadan yapılan tıklama görsel olarak gerçekleşir
+            # ama postback TETİKLEMEZ — sayfa login'de kalır (2026-07-23 11:15 ve 12:00
+            # koşuları: tespit→tıklama ~0,6 sn olan koşular başarısız, ≥1,1 sn olanlar
+            # başarılıydı). Tıklamadan önce ASPx istemcisinin yüklenmesi beklenir.
             try:
-                if login_btn_div.is_visible(timeout=3000):
-                    login_btn_div.click()
+                page.wait_for_function("typeof window.ASPx !== 'undefined'", timeout=10000)
+            except Exception:
+                logger.warning("DevExpress istemci kütüphanesi (ASPx) tespit edilemedi; yine de denenecek.")
+            time.sleep(1.0)
+
+            def _click_login() -> None:
+                # Neden: DevExpress butonu görünür <div class="dxb"> ile sarılı, arkasındaki
+                # <input type="submit"> pointer events almıyor; görünür div'e tıklamak gerekir.
+                btn = page.locator("#ctl00_ContentPlaceHolder1_LoginButton_CD, #LoginButton_CD").first
+                if btn.is_visible(timeout=3000):
+                    btn.click()
                     logger.info("Login butonu (DevExpress div) tıklandı.")
                 else:
                     logger.info("Div görünür değil, JavaScript submit deneniyor...")
                     page.evaluate("document.querySelector('form').submit()")
+
+            try:
+                _click_login()
             except Exception as e:
                 logger.error(f"Login butonu tıklanamadı: {e}")
                 raise SourceAuthenticationError("gaosb") from e
 
+            # Neden: Tek 60 sn'lik bekleme, sessizce boşa giden bir tıklamayı telafi
+            # edemiyordu; 20'şer sn'lik 3 deneme arasında buton yeniden tıklanır.
             import re
             url_pattern = re.compile(r".*(mainpage|default)\.aspx", re.IGNORECASE)
-            page.wait_for_url(url_pattern, timeout=60000, wait_until="domcontentloaded")
+            for attempt in range(1, 4):
+                try:
+                    page.wait_for_url(url_pattern, timeout=20000, wait_until="domcontentloaded")
+                    break
+                except Exception:
+                    if attempt == 3:
+                        raise
+                    logger.warning(
+                        "Login yönlendirmesi gelmedi (deneme %d/3, URL: %s); buton yeniden tıklanıyor...",
+                        attempt, page.url,
+                    )
+                    try:
+                        _click_login()
+                    except Exception as click_err:
+                        logger.warning("Yeniden tıklama başarısız (best-effort): %s", click_err)
             logger.info(f"Giriş başarılı, landing sayfasına ulaşıldı: {page.url}")
         except SourceAuthenticationError:
             raise
