@@ -341,73 +341,112 @@ class GaosbExtractor(ISourceExtractor):
             "Dashboard'dan doğrulamayı tamamlayın."
         )
 
+    def _fill_login_form(self, page, username: str, password: str) -> None:
+        """
+        Neden: DevExpress alanları görünen input'a yazılanı gizli istemci durumuna JS
+        olaylarıyla senkronlar; fill()'in sentetik olayları Task Scheduler bağlamında bu
+        senkronu tetiklemiyordu — görünen kutu dolu ama gönderilen değer boş kalıyor,
+        portal "kullanıcı adınızı veya şifrenizi giriniz" diyordu (2026-07-23 12:00/17:02
+        koşuları, teşhis PNG'leriyle doğrulandı). Bu yüzden gerçek klavye yazımı kullanılır
+        ve yazım sonrası her iki alanın değeri okunarak doğrulanır.
+        """
+        logger.info("Kullanıcı kimlik bilgileri dolduruluyor (klavye yazımı)...")
+
+        user_el = page.locator("#ctl00_ContentPlaceHolder1_eUserName_I, #eUserName_I").first
+        user_el.click()
+        user_el.press("Control+a")
+        user_el.press_sequentially(username, delay=40)
+
+        # Neden: DevExpress maskeli şifre alanı boşken _CLND (Dummy) alanını gösterir.
+        # Gerçek şifre alanı gizlidir. İlk önce dummy alana tıklayıp gerçeği görünür yapmalıyız.
+        dummy_pw_sel = "#ctl00_ContentPlaceHolder1_ePassword_I_CLND, #ePassword_I_CLND"
+        try:
+            dummy_el = page.locator(dummy_pw_sel).first
+            if dummy_el.is_visible(timeout=2000):
+                dummy_el.click()
+                logger.info("Şifre maskesi/dummy tıklandı.")
+                time.sleep(0.3)
+        except Exception:
+            pass
+
+        password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I, #ePassword_I"
+        try:
+            page.wait_for_selector(password_sel, state="visible", timeout=5000)
+        except Exception:
+            pass
+
+        password_el = page.locator(password_sel).first
+        password_el.click()
+        password_el.press("Control+a")
+        password_el.press_sequentially(password, delay=40)
+        # Neden: Tab ile alandan çıkmak DevExpress'in blur/change senkronunu garantiler.
+        password_el.press("Tab")
+        time.sleep(0.3)
+
+        try:
+            user_val = user_el.input_value()
+            pw_val = password_el.input_value()
+            logger.info(
+                "Alan doğrulaması — kullanıcı adı uzunluğu: %d, şifre uzunluğu: %d",
+                len(user_val or ""), len(pw_val or ""),
+            )
+            if not (user_val or "").strip() or not (pw_val or ""):
+                logger.warning("Alanlardan en az biri boş görünüyor; yazım tekrarlanacak.")
+                raise ValueError("login alanları boş")
+        except ValueError:
+            raise
+        except Exception as le:
+            logger.warning(f"Alan değerleri doğrulanamadı (best-effort): {le}")
+
+        # EULA onay kutusu (görünürse ve işaretli değilse)
+        # DevExpress'te gerçek input (#chkReadcontract_S) opacity:0 olarak gizlidir.
+        # Tıklanabilir görsel alan #chkReadcontract_S_D (veya #chkReadcontract) span elementidir.
+        # İşaretli olup olmadığını anlamak için asıl input değeri ("C") veya görsel sınıf kontrol edilir.
+        try:
+            eula_container = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S_D, #chkReadcontract_S_D").first
+            eula_input = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S, #chkReadcontract_S").first
+
+            if eula_container.is_visible(timeout=3000):
+                class_attr = eula_container.get_attribute("class") or ""
+                input_val = eula_input.input_value() if eula_input.count() > 0 else ""
+                is_checked = "dxWeb_edtCheckBoxChecked" in class_attr or input_val == "C"
+                logger.info(f"EULA durumu: is_checked={is_checked} (class={class_attr}, value={input_val})")
+
+                if not is_checked:
+                    eula_container.click()
+                    time.sleep(0.3)
+                    class_attr_after = eula_container.get_attribute("class") or ""
+                    input_val_after = eula_input.input_value() if eula_input.count() > 0 else ""
+                    is_checked_after = "dxWeb_edtCheckBoxChecked" in class_attr_after or input_val_after == "C"
+                    logger.info(f"EULA işaretleme sonrası: is_checked={is_checked_after} (class={class_attr_after}, value={input_val_after})")
+                else:
+                    logger.info("EULA zaten işaretli, tıklama atlandı.")
+        except Exception as e:
+            logger.error(f"EULA işaretleme hatası: {e}")
+
+    def _read_login_error(self, page) -> str:
+        """
+        Neden: Portal login'i reddettiğinde kırmızı doğrulama mesajı gösterir; bu metni
+        loglamak, ekran görüntüsü açmadan nedeni görmeyi sağlar (best-effort, boş dönebilir).
+        """
+        try:
+            return page.evaluate(
+                "() => (document.body.innerText || '').split('\\n')"
+                ".filter(l => /giriniz|hatal|geçersiz|kilitli|deneme|error/i.test(l))"
+                ".slice(0, 3).join(' | ').trim()"
+            ) or ""
+        except Exception:
+            return ""
+
     def _perform_login(self, page, username: str, password: str) -> None:
         """
         Neden: DevExpress tabanlı ASP.NET WebForms login akışını yürütür ve mainpage.aspx'e
-        yönlenmeyi bekler. BotGuard clearance mevcutsa (profilde) headless olarak da çalışır.
+        yönlenmeyi bekler. Her denemede form YENİDEN doldurulur — yalnızca butonu tekrar
+        tıklamak, alan senkron sorununda işe yaramıyordu (2026-07-23 17:02 koşusu).
         """
         try:
-            logger.info("Kullanıcı kimlik bilgileri dolduruluyor...")
-            page.locator("#ctl00_ContentPlaceHolder1_eUserName_I, #eUserName_I").first.fill(username)
-            
-            # Neden: DevExpress maskeli şifre alanı boşken _CLND (Dummy) alanını gösterir.
-            # Gerçek şifre alanı gizlidir. İlk önce dummy alana tıklayıp gerçeği görünür yapmalıyız.
-            dummy_pw_sel = "#ctl00_ContentPlaceHolder1_ePassword_I_CLND, #ePassword_I_CLND"
-            try:
-                dummy_el = page.locator(dummy_pw_sel).first
-                if dummy_el.is_visible(timeout=2000):
-                    dummy_el.click()
-                    logger.info("Şifre maskesi/dummy tıklandı.")
-                    time.sleep(0.3)
-            except Exception:
-                pass
-
-            password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I, #ePassword_I"
-            try:
-                page.wait_for_selector(password_sel, state="visible", timeout=5000)
-            except Exception:
-                pass
-            
-            password_el = page.locator(password_sel).first
-            password_el.fill(password)
-            
-            try:
-                filled_val = password_el.input_value()
-                logger.info(f"Şifre alanına yazılan değer uzunluğu: {len(filled_val or '')}")
-            except Exception as le:
-                logger.warning(f"Şifre değeri doğrulanamadı: {le}")
-
-            # EULA onay kutusu (görünürse ve işaretli değilse)
-            # DevExpress'te gerçek input (#chkReadcontract_S) opacity:0 olarak gizlidir.
-            # Tıklanabilir görsel alan #chkReadcontract_S_D (veya #chkReadcontract) span elementidir.
-            # İşaretli olup olmadığını anlamak için asıl input değeri ("C") veya görsel sınıf kontrol edilir.
-            try:
-                eula_container = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S_D, #chkReadcontract_S_D").first
-                eula_input = page.locator("#ctl00_ContentPlaceHolder1_chkReadcontract_S, #chkReadcontract_S").first
-                
-                if eula_container.is_visible(timeout=3000):
-                    class_attr = eula_container.get_attribute("class") or ""
-                    input_val = eula_input.input_value() if eula_input.count() > 0 else ""
-                    is_checked = "dxWeb_edtCheckBoxChecked" in class_attr or input_val == "C"
-                    logger.info(f"EULA durumu: is_checked={is_checked} (class={class_attr}, value={input_val})")
-                    
-                    if not is_checked:
-                        eula_container.click()
-                        time.sleep(0.3)
-                        class_attr_after = eula_container.get_attribute("class") or ""
-                        input_val_after = eula_input.input_value() if eula_input.count() > 0 else ""
-                        is_checked_after = "dxWeb_edtCheckBoxChecked" in class_attr_after or input_val_after == "C"
-                        logger.info(f"EULA işaretleme sonrası: is_checked={is_checked_after} (class={class_attr_after}, value={input_val_after})")
-                    else:
-                        logger.info("EULA zaten işaretli, tıklama atlandı.")
-            except Exception as e:
-                logger.error(f"EULA işaretleme hatası: {e}")
-
-            # Neden: DevExpress butonları sayfa yüklendikten sonra JS ile bağlanır;
-            # istemci kütüphanesi hazır olmadan yapılan tıklama görsel olarak gerçekleşir
-            # ama postback TETİKLEMEZ — sayfa login'de kalır (2026-07-23 11:15 ve 12:00
-            # koşuları: tespit→tıklama ~0,6 sn olan koşular başarısız, ≥1,1 sn olanlar
-            # başarılıydı). Tıklamadan önce ASPx istemcisinin yüklenmesi beklenir.
+            # Neden: DevExpress butonları/alanları sayfa yüklendikten sonra JS ile bağlanır;
+            # istemci kütüphanesi hazır olmadan yapılan etkileşimler kaybolabiliyor.
             try:
                 page.wait_for_function("typeof window.ASPx !== 'undefined'", timeout=10000)
             except Exception:
@@ -425,32 +464,38 @@ class GaosbExtractor(ISourceExtractor):
                     logger.info("Div görünür değil, JavaScript submit deneniyor...")
                     page.evaluate("document.querySelector('form').submit()")
 
-            try:
-                _click_login()
-            except Exception as e:
-                logger.error(f"Login butonu tıklanamadı: {e}")
-                raise SourceAuthenticationError("gaosb") from e
-
-            # Neden: Tek 60 sn'lik bekleme, sessizce boşa giden bir tıklamayı telafi
-            # edemiyordu; 20'şer sn'lik 3 deneme arasında buton yeniden tıklanır.
             import re
             url_pattern = re.compile(r".*(mainpage|default)\.aspx", re.IGNORECASE)
+
             for attempt in range(1, 4):
                 try:
+                    self._fill_login_form(page, username, password)
+                except ValueError:
+                    # Alanlar boş kaldı — sayfa durumunu bozmadan yeni denemeye geç.
+                    if attempt == 3:
+                        raise
+                    time.sleep(1.0)
+                    continue
+
+                try:
+                    _click_login()
+                except Exception as e:
+                    logger.error(f"Login butonu tıklanamadı: {e}")
+                    raise SourceAuthenticationError("gaosb") from e
+
+                try:
                     page.wait_for_url(url_pattern, timeout=20000, wait_until="domcontentloaded")
-                    break
+                    logger.info(f"Giriş başarılı, landing sayfasına ulaşıldı: {page.url}")
+                    return
                 except Exception:
+                    err_text = self._read_login_error(page)
                     if attempt == 3:
                         raise
                     logger.warning(
-                        "Login yönlendirmesi gelmedi (deneme %d/3, URL: %s); buton yeniden tıklanıyor...",
-                        attempt, page.url,
+                        "Login denemesi %d/3 başarısız (URL: %s, sayfa mesajı: %r); form yeniden doldurulacak.",
+                        attempt, page.url, err_text,
                     )
-                    try:
-                        _click_login()
-                    except Exception as click_err:
-                        logger.warning("Yeniden tıklama başarısız (best-effort): %s", click_err)
-            logger.info(f"Giriş başarılı, landing sayfasına ulaşıldı: {page.url}")
+                    time.sleep(1.0)
         except SourceAuthenticationError:
             raise
         except Exception as e:
@@ -478,8 +523,8 @@ class GaosbExtractor(ISourceExtractor):
         except Exception:
             is_captcha = "<okunamadı>"
         logger.error(
-            "Login teşhisi — URL: %s | Başlık: %r | Captcha sayfası: %s",
-            url, title, is_captcha,
+            "Login teşhisi — URL: %s | Başlık: %r | Captcha sayfası: %s | Sayfa mesajı: %r",
+            url, title, is_captcha, self._read_login_error(page),
         )
         try:
             from datetime import datetime as _dt
