@@ -6,6 +6,11 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### PlantStatusJob Tarayıcı Teşhisi (enstrümantasyon boşluğu)
+- **Boşluk**: `browser_paths.log_browser_environment()` yalnızca `PlaywrightClient` ve `GaosbExtractor._launch_persistent`'a bağlanmıştı. `PlantStatusJob` tarayıcıyı `sync_playwright()` + `launch_persistent_context` ile **doğrudan** açtığı için hangi dizine baktığını hiç loglamıyordu. 2026-07-27 sunucu kurulumunda fark edildi: `PLAYWRIGHT_BROWSERS_PATH` geçişi sonrası PlantStatus görevi tetiklendi ama teşhis satırı çıkmadı — sorun sanıldı, oysa o kod yolu zaten log yazmıyordu.
+- **Düzeltme**: Aynı çağrı `plant_status_job.py`'ye de eklendi; üç tarayıcı giriş noktası artık aynı görünürlükte. Kural gereği (sessiz hata yok) hiçbir launch, hangi kökten çözümlendiği bilinmeden yapılmıyor.
+- **Doğrulama**: Job, olmayan bir `PLAYWRIGHT_BROWSERS_PATH` ile gerçek kodundan koşuldu — teşhis launch'tan önce eksik dizini bildiriyor, ardından ham Playwright hatası aynı yolu doğruluyor. Yan etki yok: `results` boş kaldığı için job DB yazımı ve bildirim öncesinde FAILED dönüyor.
+
 ### S19 Sprint C — Faturalama Çıktıları: Excel, E-posta, Chatbot (ADR-0002)
 - **Excel "FATURALAMA (TL, KDV HARİÇ)" bölümü**: Aylık raporun Sheet 1 "Ay Özeti" sayfasına, mevcut `METRİK | Ay | Önceki Ay | DEĞİŞİM (%)` tablosunun altına eklendi. Dört satır: Fazla Satış Faturası, OSB Kesintisi, **Kullanılan Katsayılar (Fazla Satış / OSB)** ve Durum. Katsayı satırı bilinçli bir tercih — bu bir teyit raporu olduğundan tutarın hangi TL/kWh ile çıktığı raporun kendisinde görünmeli. Diğer 3 sayfaya ve günlük rapora (`report_writer.py`) dokunulmadı; TL yalnızca aylık.
 - **"Bekleniyor" her yerde tutarlı**: Hesaplanmamış tutar Excel'de, e-postada ve chatbot'ta hiçbir zaman `0` gösterilmez. Değişim yüzdesi de yalnızca her iki ay da hesaplanmışsa yazılır; biri eksikse tire konur, yüzde uydurulmaz.

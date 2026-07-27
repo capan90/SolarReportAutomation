@@ -94,6 +94,9 @@ class PlantStatusJob:
             return {"status": "SKIPPED", "reason": "Dış çalışma saatleri"}
 
         from playwright.sync_api import sync_playwright
+
+        from app.infrastructure.browser.browser_paths import log_browser_environment
+
         ISOLAR_PROFILE_DIR = PROJECT_ROOT / "config" / "isolar_browser_profile"
 
         results = {}
@@ -106,6 +109,12 @@ class PlantStatusJob:
             logger.info(f"Profil dizini kontrol ediliyor: {ISOLAR_PROFILE_DIR}")
             ISOLAR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
             
+            # Neden: Bu job tarayıcıyı PlaywrightClient üzerinden değil doğrudan açar;
+            # teşhis logu olmadan hangi dizine bakıldığı görülmüyordu (2026-07-27 sunucu
+            # kurulumunda fark edildi). Üç tarayıcı giriş noktası da aynı görünürlükte
+            # olmalı — bkz. playwright_client.py ve gaosb/extractor.py.
+            log_browser_environment()
+
             logger.info("sync_playwright motoru başlatılıyor...")
             pw = sync_playwright().start()
             logger.info("sync_playwright motoru başlatıldı.")
