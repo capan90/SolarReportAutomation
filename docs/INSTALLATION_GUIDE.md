@@ -83,6 +83,8 @@ scripts\verify_installation.bat
 ```
 Tüm adımlar `✓ OK` veya `✓ SUCCESS` dönene kadar eksiklikleri giderin.
 
+> ⛔ **Kurulumdan sonra dashboard'ı yeniden başlatmanız gerekirse** `scripts\restart_dashboard.ps1` kullanın. Düz `Stop-ScheduledTask`/`Start-ScheduledTask` portu bırakmayan artık bir `python.exe` bırakır ve dashboard kalıcı olarak kapanabilir — ayrıntı: `docs/OPERATIONS_MANUAL.md` §1b.
+
 ---
 
 ## 3. Windows Görev Zamanlayıcı (Task Scheduler) Ayarları

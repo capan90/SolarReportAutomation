@@ -6,9 +6,35 @@ Bu kılavuz, **SolarReportAutomation** platformunun canlı ortamdaki günlük y�
 
 ## 1. Günlük Çalışma Kontrolü (Daily Monitoring)
 
-Platform günlük olarak otomatik çalışır ve `logs/app.log` dosyasına işlem kayıtlarını yazar.
+Platform günlük olarak otomatik çalışır ve işlem kayıtlarını **iki ayrı log dosyasına** yazar:
+
+| Dosya | İçerik |
+| :--- | :--- |
+| `logs/app.log` | Zamanlanmış görevler (günlük/aylık mahsuplaşma, santral durumu) — kısa ömürlü process'ler |
+| `logs/dashboard.log` | Dashboard süreci ve **dashboard'dan tetiklenen** işler (geçmiş rapor, captcha yenileme, faturalama) |
+
+> **Neden ayrı?** Dashboard 7/24 çalışıp dosyayı açık tuttuğu için Windows'ta log rotasyonu (`os.rename`) başarısız oluyor ve kayıtlar sessizce kayboluyordu. Uzun ömürlü tek yazıcı ayrılınca `app.log` normal şekilde döndürülebiliyor. Bir işi ararken **onu neyin tetiklediğine** göre dosya seçin.
+
 - **Başarı Durumu**: `logs/etl_scheduler.log` dosyasındaki en son satırlarda `Cikis Kodu: 0` görülmesi veya Dashboard üzerindeki "Pipeline Monitor" sekmesinde yeşil renkli "SUCCESS" etiketinin bulunması işlemin başarılı olduğunu gösterir.
-- **Sorun Tespiti**: Başarısız durumlarda (Exit Code > 0) sistem otomatik olarak hata loglarını `logs/app.log` dosyasına ve `logs/backup_error.log` (yedekleme hatası ise) dosyasına kaydeder.
+- **Sorun Tespiti**: Başarısız durumlarda (Exit Code > 0) sistem otomatik olarak hata loglarını ilgili log dosyasına (`logs/app.log` veya `logs/dashboard.log`) ve `logs/backup_error.log` (yedekleme hatası ise) dosyasına kaydeder.
+
+---
+
+## 1b. Dashboard'ı Yeniden Başlatma (ZORUNLU PROSEDÜR)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\restart_dashboard.ps1
+```
+
+> ⛔ **Dashboard'ı ASLA düz `Stop-ScheduledTask` / `Start-ScheduledTask` ile yeniden başlatmayın.**
+>
+> Görev `wscript.exe`'yi başlatır, o da `python.exe`'yi çalıştırır. Task Scheduler görevi durdurduğunda **`wscript.exe` ölür ama `python.exe` çocuk process'i hayatta kalır** ve 8081 portunu tutmaya devam eder. Sonraki başlatma `WinError 10048` alır; `run_dashboard_hidden.vbs` döngüsü 4 deneme sonra pes eder ve **dashboard tamamen kapalı kalır**. 2026-07-27'de canlıda yaşandı; dev makinesinde `Stop-ScheduledTask` sonrası 6 gün önce başlamış bir `python.exe`'nin portu hâlâ tuttuğu ölçülerek doğrulandı.
+>
+> `restart_dashboard.ps1` bu tuzağı kapatır: görevi durdurur, portu tutan process'i sonlandırır, **portun gerçekten boşaldığını** doğrular (20 sn timeout), görevi başlatır ve HTTP 200 ile teyit eder. Başarısız olursa `logs/dashboard.log`'un son satırlarını gösterir.
+
+Kurulum script'i (`setup_dashboard_task_server.ps1`) da başlatma aşamasında bu script'i çağırır — yani restart yolu her kurulumda otomatik olarak sınanır.
+
+**Dashboard kapalı kalırsa haberiniz olur:** VBS döngüsü pes ettiğinde sistem otomatik "Dashboard Kapalı" uyarı e-postası gönderir (`scripts/send_dashboard_down_alert.py`).
 
 ---
 

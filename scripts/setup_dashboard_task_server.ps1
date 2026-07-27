@@ -92,21 +92,13 @@ if (-not (Get-NetFirewallRule -DisplayName $fwName -ErrorAction SilentlyContinue
 }
 
 # --- 4. Baslat ve dogrula ---
-Start-ScheduledTask -TaskName $taskName
-Start-Sleep -Seconds 5
-$listening = netstat -ano | Select-String ':8081.*LISTENING'
-if ($listening) {
-    Write-Host "Port 8081 dinleniyor:" -ForegroundColor Green
-    $listening | ForEach-Object { Write-Host "  $_" }
-} else {
-    Write-Host "HATA: 8081 dinlenmiyor! logs\app.log kontrol edin." -ForegroundColor Red
-    exit 1
-}
-try {
-    $r = Invoke-WebRequest -Uri 'http://localhost:8081' -UseBasicParsing -TimeoutSec 10
-    Write-Host "HTTP testi: $($r.StatusCode) OK" -ForegroundColor Green
-} catch {
-    Write-Host "HTTP testi BASARISIZ: $($_.Exception.Message)" -ForegroundColor Red
+# Neden: Baslatma + port bosalma beklemesi + dogrulama mantigi restart_dashboard.ps1'de
+# TEK YERDE tutulur. Boylece acil durumda kullanilan restart yolu her kurulumda
+# otomatik sinanir; sessizce curumus bir script riski kalmaz.
+# -SkipStop: gorev az once yeni kuruldu, tekrar durdurmaya gerek yok.
+& "$PSScriptRoot\restart_dashboard.ps1" -Port 8081 -TaskName $taskName -SkipStop
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Kurulum tamamlanamadi: dashboard baslatilamadi." -ForegroundColor Red
     exit 1
 }
 Write-Host ""
