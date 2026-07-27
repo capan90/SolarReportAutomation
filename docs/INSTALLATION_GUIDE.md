@@ -23,7 +23,27 @@ Komut satırını (cmd/PowerShell) yönetici olarak açın ve proje klasöründe
 python -m venv .venv
 call .venv\Scripts\activate.bat
 pip install -r requirements.txt
+```
+
+Tarayıcıları **makine geneli** dizine kurun (PowerShell, yönetici):
+```powershell
+setx /M PLAYWRIGHT_BROWSERS_PATH C:\ProgramData\ms-playwright
+$env:PLAYWRIGHT_BROWSERS_PATH = "C:\ProgramData\ms-playwright"
 .venv\Scripts\playwright install chromium
+```
+
+> **Neden makine geneli?** `PLAYWRIGHT_BROWSERS_PATH` tanımlı değilse Playwright
+> tarayıcıları `%USERPROFILE%\AppData\Local\ms-playwright` altında arar; bu yol hesaba
+> bağlıdır. Dashboard görevi `NT AUTHORITY\SYSTEM` hesabında koştuğundan
+> (`scripts/setup_dashboard_task_server.ps1`) profil yolu
+> `C:\Windows\system32\config\systemprofile\...` olur ve kurulumu görmez —
+> dashboard'dan tetiklenen raporlar `Executable doesn't exist` ile düşer.
+> Kurulum ve `.env` satırının **sırası önemlidir**: önce kurulum, sonra `.env`.
+> Aksi halde o ana kadar çalışan zamanlanmış job'lar da boş dizine bakmaya başlar.
+
+Ardından `.env` dosyasına aynı değeri ekleyin (bkz. `.env.example`):
+```ini
+PLAYWRIGHT_BROWSERS_PATH=C:\ProgramData\ms-playwright
 ```
 
 ### Adım 3: Yapılandırma (.env) Dosyası Hazırlama

@@ -161,6 +161,13 @@ class GaosbExtractor(ISourceExtractor):
         """
         from playwright.sync_api import sync_playwright
 
+        from app.infrastructure.browser.browser_paths import log_browser_environment
+
+        # Neden: Tarayıcı binary'leri hesap profiline bağlı bir dizinde aranır; aşağıdaki
+        # channel fallback'i eksik kurulumu "başka bir binary eksik" hatasına çevirdiği için
+        # gerçek sebep loga launch'tan ÖNCE yazılır.
+        log_browser_environment()
+
         USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
         launch_kwargs = dict(
             user_data_dir=str(USER_DATA_DIR),

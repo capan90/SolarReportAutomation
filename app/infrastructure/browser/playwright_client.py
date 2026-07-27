@@ -2,6 +2,7 @@ from typing import Generator
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
 from app.core.config import settings
 from app.core.logger import setup_logger
+from app.infrastructure.browser.browser_paths import log_browser_environment
 
 logger = setup_logger("BrowserInfrastructure")
 
@@ -22,6 +23,9 @@ class PlaywrightClient:
         Neden: 'with' bloğu başlatıldığında tarayıcı motorunu ayağa kaldırmak.
         """
         logger.info("Playwright tarayıcı motoru başlatılıyor...")
+        # Neden: headless=True bu sürümde chromium_headless_shell paketini kullanır;
+        # paket hangi dizinde aranıyor ve orada mı, launch'tan önce loga yazılsın.
+        log_browser_environment()
         self._playwright = sync_playwright().start()
         
         # Neden: Enterprise altyapılarda proxy veya yavaş ağlar için timeout ve yavaşlatma (slow_mo) opsiyonları eklenebilir.

@@ -32,6 +32,34 @@ $mode = ($envLines | Where-Object { $_ -match '^DASHBOARD_ACCESS_MODE=' }) -repl
 if ($port -ne '8081') { Write-Host "UYARI: DASHBOARD_PORT=$port (beklenen: 8081)" -ForegroundColor Yellow }
 if ($mode -ne 'network') { Write-Host "UYARI: DASHBOARD_ACCESS_MODE=$mode (beklenen: network, yoksa LAN erisimi olmaz!)" -ForegroundColor Yellow }
 
+# --- 1b. Playwright tarayici dizini ---
+# Neden: Gorev SYSTEM hesabinda kosar; PLAYWRIGHT_BROWSERS_PATH tanimli degilse Playwright
+# tarayicilari C:\Windows\system32\config\systemprofile\AppData\Local\ms-playwright altinda
+# arar ve interaktif kullanicinin profiline yapilmis kurulumu GORMEZ. Bu kontrol olmadan
+# hata ancak dashboard'dan rapor tetiklendiginde ortaya cikiyor (2026-07-27 olayi).
+$browsersPath = ($envLines | Where-Object { $_ -match '^PLAYWRIGHT_BROWSERS_PATH=' }) -replace '^PLAYWRIGHT_BROWSERS_PATH=', ''
+$browsersPath = "$browsersPath".Trim()
+if (-not $browsersPath) {
+    Write-Host "HATA: .env icinde PLAYWRIGHT_BROWSERS_PATH yok." -ForegroundColor Red
+    Write-Host "  Gorev SYSTEM hesabinda kosacak ve tarayicilari kendi profilinde arayacak."
+    Write-Host "  Once kurun, sonra .env'e ekleyin:" -ForegroundColor Yellow
+    Write-Host '    setx /M PLAYWRIGHT_BROWSERS_PATH C:\ProgramData\ms-playwright'
+    Write-Host '    $env:PLAYWRIGHT_BROWSERS_PATH="C:\ProgramData\ms-playwright"; .venv\Scripts\playwright install chromium'
+    exit 1
+}
+$chromiumPkgs = @()
+if (Test-Path $browsersPath) {
+    $chromiumPkgs = @(Get-ChildItem -Path $browsersPath -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like 'chromium*' })
+}
+if ($chromiumPkgs.Count -eq 0) {
+    Write-Host "HATA: $browsersPath icinde Chromium paketi bulunamadi." -ForegroundColor Red
+    Write-Host "  Su komutu ayni dizin degiskeniyle calistirin:" -ForegroundColor Yellow
+    Write-Host "    `$env:PLAYWRIGHT_BROWSERS_PATH=`"$browsersPath`"; .venv\Scripts\playwright install chromium"
+    exit 1
+}
+Write-Host "Playwright tarayicilari: $browsersPath ($($chromiumPkgs.Name -join ', '))" -ForegroundColor Green
+
 # --- 2. Zamanlanmis gorev ---
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Write-Host "Mevcut gorev kaldiriliyor (yeniden kurulacak)..."
