@@ -81,7 +81,21 @@ def test_email_pending_line_has_no_currency_unit():
 # ----------------------------------------------------------------------
 # 2. Excel "FATURALAMA" bölümü
 # ----------------------------------------------------------------------
-def _build_sheet(monkeypatch, cur, prev):
+def _real_style_header(ws, row_idx, n_cols):
+    """
+    Neden: Üretimdeki _style_header ile AYNI işi yapar. Önceki testler no-op
+    lambda geçtiği için stilin yanlış satıra uygulandığı bug'ı kaçırmıştı.
+    """
+    from openpyxl.styles import Alignment, Font, PatternFill
+
+    for c in range(1, n_cols + 1):
+        cell = ws.cell(row=row_idx, column=c)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill(start_color="EAEAEA", end_color="EAEAEA", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _build_sheet(monkeypatch, cur, prev, style_header=None):
     class _FakeService:
         def get_monthly(self, year, month):
             return cur if (year, month) == (2026, 7) else prev
@@ -95,7 +109,7 @@ def _build_sheet(monkeypatch, cur, prev):
         ws,
         datetime(2026, 7, 1), datetime(2026, 6, 1),
         "Temmuz 2026", "Haziran 2026",
-        lambda w, r, n: None,
+        style_header or (lambda w, r, n: None),
     )
     return [[c.value for c in row] for row in ws.iter_rows()]
 
@@ -135,6 +149,42 @@ def test_excel_change_percent_only_when_both_months_computed(monkeypatch):
     assert flat2["Fazla Satış Faturası"][3] == "-"
 
 
+def test_billing_header_row_is_actually_styled(monkeypatch):
+    """
+    Neden (regresyon): header_row `max_row + 1` ile hesaplanıyordu. append([])
+    hücre yazmadığı için max_row'u artırmaz — stil boş ara satıra uygulanıyor,
+    gerçek FATURALAMA başlığı çıplak kalıyordu. METRİK başlığı bold+gri iken
+    FATURALAMA'nın olmamasının sebebi buydu.
+    """
+    class _FakeService:
+        def get_monthly(self, year, month):
+            return _locked() if (year, month) == (2026, 7) else None
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._append_billing_section(
+        ws, datetime(2026, 7, 1), datetime(2026, 6, 1),
+        "Temmuz 2026", "Haziran 2026", _real_style_header,
+    )
+
+    # FATURALAMA başlığının hangi satırda olduğunu bul
+    header_row = None
+    for row in ws.iter_rows():
+        if row[0].value == "FATURALAMA (TL, KDV HARİÇ)":
+            header_row = row[0].row
+            break
+    assert header_row is not None, "FATURALAMA başlığı yazılmamış"
+
+    # O satırın 4 hücresi de METRİK başlığıyla aynı stilde olmalı
+    for col in range(1, 5):
+        cell = ws.cell(row=header_row, column=col)
+        assert cell.font.bold, f"sütun {col} bold değil"
+        assert cell.fill.start_color.rgb.endswith("EAEAEA"), f"sütun {col} dolgusuz"
+
+
 def test_excel_section_skipped_when_no_billing_row(monkeypatch):
     # Neden: Billing katmanı öncesi aylarda kayıt yok; bölüm hiç eklenmemeli.
     rows = _build_sheet(monkeypatch, None, None)
@@ -155,6 +205,84 @@ def test_excel_section_survives_billing_failure(monkeypatch):
         lambda w, r, n: None,
     )
     assert ws.max_row == 1  # hiçbir şey yazılmadı, exception dışarı sızmadı
+
+
+# ----------------------------------------------------------------------
+# 2b. "Faturalama Özeti" sayfası
+# ----------------------------------------------------------------------
+def _build_summary(monkeypatch, cur):
+    class _FakeService:
+        def get_monthly(self, year, month):
+            return cur
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    wb = openpyxl.Workbook()
+    wb.active.title = "Ay Özeti"
+    wb.create_sheet("Haftalık Kırılım")
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._write_billing_summary_sheet(wb, datetime(2026, 7, 1), "Temmuz 2026", _real_style_header)
+    return wb
+
+
+def test_summary_sheet_is_second(monkeypatch):
+    # Neden: kWh kırılımlarını geçip aranmasın diye Ay Özeti'nden hemen sonra.
+    wb = _build_summary(monkeypatch, _locked())
+    assert wb.sheetnames == ["Ay Özeti", "Faturalama Özeti", "Haftalık Kırılım"]
+
+
+def test_summary_sheet_rows_locked(monkeypatch):
+    wb = _build_summary(monkeypatch, _locked())
+    rows = {r[0]: r for r in ([c.value for c in row] for row in wb["Faturalama Özeti"].iter_rows()) if r[0]}
+
+    assert rows["Toplam Üretim"][1] == 10000.0
+    assert rows["Toplam Üretim"][2] == "—"          # üretimin TL karşılığı yok
+    assert rows["Fazla Satış (Enerjisa'ya)"][1] == 1000.0
+    assert rows["Fazla Satış (Enerjisa'ya)"][2] == "2.909,69"
+    # OSB'ye kalan = üretim - fazla satış (türetilmiş, yeni hesap değil)
+    assert rows["OSB'ye Kalan (Üretim − Fazla Satış)"][1] == 9000.0
+    assert rows["OSB'ye Kalan (Üretim − Fazla Satış)"][2] == "13.500,00"
+    # TOPLAM = fatura + kesinti
+    assert rows["TOPLAM (Enerjisa + OSB Kesintisi)"][2] == "16.409,69"
+    assert rows["Kullanılan Katsayılar (Fazla Satış / OSB)"][2] == "2,909687 / 1,500000"
+    assert rows["Durum"][2] == "Kilitli"
+
+
+def test_summary_sheet_pending_shows_bekleniyor(monkeypatch):
+    wb = _build_summary(monkeypatch, _pending())
+    rows = {r[0]: r for r in ([c.value for c in row] for row in wb["Faturalama Özeti"].iter_rows()) if r[0]}
+
+    # Neden: OSB fiyatı girilmemişse kesinti de TOPLAM da 0 DEĞİL, "Bekleniyor".
+    assert rows["OSB'ye Kalan (Üretim − Fazla Satış)"][2] == "Bekleniyor"
+    assert rows["TOPLAM (Enerjisa + OSB Kesintisi)"][2] == "Bekleniyor"
+    assert rows["Fazla Satış (Enerjisa'ya)"][2] == "2.909,69"   # bu hesaplanmıştı
+    assert rows["Kullanılan Katsayılar (Fazla Satış / OSB)"][2] == "2,909687 / —"
+    assert rows["Durum"][2] == "OSB birim fiyatı bekleniyor"
+
+
+def test_summary_sheet_header_is_styled(monkeypatch):
+    wb = _build_summary(monkeypatch, _locked())
+    ws = wb["Faturalama Özeti"]
+    header_row = next(r[0].row for r in ws.iter_rows() if r[0].value == "KALEM")
+    for col in range(1, 4):
+        cell = ws.cell(row=header_row, column=col)
+        assert cell.font.bold
+        assert cell.fill.start_color.rgb.endswith("EAEAEA")
+
+
+def test_summary_sheet_skipped_without_billing_row(monkeypatch):
+    wb = _build_summary(monkeypatch, None)
+    assert "Faturalama Özeti" not in wb.sheetnames
+
+
+def test_summary_sheet_survives_billing_failure(monkeypatch):
+    def _boom():
+        raise RuntimeError("DB down")
+
+    monkeypatch.setattr("app.billing.BillingService", _boom)
+    wb = openpyxl.Workbook()
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._write_billing_summary_sheet(wb, datetime(2026, 7, 1), "Temmuz 2026", _real_style_header)
+    assert "Faturalama Özeti" not in wb.sheetnames  # exception dışarı sızmadı
 
 
 # ----------------------------------------------------------------------

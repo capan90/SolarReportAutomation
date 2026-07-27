@@ -152,9 +152,12 @@ class MonthlySettlementJob:
             return
 
         ws1.append([])
-        header_row = ws1.max_row + 1
         ws1.append(["FATURALAMA (TL, KDV HARİÇ)", ay_str, f"Önceki Ay ({prev_ay_str})", "DEĞİŞİM (%)"])
-        style_header(ws1, header_row, 4)
+        # Neden: Satır numarası başlık YAZILDIKTAN SONRA okunur. append([]) hücre
+        # yazmadığı için max_row'u artırmaz (yalnızca _current_row artar); önceden
+        # "max_row + 1" ile hesaplamak stili bir satır yukarıya, yani boş ara satıra
+        # uyguluyordu ve gerçek başlık çıplak kalıyordu.
+        style_header(ws1, ws1.max_row, 4)
 
         def _row(label: str, cur_val, prev_val):
             if cur_val is not None and prev_val is not None and float(prev_val) != 0:
@@ -184,6 +187,82 @@ class MonthlySettlementJob:
         durum = "Kilitli" if cur.is_locked else "OSB birim fiyatı bekleniyor"
         ws1.append(["Durum", durum, ("Kilitli" if prev and prev.is_locked else "-"), "-"])
         logger.info("Excel faturalama bölümü yazıldı (%s, durum=%s).", ay_str, cur.status)
+
+    def _write_billing_summary_sheet(self, wb, month_dt, ay_str, style_header):
+        """
+        Neden: OSB faturasıyla karşılaştırma yapan kişinin eline aldığı çıktı.
+        Sheet 1'deki FATURALAMA bölümü "geçen aya göre değişim" görünümüdür;
+        bu sayfa ise "bu ayın faturası" görünümü — kalem × (kWh, TL) şeklinde.
+        2. sıraya konur ki kWh kırılımlarını geçip aranmasın.
+
+        Tüm değerler monthly_billing'deki mevcut alanlardan TÜRETİLİR; yeni
+        hesaplama mantığı yoktur. Hesaplanmamış tutar "Bekleniyor" yazar, 0 değil.
+
+        KAPSAM DIŞI: Santral tipi (arazi/çatı) ayrımı yapılmaz — sistemde böyle
+        bir alan yok, tek "Toplam Üretim" kalemi kullanılır.
+        """
+        try:
+            from app.billing import BillingService
+
+            cur = BillingService().get_monthly(month_dt.year, month_dt.month)
+        except Exception as e:
+            logger.error(f"Faturalama Özeti sayfası yazılamadı (rapora devam ediliyor): {e}")
+            return
+
+        if cur is None:
+            logger.warning(
+                "%04d-%02d için faturalama kaydı yok; Faturalama Özeti sayfası eklenmedi.",
+                month_dt.year, month_dt.month,
+            )
+            return
+
+        ws = wb.create_sheet("Faturalama Özeti", 1)
+        ws.append([f"{ay_str} — FATURALAMA ÖZETİ (KDV HARİÇ)", "", ""])
+        style_header(ws, ws.max_row, 3)
+        ws.append(["KALEM", "kWh", "TL"])
+        style_header(ws, ws.max_row, 3)
+
+        prod = cur.production_kwh
+        excess = cur.excess_sale_kwh
+        # Neden: OSB'ye kalan, üretimin fazla satış dışında kalan kısmıdır.
+        # Snapshot yoksa (tutarsız veri) uydurulmaz, tire konur.
+        kalan_kwh = (prod - excess) if (prod is not None and excess is not None) else None
+
+        def _kwh(v):
+            return "-" if v is None else float(v)
+
+        def _tl(v):
+            return self.BILLING_PENDING_TEXT if v is None else self._fmt_try(v)
+
+        toplam = None
+        if cur.excess_sale_invoice_try is not None and cur.osb_deduction_try is not None:
+            toplam = cur.excess_sale_invoice_try + cur.osb_deduction_try
+
+        ws.append(["Toplam Üretim", _kwh(prod), "—"])
+        ws.append(["Fazla Satış (Enerjisa'ya)", _kwh(excess), _tl(cur.excess_sale_invoice_try)])
+        ws.append(["OSB'ye Kalan (Üretim − Fazla Satış)", _kwh(kalan_kwh), _tl(cur.osb_deduction_try)])
+        ws.append(["TOPLAM (Enerjisa + OSB Kesintisi)", "—", _tl(toplam)])
+        style_header(ws, ws.max_row, 3)
+
+        ws.append([])
+        ws.append([
+            "Kullanılan Katsayılar (Fazla Satış / OSB)",
+            "—",
+            f"{self._fmt_rate(cur.excess_sale_rate_try)} / {self._fmt_rate(cur.osb_unit_price_try)}",
+        ])
+        ws.append([
+            "Durum", "—",
+            "Kilitli" if cur.is_locked else "OSB birim fiyatı bekleniyor",
+        ])
+
+        ws.column_dimensions["A"].width = 40
+        ws.column_dimensions["B"].width = 20
+        ws.column_dimensions["C"].width = 24
+        for row in ws.iter_rows(min_row=3, min_col=2, max_col=3):
+            for cell in row:
+                if isinstance(cell.value, float):
+                    cell.number_format = '#,##0.0'
+        logger.info("Faturalama Özeti sayfası yazıldı (%s, durum=%s).", ay_str, cur.status)
 
     def _write_monthly_report(
         self,
@@ -252,6 +331,11 @@ class MonthlySettlementJob:
         ws1.column_dimensions["A"].width = 30
         for col in ("B", "C", "D"):
             ws1.column_dimensions[col].width = 22
+
+        # ---- Sheet 2: Faturalama Özeti (ADR-0002) ----
+        # Neden: 2. sıraya konur — OSB faturasıyla karşılaştırma yapan kişi
+        # kWh kırılımlarını geçip aramasın.
+        self._write_billing_summary_sheet(wb, month_dt, ay_str, _style_header)
 
         # Saatlik kayıtları güne göre grupla (Sheet 2 ve 3 için ortak)
         by_day: Dict[str, List[HourlySettlement]] = {}
