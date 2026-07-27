@@ -11,6 +11,65 @@ class ResponseBuilder:
         "grid_export": "fazla satış"
     }
 
+    # Neden: Faturalama metrikleri kWh değil TL döndürür ve yalnızca aylık dönemde
+    # anlamlıdır (ADR-0002). Ayrı bir sözlükte tutulur ki kWh cevap şablonları
+    # yanlışlıkla "TL" değerine "kWh" birimi yazmasın.
+    BILLING_LABELS = {
+        "excess_sale_invoice": "fazla satış faturası",
+        "osb_deduction": "OSB kesintisi",
+    }
+
+    def _fmt_try(self, val) -> str:
+        """Neden: Türkçe para biçimi — 11250 -> '11.250,00'."""
+        try:
+            return f"{float(val):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return str(val)
+
+    def _billing_answer(self, metric: str, period: str, label: str, data: dict) -> str:
+        """
+        Neden: TL sorularının tek cevap noktası. Üç durum ayrılır ve hiçbirinde
+        sayı uydurulmaz:
+          1. Aylık olmayan dönem  -> TL yok, kullanıcıya ay sorması söylenir
+          2. Kayıt/değer yok      -> "birim fiyat girilmedi", 0 TL DENMEZ
+          3. Değer var            -> tutar + KDV hariç notu
+        """
+        metric_label = self.BILLING_LABELS[metric]
+
+        if period != "month":
+            # Neden: capitalize() kullanılmaz — "OSB kesintisi"ni "Osb kesintisi"
+            # yapıyordu. Etiket cümle başına konmaz.
+            return (
+                f"📌 Bu tutar ({metric_label}) yalnızca aylık dönem için hesaplanır "
+                f"(günlük raporda TL yer almaz).\n"
+                f"Örneğin: *bu ay {metric_label}* veya *geçen ay {metric_label}*"
+            )
+
+        if metric not in data:
+            return (
+                f"⚠️ {label} dönemi için faturalama kaydı bulunamadı. "
+                f"Bu aya ait aylık mahsuplaşma raporu henüz hazırlanmamış olabilir."
+            )
+
+        value = data.get(metric)
+        if value is None:
+            if metric == "osb_deduction":
+                return (
+                    f"⏳ {label} dönemi için OSB kesintisi henüz hesaplanmadı — "
+                    f"OSB birim fiyatı girilmemiş.\n"
+                    f"Dashboard'daki uyarı bandından birim fiyatı girebilirsiniz."
+                )
+            return (
+                f"⏳ {label} dönemi için {metric_label} henüz hesaplanmadı — "
+                f"fazla satış katsayısı tanımlı değil.\n"
+                f"Sistem Ayarları → Faturalama Katsayısı bölümünden tanımlayabilirsiniz."
+            )
+
+        return (
+            f"💵 {label} dönemi {metric_label}: {self._fmt_try(value)} TL "
+            f"(KDV hariç)"
+        )
+
     def _fmt(self, val) -> str:
         if val is None or val == "":
             return "0"
@@ -82,6 +141,14 @@ class ResponseBuilder:
             else:
                 return f"📉 Son 3 ayın en düşük {metric_label} günü {date_tr} ({day_name}) — {val_str} kWh"
 
+        # 3a. FATURALAMA (TL) SORGUSU
+        # Neden: kWh şablonlarından ÖNCE ele alınır — "fazla satış faturası" ifadesi
+        # hem grid_export hem excess_sale_invoice metriğini tetikler; kullanıcı
+        # "fatura" dediyse TL istiyordur, kWh değil.
+        billing_asked = [m for m in metrics if m in self.BILLING_LABELS]
+        if billing_asked and len(metrics) <= 2:
+            return self._billing_answer(billing_asked[0], period, label, data)
+
         # 3. TEK BİR METRİK SORGUSU CEVABI
         # Eğer sadece tek bir metrik sorulduysa (örn: "dün üretim ne kadar")
         if len(metrics) == 1 and metrics[0] in self.METRIC_LABELS:
@@ -102,7 +169,7 @@ class ResponseBuilder:
         import_val = self._fmt(data.get("grid_import", 0))
         export_val = self._fmt(data.get("grid_export", 0))
 
-        return (
+        summary = (
             f"📅 {label} mahsuplaşma özeti:\n"
             f"• Toplam Üretim: {prod_val} kWh\n"
             f"• Toplam Tüketim: {cons_val} kWh\n"
@@ -110,6 +177,21 @@ class ResponseBuilder:
             f"• Şebekeden Çekiş: {import_val} kWh\n"
             f"• Fazla Satış: {export_val} kWh"
         )
+
+        # Neden: TL satırları yalnızca aylık özette ve faturalama kaydı varsa eklenir.
+        # Hesaplanmamış tutar "Bekleniyor" yazar — 0 TL olarak gösterilmez.
+        if period == "month" and ("excess_sale_invoice" in data or "osb_deduction" in data):
+            def _tl(key):
+                val = data.get(key)
+                return f"{self._fmt_try(val)} TL" if val is not None else "Bekleniyor"
+
+            summary += (
+                f"\n\n💵 Faturalama (KDV hariç):\n"
+                f"• Fazla Satış Faturası: {_tl('excess_sale_invoice')}\n"
+                f"• OSB Kesintisi: {_tl('osb_deduction')}"
+            )
+
+        return summary
 
     # ------------------------------------------------------------------
     # Yönlendirme cevapları (veri sorgusu olmayan durumlar)
@@ -119,6 +201,7 @@ class ResponseBuilder:
         "• *Bu ay mahsup özeti*\n"
         "• *Geçen ay tüketim*\n"
         "• *En çok üretim hangi günde?*\n"
+        "• *Bu ay OSB kesintisi ne kadar?*\n"
         "• *Santral durumu nasıl?*"
     )
 
@@ -136,6 +219,7 @@ class ResponseBuilder:
             "son 7 gün, son 30 gün, mayıs 2026 gibi.\n"
             "*Kalem seçin:* üretim, tüketim, mahsup, şebekeden çekiş, fazla satış "
             "veya genel özet.\n"
+            "*Faturalama (yalnızca aylık, KDV hariç):* fazla satış faturası, OSB kesintisi.\n"
             "*Diğer:* santral durumu, en çok/en az üretim günü.\n\n"
             "Örnekler:\n" + self.EXAMPLES
         )

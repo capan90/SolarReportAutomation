@@ -107,6 +107,84 @@ class MonthlySettlementJob:
             "Fazla Satış (kWh)": sum(s.grid_export_kwh for s in settlements),
         }
 
+    # Neden: TL alanı yoksa 0 yazmak "sıfır fatura kesildi" anlamına gelirdi.
+    # Eksik veri ile sıfır değer birbirinden ayrılmalı (ADR-0002 §6).
+    BILLING_PENDING_TEXT = "Bekleniyor"
+
+    @staticmethod
+    def _fmt_try(value) -> str:
+        """Neden: Türkçe para biçimi (binlik nokta, ondalık virgül); yoksa 'Bekleniyor'."""
+        if value is None:
+            return MonthlySettlementJob.BILLING_PENDING_TEXT
+        return f"{float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    @staticmethod
+    def _fmt_rate(value) -> str:
+        """Neden: Birim fiyat 6 haneli gösterilir (2,909687); yoksa tire."""
+        if value is None:
+            return "—"
+        return f"{float(value):,.6f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _append_billing_section(self, ws1, month_dt, prev_month_dt, ay_str, prev_ay_str, style_header):
+        """
+        Neden: Ay Özeti sayfasına "FATURALAMA (TL, KDV HARİÇ)" bölümünü eklemek.
+        Best-effort: billing kaydı okunamazsa bölüm atlanır, rapor üretimi sürer
+        (Sprint A'daki job entegrasyonuyla aynı prensip).
+
+        Değişim (%) yalnızca her iki ay da hesaplanmışsa yazılır; biri "Bekleniyor"
+        ise yüzde uydurulmaz, tire konur.
+        """
+        try:
+            from app.billing import BillingService
+
+            service = BillingService()
+            cur = service.get_monthly(month_dt.year, month_dt.month)
+            prev = service.get_monthly(prev_month_dt.year, prev_month_dt.month)
+        except Exception as e:
+            logger.error(f"Faturalama bölümü Excel'e yazılamadı (rapora devam ediliyor): {e}")
+            return
+
+        if cur is None:
+            logger.warning(
+                "%04d-%02d için faturalama kaydı yok; Excel'e faturalama bölümü eklenmedi.",
+                month_dt.year, month_dt.month,
+            )
+            return
+
+        ws1.append([])
+        header_row = ws1.max_row + 1
+        ws1.append(["FATURALAMA (TL, KDV HARİÇ)", ay_str, f"Önceki Ay ({prev_ay_str})", "DEĞİŞİM (%)"])
+        style_header(ws1, header_row, 4)
+
+        def _row(label: str, cur_val, prev_val):
+            if cur_val is not None and prev_val is not None and float(prev_val) != 0:
+                degisim = round((float(cur_val) - float(prev_val)) / float(prev_val) * 100, 1)
+            else:
+                degisim = None
+            ws1.append([
+                label,
+                self._fmt_try(cur_val),
+                self._fmt_try(prev_val) if prev is not None else "-",
+                degisim if degisim is not None else "-",
+            ])
+
+        _row("Fazla Satış Faturası", cur.excess_sale_invoice_try,
+             prev.excess_sale_invoice_try if prev else None)
+        _row("OSB Kesintisi", cur.osb_deduction_try,
+             prev.osb_deduction_try if prev else None)
+
+        # Neden: Teyit raporunun asıl amacı — tutar hangi TL/kWh ile çıktı?
+        ws1.append([
+            "Kullanılan Katsayılar (Fazla Satış / OSB)",
+            f"{self._fmt_rate(cur.excess_sale_rate_try)} / {self._fmt_rate(cur.osb_unit_price_try)}",
+            (f"{self._fmt_rate(prev.excess_sale_rate_try)} / {self._fmt_rate(prev.osb_unit_price_try)}"
+             if prev else "-"),
+            "-",
+        ])
+        durum = "Kilitli" if cur.is_locked else "OSB birim fiyatı bekleniyor"
+        ws1.append(["Durum", durum, ("Kilitli" if prev and prev.is_locked else "-"), "-"])
+        logger.info("Excel faturalama bölümü yazıldı (%s, durum=%s).", ay_str, cur.status)
+
     def _write_monthly_report(
         self,
         settlements: List[HourlySettlement],
@@ -164,6 +242,13 @@ class MonthlySettlementJob:
                 prev, degisim = None, None
             ws1.append([f"Toplam {key}", cur, prev if prev is not None else "-",
                         degisim if degisim is not None else "-"])
+
+        # ---- Faturalama bölümü (ADR-0002) ----
+        # Neden: Bu rapor OSB faturasının teyidi için kullanılıyor; tutarların yanında
+        # HANGİ katsayıyla hesaplandığı da raporun kendisinde görünmeli. Değer yoksa
+        # hücreye "Bekleniyor" yazılır — boş bırakılmaz (sessiz hata yok kuralı).
+        self._append_billing_section(ws1, month_dt, prev_month_dt, ay_str, prev_ay_str, _style_header)
+
         ws1.column_dimensions["A"].width = 30
         for col in ("B", "C", "D"):
             ws1.column_dimensions[col].width = 22
@@ -469,6 +554,37 @@ class MonthlySettlementJob:
                     f"Şebekeden Çekiş: {_fmt_kwh(toplam_cekis)} kWh\n"
                     f"Fazla Satış: {_fmt_kwh(toplam_satis)} kWh"
                 )
+
+                # Neden: Faturalama tutarları yöneticinin ilk baktığı yer olan e-posta
+                # özetinde de görünmeli. Best-effort: okunamazsa kWh özeti değişmez.
+                try:
+                    from app.billing import BillingService
+
+                    billing = BillingService().get_monthly(month_dt.year, month_dt.month)
+                    if billing:
+                        # Neden: "Bekleniyor TL" saçma okunur; birim yalnızca gerçek
+                        # tutara eklenir.
+                        def _tl(value) -> str:
+                            if value is None:
+                                return self.BILLING_PENDING_TEXT
+                            return f"{self._fmt_try(value)} TL"
+
+                        stage_summary += (
+                            f"\n\nFaturalama (KDV hariç):\n"
+                            f"Fazla Satış Faturası: {_tl(billing.excess_sale_invoice_try)}\n"
+                            f"OSB Kesintisi: {_tl(billing.osb_deduction_try)}"
+                        )
+                        if not billing.is_locked:
+                            # Neden: "Bekleniyor" yazıp bırakmak yönetici için eyleme
+                            # dönük değil; ne yapması gerektiği söylenir.
+                            stage_summary += (
+                                "\n\nOSB birim fiyatı henüz girilmedi. Dashboard'dan girip "
+                                "raporu yeniden üretebilirsiniz."
+                            )
+                except Exception as billing_err:
+                    logger.error(
+                        f"E-posta özetine faturalama eklenemedi (bildirime devam ediliyor): {billing_err}"
+                    )
 
                 # Neden: Önceki ay DB'de kayıtlıysa yönetici özetine karşılaştırma eklenir.
                 if prev_totals:

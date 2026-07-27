@@ -146,6 +146,28 @@ class QueryEngine:
             db.close()
         return {}
 
+    def _billing_fields(self, year: int, month: int) -> dict:
+        """
+        Neden: Aylık özete faturalama tutarlarını (TL, KDV hariç) eklemek (ADR-0002).
+        Kayıt yoksa veya okunamazsa BOŞ sözlük döner — chatbot o alanları hiç
+        göstermez. None ile 0 karıştırılmaz: tutar None ise "birim fiyat girilmedi"
+        denir, sıfır TL denmez.
+        Best-effort: billing katmanı hata verirse kWh cevabı etkilenmez.
+        """
+        try:
+            from app.billing import BillingService
+
+            result = BillingService().get_monthly(year, month)
+            if result is None:
+                return {}
+            return {
+                "excess_sale_invoice": result.excess_sale_invoice_try,
+                "osb_deduction": result.osb_deduction_try,
+                "billing_status": result.status,
+            }
+        except Exception:
+            return {}
+
     def get_monthly_summary(self, year: int, month: int) -> dict:
         """
         Belirli bir ayın özetini getir.
@@ -155,13 +177,15 @@ class QueryEngine:
             # 1. SettlementMonthly'yi kontrol et
             row = db.query(SettlementMonthly).filter(SettlementMonthly.year == year, SettlementMonthly.month == month).first()
             if row:
-                return {
+                result = {
                     "production": row.production_kwh,
                     "consumption": row.consumption_kwh,
                     "settled": row.settled_kwh,
                     "grid_import": row.grid_import_kwh,
                     "grid_export": row.grid_export_kwh
                 }
+                result.update(self._billing_fields(year, month))
+                return result
             
             # 2. Yoksa SettlementDaily'den o aya ait günleri topla
             start_date = date(year, month, 1)
@@ -172,13 +196,15 @@ class QueryEngine:
                 
             rows = db.query(SettlementDaily).filter(SettlementDaily.date >= start_date, SettlementDaily.date <= end_date).all()
             if rows:
-                return {
+                result = {
                     "production": sum(r.production_kwh or 0 for r in rows),
                     "consumption": sum(r.consumption_kwh or 0 for r in rows),
                     "settled": sum(r.settled_kwh or 0 for r in rows),
                     "grid_import": sum(r.grid_import_kwh or 0 for r in rows),
                     "grid_export": sum(r.grid_export_kwh or 0 for r in rows)
                 }
+                result.update(self._billing_fields(year, month))
+                return result
         except Exception:
             pass
         finally:

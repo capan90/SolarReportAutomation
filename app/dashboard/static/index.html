@@ -1244,6 +1244,14 @@
                             Hesaplanmış geçmiş aylar kendi katsayılarıyla kilitlidir ve <b>değişmez</b>.
                             Geçerlilik <b>ayın 1'i</b> olarak kaydedilir. Bu ayar için <b>yeniden başlatma gerekmez</b>.
                         </div>
+                        <!-- Neden: Katsayı tanımlıyken gizli. Tanımsızsa aylık raporların
+                             fatura tutarı sessizce hesaplanmadan geçer; kurulum kılavuzunu
+                             okumayan kullanıcı bunu ancak rapora bakınca fark ederdi. -->
+                        <div id="br-undefined-warning" style="display:none; border:1px solid rgba(239,68,68,0.45); background:rgba(239,68,68,0.10); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                            ⛔ <b>Katsayı tanımlı değil.</b>
+                            Aylık raporlarda fazla satış fatura tutarı hesaplanamıyor ve "Bekleniyor" olarak görünüyor.
+                            Aşağıdan tanımlayın; geçerlilik ayı faturalanacak <b>en eski ayın</b> ilk günü olmalıdır.
+                        </div>
                         <div class="status-row"><span class="name">Güncel Katsayı</span><strong id="br-current">-</strong></div>
                         <div class="status-row"><span class="name">Geçerlilik</span><strong id="br-valid-from">-</strong></div>
                         <div class="status-row"><span class="name">Son Değiştiren</span><strong id="br-changed-by">-</strong></div>
@@ -2911,6 +2919,7 @@
             const info = await api("/api/billing/rate");
             if (!info) return;
             const cur = info.current;
+            document.getElementById("br-undefined-warning").style.display = cur ? "none" : "block";
             document.getElementById("br-current").innerText =
                 cur ? `${Number(cur.unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })} ₺/kWh` : "Tanımsız";
             document.getElementById("br-valid-from").innerText = cur ? fmtDateTr(cur.valid_from) : "-";

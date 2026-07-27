@@ -313,6 +313,19 @@ class MetricParser:
                         "sebekeden cekis", "cekis"],
         "grid_export": ["fazla satış", "şebekeye verdik", "şebekeye sattık", "ihraç",
                         "satış", "sattığımız", "fazla satis", "satis"],
+        # Neden: Faturalama metrikleri (ADR-0002). Yalnızca AYLIK sorularda değer
+        # döner; günlük raporda TL yoktur (tutarlılık kararı).
+        # DİKKAT: Anahtar sıralaması önemli — "fazla satış faturası" hem grid_export
+        # hem bu metriği tetikler; ResponseBuilder tek metrik seçerken faturalama
+        # metriklerine öncelik verir (bkz. BILLING_METRICS).
+        "excess_sale_invoice": ["fazla satış faturası", "fazla satis faturasi",
+                                "enerjisa faturası", "enerjisa faturasi",
+                                "satış faturası", "satis faturasi", "fatura tutarı",
+                                "fatura tutari", "ne kadar keseceğiz", "kesilecek fatura",
+                                "faturalama"],
+        "osb_deduction": ["osb kesintisi", "osb kesinti", "osb faturası", "osb faturasi",
+                          "kesinti tutarı", "kesinti tutari", "ne kadar düşecek",
+                          "ne kadar dusecek", "osb tutarı", "osb tutari"],
     }
 
     SUMMARY_KEYWORDS = ["özet", "rapor", "nasıl gitti", "nasıl geçti", "ne oldu", "ne var",
@@ -323,7 +336,16 @@ class MetricParser:
                       "normal mi", "çalışıyor mu", "aktif mi", "panel durumu", "tesis durumu",
                       "ariza"]
 
+    # Neden: Varsayılan (metrik belirtilmemiş) özet YALNIZCA kWh metriklerinden
+    # oluşur. Faturalama metrikleri buraya EKLENMEZ: aylık özet cevabındaki TL
+    # satırları metrik listesinden değil, verinin kendisinden türetilir
+    # (ResponseBuilder). Böylece "bu ay" gibi belirsiz bir soru TL sorusuna dönüşmez.
     ALL_METRICS = ["production", "consumption", "settled", "grid_import", "grid_export"]
+
+    # Neden: TL metrikleri yalnızca aylık dönemde anlamlıdır; "fazla satış faturası"
+    # gibi ifadeler kWh metriğiyle çakıştığında hangisinin kazanacağını
+    # ResponseBuilder bu listeye bakarak belirler.
+    BILLING_METRICS = ["excess_sale_invoice", "osb_deduction"]
 
     def parse(self, text: str) -> dict:
         text = text.lower().strip()

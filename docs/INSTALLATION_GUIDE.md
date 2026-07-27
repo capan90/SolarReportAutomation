@@ -57,6 +57,25 @@ DASHBOARD_ACCESS_MODE=lan
 DASHBOARD_PORT=8080
 ```
 
+### Adım 3b: Faturalama Katsayısı (ilk aylık rapordan ÖNCE)
+
+Dashboard → **Sistem Ayarları → Faturalama Katsayısı** bölümünden fazla satış birim
+fiyatını (TL/kWh, **KDV hariç**) tanımlayın.
+
+> ⚠️ **Sıra önemlidir.** Bir ayın katsayısı, o ayın `monthly_billing` satırı **ilk
+> oluştuğunda** snapshot olarak kilitlenir (ADR-0002). Katsayı o an tanımlı değilse o
+> ayın fatura tutarı hesaplanamaz; Excel ve dashboard "Bekleniyor" gösterir. Kalıcı
+> bir kilitlenme değildir — ay yeniden hesaplandığında katsayı yakalanır — ancak rapor
+> bir kez eksik gitmiş olur.
+>
+> **Geçerlilik ayı**, faturalanacak en eski ayın ilk günü olmalıdır. Katsayı sonradan
+> değiştirilebilir; değişiklik yalnızca geçerlilik ayından sonraki, henüz kilitlenmemiş
+> aylara etki eder ve dashboard'ın yeniden başlatılmasını gerektirmez.
+
+OSB kesintisinin değişken katsayısı her ay elle girilir: aylık rapor üretildikten sonra
+dashboard'da çıkan **"OSB Birim Fiyatı Bekleniyor"** uyarı bandından, OSB'nin bir önceki
+aya ait gerçek faturasındaki birim fiyat girilir. Giriş yapıldığında o ay kilitlenir.
+
 ### Adım 4: Kurulum Doğrulama
 Hazırladığımız otomatik doğrulama aracını çalıştırın:
 ```cmd
