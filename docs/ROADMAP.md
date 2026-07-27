@@ -16,7 +16,7 @@ Bu doküman, SolarReportAutomation projesinin geçmiş, şimdiki ve gelecek sür
 | **S16** | Multi Source Integration | İsOlar dışındaki diğer güneş paneli ve inverter API/web servis veri kaynaklarının entegre edilmesi (Release Candidate RC-5) | **Tamamlandı** |
 | **S17** | REST API & Service Mode | Sistemimizin RESTful API ile dış dünya servislerine açılması ve kalıcı Windows/Linux Daemon servisine dönüştürülmesi | *Hazırlık Aşamasında* |
 | **S18** | CI/CD & Cloud Deploy | Bulut altyapılarına otomatik dağıtım (Docker/Kubernetes) ve CI/CD süreçlerinin kurulması | *Planlandı* |
-| **S19** | Billing & Invoice Reconciliation | Fazla Satış Faturası ve OSB Kesintisi TL hesaplarının aylık rapora eklenmesi; aya kilitlenen katsayı snapshot'ları (ADR-0002). Sprint A: veri modeli + servis, B: dashboard, C: Excel/e-posta/chatbot | *Geliştiriliyor* |
+| **S19** | Billing & Invoice Reconciliation | Fazla Satış Faturası ve OSB Kesintisi TL hesaplarının aylık rapora eklenmesi; aya kilitlenen katsayı snapshot'ları (ADR-0002). Sprint A: veri modeli + servis, B: dashboard, C: Excel/e-posta/chatbot | **Tamamlandı** |
 
 ---
 
