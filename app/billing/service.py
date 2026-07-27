@@ -276,6 +276,13 @@ class BillingService:
         row = self.repo.get_monthly(year, month)
         return self._to_result(row) if row else None
 
+    def list_pending_months(self, limit: int = 24) -> List[MonthlyBillingResult]:
+        """
+        Neden: OSB birim fiyatı bekleyen aylar (dashboard banner'ı). En yeni başta.
+        Tümü döner; kaç tanesinin gösterileceğine sunum katmanı karar verir.
+        """
+        return [self._to_result(r) for r in self.repo.list_pending_months(limit=limit)]
+
     @staticmethod
     def _to_result(row: Dict[str, Any]) -> MonthlyBillingResult:
         return MonthlyBillingResult(

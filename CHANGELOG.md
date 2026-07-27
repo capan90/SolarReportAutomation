@@ -6,6 +6,19 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### S19 Sprint B — Faturalama Dashboard Akışı (ADR-0002)
+- **Sabit katsayı ekranı**: Sistem Ayarları'na "Faturalama Katsayısı" kartı — güncel değer, geçerlilik, son değiştiren ve değişiklik geçmişi tablosu; yönetici şifresiyle korunan yeni katsayı formu. `.env`'e değil DB'ye yazdığı için **dashboard restart'ı gerekmez** (SMTP akışından farkı; arayüzde de böyle yazıyor). Ay seçici `valid_from`'u ayın 1'ine normalize eder.
+- **PENDING_RATE banner'ı**: OSB birim fiyatı bekleyen **tüm** aylar taranır; en fazla 3'ü gösterilir, kalanı "+N ay daha" olarak katlanır. Yalnızca son ayı göstermek, OSB faturası geciktiğinde birikmiş eski ayları sessizce gizlerdi. Banner captcha banner kalıbını izler ve 60 sn'de bir tazelenir.
+- **OSB fiyat giriş modalı**: Bekleyen aylardan seçim + KDV hariç birim fiyat + yönetici şifresi. Kayıt sonrası ay LOCKED olur, kesinti hesaplanır ve "Raporu Yeniden Üret" butonu belirir (mevcut `/api/settlement/trigger/monthly-date` ucunu çağırır).
+- **Aylık özet TL bölümü**: "Faturalama (TL, KDV hariç)" başlığı altında Fazla Satış Faturası, OSB Kesintisi ve Durum. Değer yoksa **"Bekleniyor"** yazar — 0 değil (sessiz hata yok kuralı).
+- **Endpoint'ler**: `GET/POST /api/billing/rate`, `GET /api/billing/pending`, `GET /api/billing/monthly/{YYYY-MM}`, `POST /api/billing/monthly/{YYYY-MM}/osb-rate`. Domain hataları HTTP'ye eşlendi: doğrulama→400, kayıt yok→404, kilitli ay / mükerrer tarife→409. Beklenmedik hatalarda iç detay sızdırılmaz.
+- **Denetim izi**: `billing_rate_change` (eski→yeni değer details'e yazılır) ve `billing_osb_rate_entry`; başarısız denemeler de `success=false` ile kaydedilir.
+- **Dev ortamı bulgusu — yanlış yönetici şifresi 401 DÖNMEMELİ**: İlk uygulamada 401 dönülüyordu; arayüzdeki global fetch sarmalayıcısı her 401'i "oturum düştü" sayıp kullanıcıyı login ekranına attığı için yanlış şifre giren kullanıcı dashboard'dan çıkıyordu. Uçtan uca testte yakalandı, sözleşme içinde `success=false` + 200'e çevrildi (SMTP akışının zaten yaptığı gibi) ve regresyon testi eklendi.
+- **F823 bug'ı kapandı**: `_handle_api` içindeki yerel `import re`, modül seviyesindeki `re`'yi tüm fonksiyon kapsamında gölgeliyordu. ROADMAP'te "potansiyel" olarak duruyordu; faturalama endpoint'leri ay formatını `re.match` ile doğruladığı için gerçek bir 500'e dönüştü ve düzeltildi.
+- **Testler**: `tests/smoke/test_billing_api.py` — 29 test (şifre doğrulama + audit, hata→durum kodu eşlemesi, ay formatı, banner katlaması, 401 regresyonu). Paket 202 → **231 test**.
+- **Uçtan uca doğrulama (dev laptop)**: İzole SQLite kopyası + 8099 portunda ayrı instance ile 15 adımlık senaryo koşuldu (gerçek dev DB'ye dokunulmadı). Ekran görüntüleri `scratch/sprint-b/` altında (gitignore'da).
+- **Kapsam**: Excel, e-posta ve chatbot'a dokunulmadı — Sprint C.
+
 ### S19 Sprint A — Billing Katmanı Çekirdeği (ADR-0002)
 - **Karar (ADR-0002)**: Fazla Satış Faturası ve OSB Kesintisi TL hesapları Settlement Engine'e eklenmedi; `app/billing/` altında ayrı bir katman olarak konumlandırıldı. Gerekçe: engine saf ve DB'siz kalmalı (mevcut dosya tabanlı testleri değişmeden çalışıyor), ayrıca mahsuplaşma kuralı hiç değişmezken tarife her ay değişiyor. Katman sırası: `Settlement Engine → Billing Service → Analytics / Dashboard / Excel / Chatbot`. Her iki katsayı da **KDV hariç (net)** TL/kWh; KDV kapsam dışı.
 - **Veri Modeli**: `billing_rate` (append-only tarife geçmişi — `rate_type`, `unit_price_try`, `valid_from`, `created_by`; UPDATE yok, değişiklik yeni satır) ve `monthly_billing` (ay başına tek satır, `UNIQUE(year, month)`). Parasal alanlar `Numeric` (birim fiyat 18,6 / tutar 18,2) — `Float` kullanılmadı.

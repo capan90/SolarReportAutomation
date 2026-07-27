@@ -170,6 +170,25 @@ class BillingRepository:
         finally:
             session.close()
 
+    def list_pending_months(self, limit: int = 24) -> List[Dict[str, Any]]:
+        """
+        Neden: Dashboard banner'ı OSB birim fiyatı bekleyen TÜM ayları göstermeli
+        (Sprint B kararı). Yalnızca en son ayı taramak, OSB faturası geciktiğinde
+        birikmiş eski ayları sessizce gizlerdi. En yeni ay başta döner.
+        """
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(MonthlyBilling)
+                .filter(MonthlyBilling.status == STATUS_PENDING_RATE)
+                .order_by(MonthlyBilling.year.desc(), MonthlyBilling.month.desc())
+                .limit(limit)
+                .all()
+            )
+            return [_monthly_to_dict(r) for r in rows]
+        finally:
+            session.close()
+
     def upsert_monthly(
         self,
         year: int,

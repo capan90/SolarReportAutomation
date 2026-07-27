@@ -787,6 +787,43 @@
         <button class="btn" onclick="openCaptchaModal()" data-tip="GAOSB güvenlik doğrulama akışını başlatır.">Doğrulamayı Yap</button>
     </div>
 
+    <!-- ================= FATURALAMA (OSB KATSAYISI) BANNER =================
+         Neden: OSB birim fiyatı girilmemiş TÜM aylar taranır (en fazla 3'ü
+         gösterilir, kalanı katlanır). Yalnızca son ayı göstermek, OSB faturası
+         geciktiğinde birikmiş eski ayları sessizce gizlerdi. -->
+    <div id="billing-banner" class="captcha-banner">
+        <div>
+            &#128181; <strong>OSB Birim Fiyatı Bekleniyor</strong> —
+            <span id="billing-banner-months"></span>
+            <span id="billing-banner-more" class="muted small"></span>
+        </div>
+        <button class="btn" onclick="openBillingModal()" data-tip="Bekleyen ay için OSB birim fiyatını girer ve ayı kilitler.">Birim Fiyatı Gir</button>
+    </div>
+
+    <!-- ================= OSB BİRİM FİYAT MODALI ================= -->
+    <div id="billing-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeBillingModal()">&#10005;</button>
+            <h3>OSB Birim Fiyatı Girişi</h3>
+            <div style="text-align:left; line-height:1.6; margin-bottom:16px;">
+                <p style="margin-bottom:10px;">
+                    OSB'nin bir önceki aya ait gerçek faturasındaki <b>KDV hariç</b> birim fiyatı girin.
+                </p>
+                <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; font-size:0.8rem;">
+                    ⚠️ <b>Dikkat:</b> Kaydettikten sonra bu ay <b>kilitlenir</b> ve birim fiyat değiştirilemez.
+                </div>
+            </div>
+            <div class="form-grid" style="grid-template-columns:1fr;">
+                <div class="field"><label>Ay</label><select id="bm-month"></select></div>
+                <div class="field"><label>Birim Fiyat (TL/kWh, KDV hariç)</label><input id="bm-price" type="number" step="0.000001" placeholder="Örn. 1.234567"></div>
+                <div class="field"><label>Yönetici Şifresi *</label><input id="bm-admin" type="password" placeholder="Zorunlu"></div>
+            </div>
+            <button id="btn-billing-save" class="btn green" style="margin-top:14px;" onclick="saveOsbRate()">Kaydet ve Ayı Kilitle</button>
+            <div id="billing-msg" class="msg"></div>
+            <button id="btn-billing-regen" class="btn outline" style="display:none; margin-top:10px;" onclick="regenerateBillingMonth()">Raporu Yeniden Üret</button>
+        </div>
+    </div>
+
     <!-- ================= CAPTCHA MODAL ================= -->
     <div id="captcha-modal" class="modal-overlay">
         <div class="modal">
@@ -1097,6 +1134,14 @@
                     <div class="status-row"><span class="name">Mahsup</span><strong id="ms-mahsup">-</strong></div>
                     <div class="status-row"><span class="name">Şebekeden Çekiş</span><strong id="ms-cekis">-</strong></div>
                     <div class="status-row"><span class="name">Fazla Satış</span><strong id="ms-satis">-</strong></div>
+
+                    <!-- Neden: Faturalama (TL) ayrı bir bölüm başlığıyla ayrılır; kWh
+                         metrikleriyle karışmasın. Katsayı girilmemişse "Bekleniyor"
+                         yazar — 0 DEĞİL (sessiz hata yok kuralı). -->
+                    <div class="card-title" style="margin-top:18px; font-size:0.85rem;" data-tip="Tutarlar KDV hariçtir. OSB kesintisi, birim fiyat girilene kadar 'Bekleniyor' görünür.">💵 Faturalama (TL, KDV hariç)</div>
+                    <div class="status-row"><span class="name">Fazla Satış Faturası</span><strong id="ms-fatura">-</strong></div>
+                    <div class="status-row"><span class="name">OSB Kesintisi</span><strong id="ms-osb">-</strong></div>
+                    <div class="status-row"><span class="name">Durum</span><strong id="ms-billing-durum">-</strong></div>
                 </div>
                 <div class="card">
                     <div class="card-title" data-tip="Son 30 günün günlük üretim ve tüketim çubukları — değerleri görmek için grafiğin üzerine gelin.">Son 30 Gün: Üretim ve Tüketim</div>
@@ -1186,6 +1231,35 @@
                         </div>
                         <div style="margin-top:16px;"><button id="btn-smtp" class="btn blue" onclick="saveSmtp()">Sunucu Ayarlarını Kaydet</button></div>
                         <div id="smtp-msg" class="msg"></div>
+                    </div>
+
+                    <!-- Neden: Faturalama katsayısı .env'e DEĞİL veritabanına yazılır;
+                         bu yüzden SMTP ayarlarından farklı olarak restart gerekmez. -->
+                    <div class="card">
+                        <div class="card-title">💵 Faturalama Katsayısı</div>
+                        <p class="muted small" style="margin-bottom:10px;">Fazla satış faturasının birim fiyatı (TL/kWh, <b>KDV hariç</b>). Değişiklik yapmak için yönetici şifresi gereklidir.</p>
+                        <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                            ⚠️ <b>Dikkat:</b>
+                            Yeni katsayı yalnızca <b>geçerlilik ayından itibaren</b> ve <b>henüz kilitlenmemiş</b> aylara etki eder.
+                            Hesaplanmış geçmiş aylar kendi katsayılarıyla kilitlidir ve <b>değişmez</b>.
+                            Geçerlilik <b>ayın 1'i</b> olarak kaydedilir. Bu ayar için <b>yeniden başlatma gerekmez</b>.
+                        </div>
+                        <div class="status-row"><span class="name">Güncel Katsayı</span><strong id="br-current">-</strong></div>
+                        <div class="status-row"><span class="name">Geçerlilik</span><strong id="br-valid-from">-</strong></div>
+                        <div class="status-row"><span class="name">Son Değiştiren</span><strong id="br-changed-by">-</strong></div>
+                        <div class="form-grid" style="margin-top:14px;">
+                            <div class="field"><label>Yeni Katsayı (TL/kWh)</label><input id="br-price" type="number" step="0.000001" placeholder="Örn. 2.909687"></div>
+                            <div class="field"><label>Geçerlilik Ayı</label><input id="br-valid" type="month"></div>
+                            <div class="field"><label>Açıklama (opsiyonel)</label><input id="br-note" type="text" placeholder="Örn. Enerjisa 2026/08 tarife"></div>
+                            <div class="field"><label>Yönetici Şifresi *</label><input id="br-admin" type="password" placeholder="Zorunlu"></div>
+                        </div>
+                        <div style="margin-top:16px;"><button id="btn-billing-rate" class="btn blue" onclick="saveBillingRate()">Katsayıyı Kaydet</button></div>
+                        <div id="br-msg" class="msg"></div>
+                        <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Değişiklik Geçmişi</div>
+                        <div style="overflow-x:auto;">
+                            <table class="table"><thead><tr><th>Geçerlilik</th><th>Katsayı (TL/kWh)</th><th>Ekleyen</th><th>Açıklama</th></tr></thead>
+                            <tbody id="br-history"><tr><td colspan="4" class="muted" style="text-align:center;">Henüz katsayı tanımlanmamış.</td></tr></tbody></table>
+                        </div>
                     </div>
 
                     <div class="card">
@@ -2119,6 +2193,17 @@
                 document.getElementById("ms-mahsup").innerText = fmt(m.mahsup) + " kWh";
                 document.getElementById("ms-cekis").innerText = fmt(m.cekis) + " kWh";
                 document.getElementById("ms-satis").innerText = fmt(m.satis) + " kWh";
+
+                // Neden: Aylık özetin faturalama bölümü aynı dönemi gösterir.
+                // Kayıt yoksa (billing katmanı öncesi aylar) alanlar "-" kalır.
+                const donem = String(m.donem || "").slice(0, 7);
+                if (/^\d{4}-\d{2}$/.test(donem)) {
+                    const b = await api(`/api/billing/monthly/${donem}`);
+                    document.getElementById("ms-fatura").innerText = b ? fmtTL(b.excess_sale_invoice_try) : "-";
+                    document.getElementById("ms-osb").innerText = b ? fmtTL(b.osb_deduction_try) : "-";
+                    document.getElementById("ms-billing-durum").innerText =
+                        !b ? "Kayıt yok" : (b.status === "LOCKED" ? "Kilitli" : "Birim fiyat bekleniyor");
+                }
             }
 
             const daily30 = await api("/api/settlement/daily/latest?days=30");
@@ -2304,6 +2389,7 @@
             document.getElementById("f-to-system").value = cfg.smtp_to_system || "";
 
             loadUsers();
+            loadBillingRateCard();
         }
 
         async function saveSmtp() {
@@ -2688,6 +2774,211 @@
         }
 
         // ------------------------------------------------------------
+        // FATURALAMA (ADR-0002)
+        // ------------------------------------------------------------
+        const AYLAR_TR = ["Ocak","Şubat","Mart","Nisan","Mayıs","Haziran",
+                          "Temmuz","Ağustos","Eylül","Ekim","Kasım","Aralık"];
+
+        function fmtAy(year, month) {
+            return `${AYLAR_TR[month - 1]} ${year}`;
+        }
+
+        // Neden: Tutarlar Türkçe biçimde (binlik nokta, ondalık virgül) gösterilir.
+        // null gelirse "Bekleniyor" yazar — 0 DEĞİL; katsayı eksikliği veriymiş gibi
+        // görünmemeli (sessiz hata yok kuralı).
+        function fmtTL(value) {
+            if (value === null || value === undefined || value === "") return "Bekleniyor";
+            const n = Number(value);
+            if (isNaN(n)) return "Bekleniyor";
+            return n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+        }
+
+        let _pendingBillingMonths = [];
+
+        async function checkBillingPending() {
+            const data = await api("/api/billing/pending");
+            const banner = document.getElementById("billing-banner");
+            if (!data || !data.total) {
+                banner.classList.remove("visible");
+                _pendingBillingMonths = [];
+                return;
+            }
+            _pendingBillingMonths = data.visible || [];
+            const labels = _pendingBillingMonths.map(m => fmtAy(m.year, m.month)).join(", ");
+            document.getElementById("billing-banner-months").innerText =
+                `${labels} için OSB birim fiyatı girilmedi.`;
+            document.getElementById("billing-banner-more").innerText =
+                data.hidden_count > 0 ? ` (+${data.hidden_count} ay daha)` : "";
+            banner.classList.add("visible");
+        }
+
+        function openBillingModal() {
+            const sel = document.getElementById("bm-month");
+            sel.innerHTML = _pendingBillingMonths.map(m =>
+                `<option value="${m.year}-${String(m.month).padStart(2, "0")}">${fmtAy(m.year, m.month)}</option>`
+            ).join("");
+            document.getElementById("billing-msg").style.display = "none";
+            document.getElementById("btn-billing-regen").style.display = "none";
+            document.getElementById("bm-price").value = "";
+            document.getElementById("bm-admin").value = "";
+            document.getElementById("billing-modal").classList.add("visible");
+        }
+        function closeBillingModal() {
+            document.getElementById("billing-modal").classList.remove("visible");
+        }
+
+        async function saveOsbRate() {
+            const btn = document.getElementById("btn-billing-save");
+            const msg = document.getElementById("billing-msg");
+            const month = document.getElementById("bm-month").value;
+            const price = document.getElementById("bm-price").value;
+            const adminPass = document.getElementById("bm-admin").value;
+
+            if (!month) { msg.className = "msg bad"; msg.innerText = "Ay seçilmedi."; msg.style.display = "block"; return; }
+            if (!price) { msg.className = "msg bad"; msg.innerText = "Birim fiyat zorunludur."; msg.style.display = "block"; return; }
+            if (!adminPass) { msg.className = "msg bad"; msg.innerText = "Yönetici şifresi zorunludur."; msg.style.display = "block"; return; }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+            try {
+                const res = await fetch(`/api/billing/monthly/${month}/osb-rate`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ unit_price: price, admin_password: adminPass })
+                });
+                const body = await res.json();
+                if (body.success) {
+                    const b = body.data.billing;
+                    msg.className = "msg ok";
+                    msg.innerText = `✓ ${fmtAy(b.year, b.month)} kilitlendi. OSB kesintisi: ${fmtTL(b.osb_deduction_try)}`;
+                    document.getElementById("bm-admin").value = "";
+                    // Neden: Tutarların Excel'e yansıması için raporun yeniden
+                    // üretilmesi gerekir (Sprint C'de otomatikleşecek).
+                    const regen = document.getElementById("btn-billing-regen");
+                    regen.dataset.month = body.data.month;
+                    regen.style.display = "inline-flex";
+                    checkBillingPending();
+                    loadSettlements();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Birim fiyat kaydedilemedi.";
+                }
+                msg.style.display = "block";
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucu bağlantı hatası.";
+                msg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Kaydet ve Ayı Kilitle";
+            }
+        }
+
+        async function regenerateBillingMonth() {
+            const btn = document.getElementById("btn-billing-regen");
+            const msg = document.getElementById("billing-msg");
+            const month = btn.dataset.month;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Rapor hazırlanıyor... (birkaç dakika)';
+            msg.className = "msg info";
+            msg.innerText = `${month} raporu yeniden üretiliyor, lütfen bekleyin...`;
+            msg.style.display = "block";
+            try {
+                const res = await fetch("/api/settlement/trigger/monthly-date", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ month: month })
+                });
+                const body = await res.json();
+                if (body.success) {
+                    msg.className = "msg ok";
+                    msg.innerText = "✓ Rapor yeniden üretildi.";
+                    loadSettlements();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Rapor yeniden üretilemedi.";
+                }
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucu bağlantı hatası.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Raporu Yeniden Üret";
+            }
+        }
+
+        async function loadBillingRateCard() {
+            const info = await api("/api/billing/rate");
+            if (!info) return;
+            const cur = info.current;
+            document.getElementById("br-current").innerText =
+                cur ? `${Number(cur.unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })} ₺/kWh` : "Tanımsız";
+            document.getElementById("br-valid-from").innerText = cur ? fmtDateTr(cur.valid_from) : "-";
+            document.getElementById("br-changed-by").innerText = cur ? (cur.created_by || "-") : "-";
+
+            const tbody = document.getElementById("br-history");
+            if (info.history && info.history.length) {
+                tbody.innerHTML = info.history.map(r => `
+                    <tr>
+                        <td>${fmtDateTr(r.valid_from)}</td>
+                        <td>${Number(r.unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })}</td>
+                        <td>${r.created_by || "-"}</td>
+                        <td>${r.note || "-"}</td>
+                    </tr>`).join("");
+            } else {
+                tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;">Henüz katsayı tanımlanmamış.</td></tr>';
+            }
+        }
+
+        async function saveBillingRate() {
+            const btn = document.getElementById("btn-billing-rate");
+            const msg = document.getElementById("br-msg");
+            const price = document.getElementById("br-price").value;
+            const validFrom = document.getElementById("br-valid").value;
+            const note = document.getElementById("br-note").value;
+            const adminPass = document.getElementById("br-admin").value;
+
+            if (!price) { msg.className = "msg bad"; msg.innerText = "Katsayı zorunludur."; msg.style.display = "block"; return; }
+            if (!validFrom) { msg.className = "msg bad"; msg.innerText = "Geçerlilik ayı zorunludur."; msg.style.display = "block"; return; }
+            if (!adminPass) { msg.className = "msg bad"; msg.innerText = "Yönetici şifresi zorunludur."; msg.style.display = "block"; return; }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Kaydediliyor...';
+            try {
+                const res = await fetch("/api/billing/rate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        unit_price: price,
+                        valid_from: validFrom,
+                        note: note,
+                        admin_password: adminPass
+                    })
+                });
+                const body = await res.json();
+                if (body.success) {
+                    msg.className = "msg ok";
+                    msg.innerText = "✓ " + (body.data.note || "Katsayı kaydedildi.");
+                    document.getElementById("br-price").value = "";
+                    document.getElementById("br-note").value = "";
+                    document.getElementById("br-admin").value = "";
+                    loadBillingRateCard();
+                } else {
+                    msg.className = "msg bad";
+                    msg.innerText = body.error || "Katsayı kaydedilemedi.";
+                }
+                msg.style.display = "block";
+            } catch (e) {
+                msg.className = "msg bad";
+                msg.innerText = "Sunucu bağlantı hatası.";
+                msg.style.display = "block";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Katsayıyı Kaydet";
+            }
+        }
+
+        // ------------------------------------------------------------
         // GAOSB CAPTCHA doğrulama akışı
         // ------------------------------------------------------------
         async function checkCaptchaStatus() {
@@ -2983,6 +3274,7 @@
                 loadHome();
                 loadPlantStatuses();
                 checkCaptchaStatus();
+                checkBillingPending();
                 initPastReportLimits();
             }
         }
@@ -3049,6 +3341,7 @@
                     goToHomePage();
                     loadPlantStatuses();
                     checkCaptchaStatus();
+                    checkBillingPending();
                     initPastReportLimits();
                 } else {
                     errorMsg.innerText = data.error || "Giriş başarısız.";
@@ -3151,6 +3444,7 @@
         setInterval(() => {
             if (localStorage.getItem("dashboard_token")) {
                 checkCaptchaStatus();
+                checkBillingPending();
             }
         }, 60000);
         setInterval(() => {

@@ -260,6 +260,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._handle_smtp_settings()
             elif path == "/api/settings/restart":
                 self._handle_restart(username)
+            elif path == "/api/billing/rate":
+                self._handle_billing_set_rate(username)
+            elif path.startswith("/api/billing/monthly/") and path.endswith("/osb-rate"):
+                month_str = path.replace("/api/billing/monthly/", "").replace("/osb-rate", "").strip()
+                self._handle_billing_set_osb_rate(username, month_str)
             elif path == "/api/gaosb/captcha-resolved":
                 self.auth.log_action(username, self._get_client_ip(), "captcha_resolved", details="Captcha resolution submitted")
                 self._handle_captcha_resolved()
@@ -448,6 +453,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     response_data = self.service.get_settlement_hourly(date_str)
                 else:
                     error_message = "Geçersiz tarih formatı. Beklenen: YYYY-MM-DD"
+            # ---- Faturalama endpoint'leri (ADR-0002) ----
+            elif path == "/api/billing/rate":
+                response_data = self.service.get_billing_rate_info()
+            elif path == "/api/billing/pending":
+                response_data = self.service.get_pending_billing_months()
+            elif path.startswith("/api/billing/monthly/"):
+                month_str = path.replace("/api/billing/monthly/", "").strip()
+                if re.match(r"^\d{4}-\d{2}$", month_str):
+                    data = self.service.get_monthly_billing(int(month_str[:4]), int(month_str[5:7]))
+                    if data is None:
+                        error_message = f"{month_str} için faturalama kaydı yok; önce aylık mahsuplaşma hesaplanmalı."
+                    else:
+                        response_data = data
+                else:
+                    error_message = "Geçersiz ay formatı. Beklenen: YYYY-MM"
+
             elif path == "/api/settlement/summary":
                 response_data = self._summary_payload()
             elif path == "/api/settlement/month-to-date":
@@ -483,7 +504,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 response_data = _report_info(_find_latest_report(DAILY_REPORT_RE), "daily")
 
             elif path == "/api/plants/status":
-                import re
+                # Neden: Buradaki fonksiyon-içi `import re` KALDIRILDI (ruff F823).
+                # Yerel import, modül seviyesindeki `re`'yi TÜM _handle_api kapsamında
+                # gölgeliyordu: bu satırdan önce çalışan hiçbir dal `re` kullanamıyor,
+                # UnboundLocalError alıyordu. Faturalama endpoint'leri (yukarıda) ay
+                # formatını `re.match` ile doğruladığı için bug canlıya çıktı.
                 def clean_name(name):
                     match = re.search(r'ERDEMSOFT[- _]GES[_-](\d+)', name)
                     if match:
@@ -1148,6 +1173,170 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         self._send_json_contract(response_data, error_message)
 
+
+    # ------------------------------------------------------------------
+    # Faturalama yazma uçları (ADR-0002)
+    # ------------------------------------------------------------------
+    def _verify_admin_password(self, body: Dict[str, Any], username: str, action: str) -> bool:
+        """
+        Neden: Finansal referans verisi yazımı yönetici şifresi ister
+        (_handle_smtp_settings ile aynı kalıp). Başarısız deneme audit_log'a
+        yazılır — sessiz ret kabul edilmez.
+
+        DİKKAT — 401 DÖNDÜRÜLMEZ: Arayüzdeki global fetch sarmalayıcısı her 401'i
+        "oturum düştü" sayıp kullanıcıyı login ekranına atıyor (index.html,
+        originalFetch). Yönetici şifresinin yanlış olması oturum hatası DEĞİLDİR;
+        kullanıcı formda kalıp tekrar denemelidir. Bu yüzden sözleşme içinde
+        success=false ile 200 dönülür — SMTP ayar akışı da aynı sebeple böyle yapar.
+        """
+        admin_password = str(body.get("admin_password", ""))
+        expected = os.environ.get("DASHBOARD_ADMIN_PASSWORD", "")
+        if not expected or admin_password != expected:
+            logger.warning("%s reddedildi: yönetici şifresi hatalı (kullanıcı: %s).", action, username)
+            self.auth.log_action(
+                username, self._get_client_ip(), action,
+                details="Reddedildi: yönetici şifresi hatalı", success=False,
+            )
+            self._send_json_contract(None, "Yönetici şifresi hatalı.")
+            return False
+        return True
+
+    def _send_billing_error(self, exc: Exception) -> None:
+        """Neden: Billing alan hatalarını HTTP durum koduna eşlemek (tek yerde)."""
+        from app.billing import (
+            BillingLockedError,
+            BillingMonthNotFoundError,
+            BillingRateExistsError,
+            BillingValidationError,
+        )
+
+        if isinstance(exc, BillingValidationError):
+            self._send_json_contract(None, str(exc), status_code=400)
+        elif isinstance(exc, BillingLockedError):
+            self._send_json_contract(
+                None,
+                f"{exc} Düzeltme için override akışı gerekir (henüz mevcut değil).",
+                status_code=409,
+            )
+        elif isinstance(exc, BillingMonthNotFoundError):
+            self._send_json_contract(None, str(exc), status_code=404)
+        elif isinstance(exc, BillingRateExistsError):
+            self._send_json_contract(None, str(exc), status_code=409)
+        else:
+            logger.error("Faturalama işlemi başarısız: %s", exc)
+            self._send_json_contract(
+                None, "Faturalama işlemi tamamlanamadı. Lütfen sistem yöneticinizle iletişime geçin."
+            )
+
+    def _handle_billing_set_rate(self, username: str) -> None:
+        """
+        Neden: Sabit fazla satış katsayısını günceller. .env'e DEĞİL DB'ye yazar —
+        bu yüzden dashboard restart'ı gerekmez (SMTP ayarlarından farkı budur).
+        Değişiklik append-only'dir ve kilitlenmiş geçmiş ayları etkilemez.
+        """
+        body = self._read_json_body()
+        if not self._verify_admin_password(body, username, "billing_rate_change"):
+            return
+
+        valid_from_raw = str(body.get("valid_from", "")).strip()
+        # Neden: Arayüz ay seçici (YYYY-MM) gönderir; tam tarih de kabul edilir.
+        if re.match(r"^\d{4}-\d{2}$", valid_from_raw):
+            valid_from_raw = f"{valid_from_raw}-01"
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", valid_from_raw):
+            self._send_json_contract(
+                None, "Geçersiz geçerlilik tarihi. Beklenen: YYYY-MM veya YYYY-MM-DD", status_code=400
+            )
+            return
+        try:
+            valid_from = datetime.strptime(valid_from_raw, "%Y-%m-%d").date()
+        except ValueError:
+            self._send_json_contract(None, "Geçersiz geçerlilik tarihi.", status_code=400)
+            return
+
+        try:
+            from app.billing import BillingService
+
+            previous = BillingService().get_current_rate(as_of=valid_from)
+            created = BillingService().set_rate(
+                unit_price_try=body.get("unit_price"),
+                valid_from=valid_from,
+                created_by=username,
+                note=(str(body.get("note")).strip() or None) if body.get("note") else None,
+            )
+        except Exception as e:
+            self._send_billing_error(e)
+            return
+
+        # Neden: Denetim izinde eski -> yeni değer görünmeli.
+        self.auth.log_action(
+            username, self._get_client_ip(), "billing_rate_change",
+            details=(
+                f"Fazla satış katsayısı: {previous.unit_price_try if previous else 'tanımsız'} -> "
+                f"{created.unit_price_try} (geçerlilik: {created.valid_from.isoformat()})"
+            ),
+        )
+        logger.warning(
+            "Fazla satış katsayısı güncellendi: %s -> %s (geçerlilik %s, kullanıcı %s)",
+            previous.unit_price_try if previous else "tanımsız",
+            created.unit_price_try, created.valid_from, username,
+        )
+        self._send_json_contract(
+            {
+                "rate": created.to_dict(),
+                "note": "Katsayı kaydedildi. Kilitlenmiş geçmiş aylar bu değişiklikten etkilenmez; "
+                        "dashboard yeniden başlatılması gerekmez.",
+            },
+            None,
+        )
+
+    def _handle_billing_set_osb_rate(self, username: str, month_str: str) -> None:
+        """
+        Neden: Bir ayın OSB birim fiyatını girer ve ayı kilitler. Kilitli ayda
+        BillingLockedError -> 409 döner; düzeltme override akışı gerektirir.
+        """
+        if not re.match(r"^\d{4}-\d{2}$", month_str):
+            self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM", status_code=400)
+            return
+
+        body = self._read_json_body()
+        if not self._verify_admin_password(body, username, "billing_osb_rate_entry"):
+            return
+
+        year, month = int(month_str[:4]), int(month_str[5:7])
+        try:
+            from app.billing import BillingService
+
+            result = BillingService().set_osb_unit_price(
+                year=year, month=month,
+                unit_price_try=body.get("unit_price"),
+                entered_by=username,
+            )
+        except Exception as e:
+            self.auth.log_action(
+                username, self._get_client_ip(), "billing_osb_rate_entry",
+                details=f"{month_str} reddedildi: {e}", success=False,
+            )
+            self._send_billing_error(e)
+            return
+
+        self.auth.log_action(
+            username, self._get_client_ip(), "billing_osb_rate_entry",
+            details=f"{month_str} OSB birim fiyatı: {result.osb_unit_price_try} TL/kWh (ay kilitlendi)",
+        )
+        logger.warning(
+            "%s OSB birim fiyatı girildi: %s TL/kWh (kullanıcı: %s); ay kilitlendi.",
+            month_str, result.osb_unit_price_try, username,
+        )
+        self._send_json_contract(
+            {
+                "billing": result.to_dict(),
+                # Neden: Arayüz "raporu yeniden üret" butonunu bu adrese bağlar —
+                # tutarların Excel'e yansıması Sprint C'de gelecek.
+                "regenerate_url": "/api/settlement/trigger/monthly-date",
+                "month": month_str,
+            },
+            None,
+        )
 
     def _handle_captcha_resolved(self) -> None:
         """

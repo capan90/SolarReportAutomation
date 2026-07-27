@@ -187,6 +187,51 @@ class DashboardService:
     def get_plant_distribution(self, days: int = 30) -> List[dict]:
         return self.repository.get_plant_distribution(days)
 
+    # ------------------------------------------------------------------
+    # Faturalama (ADR-0002) — SALT OKUMA
+    # ------------------------------------------------------------------
+    # Neden: Dashboard faturalama verisini okur; YAZMA işlemi web_server'daki
+    # yönetici şifresiyle korunan endpoint'lerden BillingService üzerinden geçer.
+    # Bu sınıf bilinçli olarak yalnızca okuma sunar.
+    def _billing(self):
+        # Neden: Tembel kurulum — BillingService yapıcısı create_tables çağırır,
+        # DashboardService import edilirken DB'ye dokunmasın.
+        from app.billing import BillingService
+
+        if getattr(self, "_billing_service", None) is None:
+            self._billing_service = BillingService()
+        return self._billing_service
+
+    def get_billing_rate_info(self, history_limit: int = 10) -> dict:
+        """
+        Neden: Sistem Ayarları'ndaki Faturalama kartı — güncel sabit katsayı,
+        kim/ne zaman tanımladı ve değişiklik geçmişi. Katsayı hiç tanımlanmamışsa
+        current None döner; arayüz bunu "tanımsız" gösterir, 0 değil.
+        """
+        service = self._billing()
+        current = service.get_current_rate()
+        return {
+            "current": current.to_dict() if current else None,
+            "history": [r.to_dict() for r in service.list_rate_history(limit=history_limit)],
+        }
+
+    def get_monthly_billing(self, year: int, month: int) -> Optional[dict]:
+        result = self._billing().get_monthly(year, month)
+        return result.to_dict() if result else None
+
+    def get_pending_billing_months(self, max_visible: int = 3) -> dict:
+        """
+        Neden: Banner TÜM bekleyen ayları tarar ama en fazla max_visible tanesini
+        gösterir; kalanı "+N ay daha" olarak katlanır. OSB faturası geciktiğinde
+        birikmiş aylar sessizce gizlenmemeli (Sprint B kararı).
+        """
+        pending = self._billing().list_pending_months()
+        return {
+            "total": len(pending),
+            "visible": [p.to_dict() for p in pending[:max_visible]],
+            "hidden_count": max(0, len(pending) - max_visible),
+        }
+
     def _get_latest_health_report_data(self) -> Optional[dict]:
         """
         Neden: outputs/health/ dizinindeki en son sağlık kontrolü raporunu okumak.

@@ -1,0 +1,309 @@
+"""
+Neden: Faturalama dashboard uçlarının sözleşmesini sabitlemek (Sprint B, ADR-0002).
+Kapsam: yönetici şifresi doğrulaması (+ audit kaydı), domain hatası -> HTTP durum
+kodu eşlemesi, ay formatı doğrulaması ve banner'ın bekleyen ayları katlaması.
+
+HTTP sunucusu ayağa kaldırılmaz: handler metotları sahte (fake) self nesnesiyle
+çağrılır. Böylece test hızlı kalır ve gerçek DB'ye/porta dokunulmaz.
+"""
+from datetime import date, datetime
+from decimal import Decimal
+
+import pytest
+
+from app.billing import (
+    BillingLockedError,
+    BillingMonthNotFoundError,
+    BillingRateExistsError,
+    BillingValidationError,
+    MonthlyBillingResult,
+    STATUS_LOCKED,
+    STATUS_PENDING_RATE,
+)
+from app.dashboard.web_server import DashboardRequestHandler
+
+ADMIN_PW = "test-admin-pw"
+
+
+class _FakeAuth:
+    """Neden: audit_log çağrılarını DB'ye yazmadan yakalamak."""
+
+    def __init__(self):
+        self.actions = []
+
+    def log_action(self, username, ip, action, details=None, success=True):
+        self.actions.append(
+            {"username": username, "ip": ip, "action": action, "details": details, "success": success}
+        )
+
+
+class _FakeHandler:
+    """Neden: BaseHTTPRequestHandler kurmadan handler metotlarını çağırabilmek."""
+
+    def __init__(self, body=None):
+        self._body = body or {}
+        self.auth = _FakeAuth()
+        self.sent = None
+
+    # --- gerçek handler'dan ödünç alınan davranışlar ---
+    _verify_admin_password = DashboardRequestHandler._verify_admin_password
+    _send_billing_error = DashboardRequestHandler._send_billing_error
+    _handle_billing_set_rate = DashboardRequestHandler._handle_billing_set_rate
+    _handle_billing_set_osb_rate = DashboardRequestHandler._handle_billing_set_osb_rate
+
+    def _read_json_body(self):
+        return self._body
+
+    def _get_client_ip(self):
+        return "127.0.0.1"
+
+    def _send_json_contract(self, data, error, status_code=200):
+        self.sent = {"data": data, "error": error, "status": status_code}
+
+
+@pytest.fixture(autouse=True)
+def admin_password(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_ADMIN_PASSWORD", ADMIN_PW)
+
+
+# ----------------------------------------------------------------------
+# 1. Yönetici şifresi
+# ----------------------------------------------------------------------
+def test_wrong_password_is_rejected_and_audited():
+    h = _FakeHandler({"admin_password": "yanlis", "unit_price": "2.9", "valid_from": "2026-08"})
+    h._handle_billing_set_rate("murat")
+
+    assert h.sent["error"] and "şifre" in h.sent["error"].lower()
+    # Denetim izi: başarısız deneme kaydedilmeli
+    assert len(h.auth.actions) == 1
+    entry = h.auth.actions[0]
+    assert entry["action"] == "billing_rate_change"
+    assert entry["success"] is False
+
+
+def test_wrong_admin_password_must_not_return_401():
+    """
+    Neden (regresyon): Arayüzdeki global fetch sarmalayıcısı her 401'i "oturum
+    düştü" sayıp kullanıcıyı login ekranına atıyor. Yanlış yönetici şifresi
+    oturum hatası değildir; kullanıcı formda kalmalı. Dev ortamında bu bug
+    gerçekten yaşandı (Sprint B doğrulaması).
+    """
+    for handler, args in (
+        ("_handle_billing_set_rate", ("murat",)),
+        ("_handle_billing_set_osb_rate", ("murat", "2026-07")),
+    ):
+        h = _FakeHandler({"admin_password": "yanlis", "unit_price": "1.5", "valid_from": "2026-08"})
+        getattr(h, handler)(*args)
+        assert h.sent["status"] != 401, f"{handler} 401 döndürdü — kullanıcı oturumdan atılır"
+        assert h.sent["error"]
+
+
+def test_missing_admin_password_env_blocks_write(monkeypatch):
+    # Neden: DASHBOARD_ADMIN_PASSWORD tanımsızsa yazma AÇIK KALMAMALI.
+    monkeypatch.delenv("DASHBOARD_ADMIN_PASSWORD", raising=False)
+    h = _FakeHandler({"admin_password": "", "unit_price": "2.9", "valid_from": "2026-08"})
+    h._handle_billing_set_rate("murat")
+    assert h.sent["error"] and h.sent["data"] is None
+
+
+def test_osb_rate_wrong_password_audited():
+    h = _FakeHandler({"admin_password": "yanlis", "unit_price": "1.5"})
+    h._handle_billing_set_osb_rate("murat", "2026-07")
+    assert h.sent["error"]
+    assert h.auth.actions[0]["action"] == "billing_osb_rate_entry"
+    assert h.auth.actions[0]["success"] is False
+
+
+# ----------------------------------------------------------------------
+# 2. Girdi doğrulama
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("valid_from", ["", "2026", "26-08", "2026/08", "abc"])
+def test_invalid_valid_from_rejected(valid_from):
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "2.9", "valid_from": valid_from})
+    h._handle_billing_set_rate("murat")
+    assert h.sent["status"] == 400
+
+
+@pytest.mark.parametrize("month_str", ["2026", "2026-13-01", "temmuz", "26-07"])
+def test_invalid_month_format_rejected(month_str):
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "1.5"})
+    h._handle_billing_set_osb_rate("murat", month_str)
+    assert h.sent["status"] == 400
+    # Neden: Format hatası şifre kontrolünden ÖNCE yakalanır; audit kirlenmemeli
+    assert h.auth.actions == []
+
+
+def test_month_picker_value_is_normalized_to_first_day(monkeypatch):
+    # Neden: Arayüz <input type="month"> "2026-08" gönderir; ayın 1'ine tamamlanmalı.
+    captured = {}
+
+    class _FakeService:
+        def get_current_rate(self, as_of=None):
+            return None
+
+        def set_rate(self, unit_price_try, valid_from, created_by, note=None):
+            captured["valid_from"] = valid_from
+            captured["created_by"] = created_by
+            return _rate_dto(valid_from)
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "2.909687", "valid_from": "2026-08"})
+    h._handle_billing_set_rate("murat")
+
+    assert captured["valid_from"] == date(2026, 8, 1)
+    assert captured["created_by"] == "murat"
+    assert h.sent["error"] is None
+
+
+def _rate_dto(valid_from):
+    from app.billing import BillingRateDto
+
+    return BillingRateDto(
+        id=1,
+        rate_type="EXCESS_SALE_UNIT_PRICE",
+        unit_price_try=Decimal("2.909687"),
+        valid_from=valid_from,
+        created_by="murat",
+        created_at=datetime(2026, 7, 27, 10, 0, 0),
+        note=None,
+    )
+
+
+# ----------------------------------------------------------------------
+# 3. Domain hatası -> HTTP durum kodu eşlemesi
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "exc,expected_status",
+    [
+        (BillingValidationError("negatif"), 400),
+        (BillingMonthNotFoundError("kayıt yok"), 404),
+        (BillingLockedError("2026-07 ayı kilitli."), 409),
+        (BillingRateExistsError("zaten var"), 409),
+        (RuntimeError("beklenmedik"), 200),  # genel hata -> sözleşme içinde error mesajı
+    ],
+)
+def test_billing_error_status_mapping(exc, expected_status):
+    h = _FakeHandler()
+    h._send_billing_error(exc)
+    assert h.sent["status"] == expected_status
+    assert h.sent["error"]
+
+
+def test_locked_error_mentions_override_flow():
+    # Neden: Kullanıcı "neden değiştiremiyorum" sorusunun cevabını mesajda görmeli.
+    h = _FakeHandler()
+    h._send_billing_error(BillingLockedError("2026-07 ayı kilitli."))
+    assert "override" in h.sent["error"].lower()
+
+
+def test_unexpected_error_does_not_leak_details():
+    h = _FakeHandler()
+    h._send_billing_error(RuntimeError("psycopg2: password=secret host=10.0.0.169"))
+    assert "secret" not in h.sent["error"]
+    assert "sistem yöneticinizle" in h.sent["error"].lower()
+
+
+# ----------------------------------------------------------------------
+# 4. Başarılı akışlar ve audit içeriği
+# ----------------------------------------------------------------------
+def test_rate_change_audit_records_old_and_new(monkeypatch):
+    class _FakeService:
+        def get_current_rate(self, as_of=None):
+            from app.billing import BillingRateDto
+
+            return BillingRateDto(
+                id=1, rate_type="EXCESS_SALE_UNIT_PRICE",
+                unit_price_try=Decimal("2.000000"), valid_from=date(2026, 6, 1),
+                created_by="eski", created_at=None, note=None,
+            )
+
+        def set_rate(self, unit_price_try, valid_from, created_by, note=None):
+            return _rate_dto(valid_from)
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "2.909687", "valid_from": "2026-08"})
+    h._handle_billing_set_rate("murat")
+
+    details = h.auth.actions[0]["details"]
+    assert "2.000000" in details and "2.909687" in details
+    assert h.auth.actions[0]["success"] is True
+
+
+def test_rate_change_response_says_no_restart_needed(monkeypatch):
+    class _FakeService:
+        def get_current_rate(self, as_of=None):
+            return None
+
+        def set_rate(self, unit_price_try, valid_from, created_by, note=None):
+            return _rate_dto(valid_from)
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "2.909687", "valid_from": "2026-08"})
+    h._handle_billing_set_rate("murat")
+
+    # Neden: SMTP akışından farkı (restart gerekmemesi) kullanıcıya söylenmeli.
+    assert "yeniden başlat" in h.sent["data"]["note"].lower()
+
+
+def test_osb_rate_success_returns_regenerate_url(monkeypatch):
+    class _FakeService:
+        def set_osb_unit_price(self, year, month, unit_price_try, entered_by):
+            return MonthlyBillingResult(
+                year=year, month=month, status=STATUS_LOCKED,
+                osb_unit_price_try=Decimal("1.500000"),
+                osb_deduction_try=Decimal("13500.00"),
+                locked_at=datetime(2026, 7, 27, 12, 0, 0),
+            )
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "1.5"})
+    h._handle_billing_set_osb_rate("murat", "2026-07")
+
+    assert h.sent["error"] is None
+    assert h.sent["data"]["regenerate_url"] == "/api/settlement/trigger/monthly-date"
+    assert h.sent["data"]["month"] == "2026-07"
+    assert h.sent["data"]["billing"]["status"] == STATUS_LOCKED
+    assert h.auth.actions[0]["success"] is True
+
+
+def test_osb_rate_locked_month_returns_409_and_audits_failure(monkeypatch):
+    class _FakeService:
+        def set_osb_unit_price(self, year, month, unit_price_try, entered_by):
+            raise BillingLockedError("2026-07 ayı kilitli; OSB birim fiyatı değiştirilemez.")
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    h = _FakeHandler({"admin_password": ADMIN_PW, "unit_price": "9.9"})
+    h._handle_billing_set_osb_rate("murat", "2026-07")
+
+    assert h.sent["status"] == 409
+    assert h.auth.actions[-1]["success"] is False
+
+
+# ----------------------------------------------------------------------
+# 5. Banner: bekleyen ayların katlanması
+# ----------------------------------------------------------------------
+def _pending(year, month):
+    return MonthlyBillingResult(year=year, month=month, status=STATUS_PENDING_RATE)
+
+
+@pytest.mark.parametrize(
+    "count,expected_visible,expected_hidden",
+    [(0, 0, 0), (1, 1, 0), (3, 3, 0), (5, 3, 2)],
+)
+def test_pending_months_are_folded_after_three(monkeypatch, count, expected_visible, expected_hidden):
+    from app.dashboard.service import DashboardService
+
+    months = [_pending(2026, m) for m in range(1, count + 1)]
+
+    class _FakeBilling:
+        def list_pending_months(self, limit=24):
+            return months
+
+    service = DashboardService.__new__(DashboardService)
+    service._billing_service = _FakeBilling()
+    monkeypatch.setattr(DashboardService, "_billing", lambda self: self._billing_service)
+
+    result = service.get_pending_billing_months()
+    assert result["total"] == count
+    assert len(result["visible"]) == expected_visible
+    assert result["hidden_count"] == expected_hidden
