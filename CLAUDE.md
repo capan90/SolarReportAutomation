@@ -21,7 +21,7 @@ Veritabanı    : SQLite (solar_report_db.sqlite) → PostgreSQL'e migrate planla
 Ana giriş     : main.py
 Release       : 1.0.0-GA (2026-06-30 — CHANGELOG.md'deki güncel kayıt)
 Mimari ref    : ARCHITECTURE.md
-Roadmap ref   : ROADMAP.md
+Roadmap ref   : docs/ROADMAP.md
 Changelog ref : CHANGELOG.md
 
 ## Katmanlar (dokunma sırası)
@@ -42,10 +42,11 @@ iSolar Adapter  →  GAOSB Adapter
 
 - Canonical Layer (EnergyDataPoint, MeterReading, PlantRecord) izinsiz değiştirilmez.
 - Mevcut çalışan ETL pipeline bozulmaz — 1.0.0-GA stabil kalır.
-- Dashboard hiçbir zaman ETL tetiklemez, DB'ye yazmaz.
+- Dashboard ölçüm/ETL verisine yazmaz; referans verisine (billing_rate, monthly_billing gibi) yönetici doğrulaması ve audit_log kaydıyla yazabilir (ADR-0002).
+- Dashboard ETL'i yalnızca kullanıcı tetiklemesiyle ve senkron olarak başlatabilir; zamanlanmış akışa (Task Scheduler) müdahale etmez.
 - Sessiz hata kabul edilmez — her kritik adım loglanır.
 - Secret / credential loglara ve Git'e girmez (.env zorunlu).
-- Yeni teknoloji = önce ADR (docs/adr/).
+- Yeni teknoloji = önce ADR (docs/01_architecture/adr/).
 - Discovery scriptleri production koduna karışmaz (scratch/ klasöründe kalır).
 
 ## Portal Özeti (Adapter yazarken oku)
@@ -79,7 +80,7 @@ Commit        → /commit → sen onaylar → push
 
 ## Referans Dosyalar
 
-- Mimari kararlar  : docs/adr/
+- Mimari kararlar  : docs/01_architecture/adr/
 - Sprint geçmişi   : docs/sprints/
 - Prompt şablonları: docs/prompts/
 - Adapter analizi  : docs/ (Mimari-Keşif-Raporu)

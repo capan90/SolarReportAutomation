@@ -246,6 +246,86 @@ class AuditLog(Base):
     success = Column(Boolean, default=True)
 
 
+class BillingRate(Base):
+    """
+    Neden: Faturalama birim fiyatlarının APPEND-ONLY geçmişi (ADR-0002 §2).
+    Katsayı değişikliği UPDATE değil yeni satırdır; böylece "kim, ne zaman, hangi
+    değeri girdi" denetlenebilir kalır ve geçmiş aylar etkilenmez.
+
+    valid_from ayın İLK GÜNÜ olmak zorundadır (servis katmanı doğrular). Bir ay için
+    geçerli katsayı = valid_from <= ay sonu olan en güncel kayıt. Yalnızca created_at'e
+    bakan "en son değer" mantığı, dashboard'daki geçmiş ay yeniden hesaplama
+    özelliğinde eski aylara güncel (yanlış) katsayı uygulardı.
+
+    Birim fiyatlar KDV HARİÇ (net) TL/kWh'dir; KDV kapsam dışıdır (ADR-0002).
+    """
+    __tablename__ = "billing_rate"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Neden: Şimdilik tek tip ('EXCESS_SALE_UNIT_PRICE') var; ileride başka sabit
+    # tarifeler eklenirse şema değişmeden genişler.
+    rate_type = Column(String(50), nullable=False)
+    # Neden: Para Float tutulmaz (ADR-0002 §8). Birim fiyat 6 haneye kadar hassas
+    # olabilir (ör. 2.909687).
+    unit_price_try = Column(Numeric(18, 6), nullable=False)
+    valid_from = Column(Date, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(100), nullable=False)
+    note = Column(Text, nullable=True)
+
+    # Neden: Aynı tarife tipi için aynı geçerlilik tarihinde iki satır olursa
+    # "o ay hangi katsayı geçerli" sorusu belirsizleşir.
+    __table_args__ = (
+        UniqueConstraint("rate_type", "valid_from", name="uq_billing_rate_type_valid_from"),
+    )
+
+
+class MonthlyBilling(Base):
+    """
+    Neden: Bir ayın kilitlenmiş finansal kaydı (ADR-0002 §3-4).
+
+    KİLİTLENEN KATSAYIDIR, TUTAR DEĞİLDİR:
+    - excess_sale_rate_try satır ilk oluşturulurken yazılır ve bir daha değişmez.
+    - osb_unit_price_try elle girilir; girildiğinde status LOCKED olur ve değişmez.
+    - *_kwh_snapshot her yeniden hesapta güncellenir (eksik veri sonradan tamamlanabilir).
+    - *_try tutarlar kilitli katsayılarla her hesapta yeniden türetilir.
+
+    status:
+      PENDING_RATE = OSB birim fiyatı henüz girilmedi (veya veri tutarsız)
+      LOCKED       = OSB birim fiyatı girildi, katsayılar kilitli
+    """
+    __tablename__ = "monthly_billing"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+
+    # --- Kilitli girdiler ---
+    excess_sale_rate_try = Column(Numeric(18, 6), nullable=True)
+    # Neden: Hangi billing_rate satırından geldiği izlenebilsin (denetim).
+    excess_sale_rate_id = Column(Integer, ForeignKey("billing_rate.id"), nullable=True)
+    osb_unit_price_try = Column(Numeric(18, 6), nullable=True)
+    osb_price_entered_by = Column(String(100), nullable=True)
+    osb_price_entered_at = Column(DateTime, nullable=True)
+
+    # --- Hesabın dayandığı kWh değerleri ---
+    production_kwh_snapshot = Column(Numeric(18, 3), nullable=True)
+    excess_sale_kwh_snapshot = Column(Numeric(18, 3), nullable=True)
+
+    # --- Türetilmiş tutarlar (KDV hariç) ---
+    excess_sale_invoice_try = Column(Numeric(18, 2), nullable=True)
+    osb_deduction_try = Column(Numeric(18, 2), nullable=True)
+
+    status = Column(String(20), nullable=False, default="PENDING_RATE")
+    locked_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_monthly_billing_year_month"),
+    )
+
+
 
 
 

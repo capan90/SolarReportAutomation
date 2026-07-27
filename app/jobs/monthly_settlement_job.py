@@ -408,6 +408,30 @@ class MonthlySettlementJob:
             except Exception as db_err:
                 logger.error(f"Mahsuplaşma DB yazımı başarısız (rapor üretimine devam ediliyor): {db_err}")
 
+            # 3c. Faturalama hesabı (ADR-0002) — BEST-EFFORT.
+            # Neden: TL hesabı kWh raporunu asla engellemez. Katsayı tanımsızsa veya
+            # OSB birim fiyatı henüz girilmemişse ay PENDING_RATE'te kalır; rapor
+            # yine üretilir. Sprint A'da sonuç yalnızca DB'ye yazılır — Excel,
+            # e-posta ve dashboard gösterimi Sprint B/C'de gelecek.
+            try:
+                from app.billing import BillingService
+
+                billing = BillingService().compute(
+                    year=month_dt.year,
+                    month=month_dt.month,
+                    production_kwh=sum(s.production_kwh for s in settlements),
+                    excess_sale_kwh=sum(s.grid_export_kwh for s in settlements),
+                )
+                logger.info(
+                    "Faturalama hesabı yazıldı: %04d-%02d durum=%s fatura=%s TL kesinti=%s TL",
+                    month_dt.year, month_dt.month, billing.status,
+                    billing.excess_sale_invoice_try, billing.osb_deduction_try,
+                )
+            except Exception as billing_err:
+                logger.error(
+                    f"Faturalama hesabı başarısız (rapor üretimine devam ediliyor): {billing_err}"
+                )
+
             logger.info("4. Aşama: Excel raporu (4 sayfa) yazılıyor...")
             rapor_path = output_dir / f"mahsup_{month_dt.strftime('%Y%m')}_aylik.xlsx"
             self._write_monthly_report(settlements, rapor_path, month_dt, prev_totals)

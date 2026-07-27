@@ -4,7 +4,7 @@ from app.database.db_session import (
     create_tables,
     test_connection
 )
-from app.database.models import SolarPlant, DailyGeneration, EtlRun, NotificationHistory, RetryHistory, PerformanceMetric, PlantStatus, DashboardUser, AuditLog
+from app.database.models import SolarPlant, DailyGeneration, EtlRun, NotificationHistory, RetryHistory, PerformanceMetric, PlantStatus, DashboardUser, AuditLog, BillingRate, MonthlyBilling
 from app.database.loader import DatabaseLoader, LoadResult
 from app.database.audit_repository import AuditRepository
 from app.database.metric_repository import MetricRepository
@@ -24,6 +24,8 @@ __all__ = [
     "PlantStatus",
     "DashboardUser",
     "AuditLog",
+    "BillingRate",
+    "MonthlyBilling",
     "DatabaseLoader",
     "LoadResult",
     "AuditRepository",
