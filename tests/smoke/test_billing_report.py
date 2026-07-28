@@ -5,14 +5,16 @@ doğru yansıdığını sabitlemek (ADR-0002).
 Ana kural her üç kanalda aynı: hesaplanmamış tutar 0 TL DEĞİL, "Bekleniyor" /
 "girilmedi" olarak gösterilir. Sıfır tutarla eksik veri karıştırılmamalı.
 """
+import json
 from datetime import datetime
 from decimal import Decimal
 
 import openpyxl
 import pytest
 
-from app.billing import MonthlyBillingResult, STATUS_LOCKED, STATUS_PENDING_RATE
+from app.billing import BillingService, MonthlyBillingResult, STATUS_LOCKED, STATUS_PENDING_RATE
 from app.chatbot.parser import MetricParser
+from app.chatbot.query_engine import QueryEngine
 from app.chatbot.response_builder import ResponseBuilder
 from app.jobs.monthly_settlement_job import MonthlySettlementJob
 
@@ -365,3 +367,48 @@ def test_daily_summary_has_no_billing_lines():
             "grid_import": 10, "grid_export": 20}
     out = _answer("dün özet", data, period="day", label="dün")
     assert "Faturalama" not in out
+
+
+# ----------------------------------------------------------------------
+# 5. Chatbot — yanıt JSON'a çevrilebilmeli (2026-07-28 regresyonu)
+# ----------------------------------------------------------------------
+def test_billing_fields_are_json_serializable(monkeypatch):
+    """
+    Neden (regresyon): _billing_fields ham Decimal döndürüyordu ve bu sözlük
+    doğrudan /api/chat yanıtının "data" alanına konuyor. json.dumps Decimal'i
+    serileştiremediği için faturalama kaydı olan bir ayın SORULARININ TAMAMI
+    (yalnızca TL soruları değil) "Sistem şu anda yanıt veremiyor." veriyordu.
+    Cevap metni doğru üretiliyordu; patlayan yalnızca serileştirmeydi — bu
+    yüzden mevcut testler bugı göremedi, hepsi metne bakıyordu.
+    """
+    monkeypatch.setattr(BillingService, "get_monthly", lambda self, y, m: _locked(2026, 6))
+
+    fields = QueryEngine()._billing_fields(2026, 6)
+
+    json.dumps(fields)  # ham Decimal ile TypeError verirdi
+    assert isinstance(fields["excess_sale_invoice"], float)
+    assert isinstance(fields["osb_deduction"], float)
+    assert fields["excess_sale_invoice"] == 2909.69
+    assert fields["osb_deduction"] == 13500.00
+
+
+def test_billing_fields_keep_none_instead_of_zero(monkeypatch):
+    # Neden: Tip dönüşümü None'ı 0.0'a çevirmemeli — "Bekleniyor" ile "sıfır TL"
+    # ayrımı ADR-0002 §6'nın çekirdeği.
+    monkeypatch.setattr(BillingService, "get_monthly", lambda self, y, m: _pending(2026, 7))
+
+    fields = QueryEngine()._billing_fields(2026, 7)
+
+    assert fields["osb_deduction"] is None
+    assert isinstance(fields["excess_sale_invoice"], float)
+
+
+def test_billing_fields_empty_when_no_record(monkeypatch):
+    monkeypatch.setattr(BillingService, "get_monthly", lambda self, y, m: None)
+    assert QueryEngine()._billing_fields(2026, 6) == {}
+
+
+def test_chatbot_amount_text_unchanged_with_float_values():
+    # Neden: Decimal -> float dönüşümü gösterilen tutarı değiştirmemeli.
+    out = _answer("fazla satış faturası ne kadar", {"excess_sale_invoice": 2909.69})
+    assert "2.909,69 TL" in out

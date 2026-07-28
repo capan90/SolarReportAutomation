@@ -2895,10 +2895,19 @@
                 const res = await fetch("/api/settlement/trigger/monthly-date", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ month: month })
+                    // force: Bu buton tam da raporun ZATEN var olduğu durumda basılır
+                    // (OSB fiyatı girildikten sonra). force olmadan uç "cached" dönüp
+                    // raporu hiç üretmiyordu; tutarlar Excel'e yansımıyordu.
+                    body: JSON.stringify({ month: month, force: true })
                 });
                 const body = await res.json();
-                if (body.success) {
+                if (body.success && body.data && body.data.status === "cached") {
+                    // Neden: "cached" burada BAŞARI SAYILMAZ — rapor üretilmemiş
+                    // demektir ve kullanıcı tutarların yansıdığını sanır. force ile
+                    // oluşmaması gerekir; oluşursa sessizce gizlenmez.
+                    msg.className = "msg bad";
+                    msg.innerText = "Rapor yeniden üretilmedi (önbellekten döndü). Lütfen sistem yöneticisine bildirin.";
+                } else if (body.success) {
                     msg.className = "msg ok";
                     msg.innerText = "✓ Rapor yeniden üretildi.";
                     loadSettlements();

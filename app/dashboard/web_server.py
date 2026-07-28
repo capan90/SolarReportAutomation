@@ -6,7 +6,8 @@ import asyncio
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -1116,8 +1117,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self._send_json_contract(response_data, error_message)
 
     def _handle_settlement_trigger_monthly_date(self) -> None:
+        """
+        Neden (force): Mevcut kayıt + dosya varsa job HİÇ koşmaz, "cached" dönülür —
+        "geçmiş ay raporu üret" formu için doğru davranış (aynı raporu dakikalarca
+        yeniden üretmek anlamsız). Ama faturalama akışındaki "Raporu Yeniden Üret"
+        butonu tam da dosyanın ZATEN var olduğu durumda çağrılır: OSB birim fiyatı
+        girildikten sonra tutarların Excel'e yansıması için. Cache dalı yüzünden o
+        buton hiçbir zaman rapor üretmiyordu ve arayüz yine de "✓ Rapor yeniden
+        üretildi." diyordu (2026-07-28 olayı). force=true cache'i atlar; varsayılan
+        false olduğu için diğer çağıranın davranışı değişmez.
+        """
         body = self._read_json_body()
         month_str = body.get("month")
+        force = bool(body.get("force", False))
         if not month_str or not re.match(r"^\d{4}-\d{2}$", month_str):
             self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM")
             return
@@ -1155,13 +1167,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             has_db = repo.has_monthly_data(year, month)
             report_path = repo.get_monthly_report_path(year, month)
 
-            if has_db and report_path:
+            if has_db and report_path and not force:
                 response_data = {
                     "status": "cached",
                     "report_path": report_path,
                     "download_url": f"/api/settlement/download/monthly/{month_str}"
                 }
             else:
+                if force and has_db and report_path:
+                    # Neden: Mevcut rapor üzerine yazılıyor; hangi tetiklemenin
+                    # dosyayı değiştirdiği log üzerinden izlenebilmeli.
+                    logger.info(
+                        "%s aylık raporu force=true ile yeniden üretiliyor "
+                        "(mevcut dosya üzerine yazılacak: %s).", month_str, report_path,
+                    )
                 from app.jobs.monthly_settlement_job import MonthlySettlementJob
                 result = _run_in_clean_thread(lambda: MonthlySettlementJob().run(target_month=month_str))
                 if result.get("status") == "SUCCESS":
@@ -1477,7 +1496,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "data": query_result.get("data", {})
             }, None)
         except Exception as e:
-            logger.error(f"Chatbot endpoint hatası: {e}")
+            # Neden: exc_info olmadan yalnızca hata METNİ loglanıyordu; hangi satırda
+            # patladığı görünmediği için 2026-07-28'deki Decimal serileştirme hatası
+            # log üzerinden teşhis edilemedi. Sessiz hata yok kuralı stack trace ister.
+            logger.error(f"Chatbot endpoint hatası: {e}", exc_info=True)
             self._send_json_contract({"response": "Sistem şu anda yanıt veremiyor.", "data": {}}, None)
 
     def _handle_smtp_settings(self) -> None:
@@ -1611,6 +1633,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     # ------------------------------------------------------------------
     # Ortak yanıt yardımcıları
     # ------------------------------------------------------------------
+    @staticmethod
+    def _json_default(value):
+        """
+        Neden: Sözleşme serileştirmesinin savunma katmanı. Faturalama katmanı
+        parasal alanları Decimal tutar (ADR-0002 gereği Float kullanılmıyor) ve
+        bu tip bir uca ham sızarsa json.dumps TypeError verir; hata handler'ın
+        genel except'ine düşüp TÜM ucu çalışmaz hâle getirir. 2026-07-28'de
+        chatbot'ta tam olarak bu oldu — cevap doğru üretiliyordu, yalnızca
+        serileştirme patlıyordu.
+
+        Bu, çağıranın doğru tipi verme sorumluluğunu KALDIRMAZ (asıl düzeltme
+        kaynakta yapılır); burada amaç tek bir tip hatasının bütün endpoint'i
+        düşürmesini engellemek. Bilinmeyen tip hâlâ TypeError verir — sessizce
+        str'e çevrilip bozuk veri döndürülmez.
+        """
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        raise TypeError(f"JSON'a çevrilemeyen tip: {type(value).__name__}")
+
     def _send_json_contract(self, response_data, error_message, status_code: int = 200) -> None:
         contract = {
             "success": error_message is None,
@@ -1622,7 +1665,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "version": "v1.1.0",
             },
         }
-        payload = json.dumps(contract, ensure_ascii=False).encode("utf-8")
+        payload = json.dumps(contract, ensure_ascii=False, default=self._json_default).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))

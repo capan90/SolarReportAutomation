@@ -153,6 +153,15 @@ class QueryEngine:
         göstermez. None ile 0 karıştırılmaz: tutar None ise "birim fiyat girilmedi"
         denir, sıfır TL denmez.
         Best-effort: billing katmanı hata verirse kWh cevabı etkilenmez.
+
+        DİKKAT — float'a çevrilir, ham Decimal DÖNDÜRÜLMEZ: Bu sözlük doğrudan
+        /api/chat yanıtının "data" alanına konur ve json.dumps Decimal'i
+        serileştiremez. Ham bırakıldığında faturalama kaydı olan HER ay sorusu
+        (yalnızca TL soruları değil) "Sistem şu anda yanıt veremiyor." veriyordu
+        (2026-07-28 olayı). Diğer tüm faturalama tüketicileri to_dict() üzerinden
+        geçtiği için sızıntı yalnızca buradaydı. Gösterilen tutar metni
+        ResponseBuilder'da bu değerden biçimlenir; kuruş hassasiyeti için 2
+        ondalıklı tutarlarda float dönüşümü kayıpsızdır.
         """
         try:
             from app.billing import BillingService
@@ -160,9 +169,13 @@ class QueryEngine:
             result = BillingService().get_monthly(year, month)
             if result is None:
                 return {}
+
+            def _num(value):
+                return float(value) if value is not None else None
+
             return {
-                "excess_sale_invoice": result.excess_sale_invoice_try,
-                "osb_deduction": result.osb_deduction_try,
+                "excess_sale_invoice": _num(result.excess_sale_invoice_try),
+                "osb_deduction": _num(result.osb_deduction_try),
                 "billing_status": result.status,
             }
         except Exception:

@@ -6,7 +6,9 @@ kodu eşlemesi, ay formatı doğrulaması ve banner'ın bekleyen ayları katlama
 HTTP sunucusu ayağa kaldırılmaz: handler metotları sahte (fake) self nesnesiyle
 çağrılır. Böylece test hızlı kalır ve gerçek DB'ye/porta dokunulmaz.
 """
-from datetime import date, datetime
+import io
+import json
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -50,6 +52,9 @@ class _FakeHandler:
     _send_billing_error = DashboardRequestHandler._send_billing_error
     _handle_billing_set_rate = DashboardRequestHandler._handle_billing_set_rate
     _handle_billing_set_osb_rate = DashboardRequestHandler._handle_billing_set_osb_rate
+    _handle_settlement_trigger_monthly_date = (
+        DashboardRequestHandler._handle_settlement_trigger_monthly_date
+    )
 
     def _read_json_body(self):
         return self._body
@@ -307,3 +312,165 @@ def test_pending_months_are_folded_after_three(monkeypatch, count, expected_visi
     assert result["total"] == count
     assert len(result["visible"]) == expected_visible
     assert result["hidden_count"] == expected_hidden
+
+
+# ----------------------------------------------------------------------
+# 6. Sözleşme serileştirmesi — Decimal tüm ucu düşürmemeli (2026-07-28)
+# ----------------------------------------------------------------------
+class _WireHandler:
+    """
+    Neden: Gerçek _send_json_contract'ı (içindeki json.dumps dahil) soket
+    kurmadan koşturmak. Savunma katmanının GERÇEKTEN bağlı olduğunu doğrular;
+    testin kendi json.dumps'ını çağırmak bunu kanıtlamazdı.
+    """
+
+    _json_default = staticmethod(DashboardRequestHandler._json_default)
+    _send_json_contract = DashboardRequestHandler._send_json_contract
+
+    def __init__(self):
+        self.status = None
+        self.headers_sent = {}
+        self.wfile = io.BytesIO()
+
+    def send_response(self, code):
+        self.status = code
+
+    def send_header(self, key, value):
+        self.headers_sent[key] = value
+
+    def end_headers(self):
+        pass
+
+    def payload(self):
+        return json.loads(self.wfile.getvalue().decode("utf-8"))
+
+
+def test_contract_serializes_decimal_instead_of_failing():
+    """
+    Neden (regresyon): json.dumps'ta default= yoktu; bir uçtan sızan tek bir
+    Decimal TypeError verip handler'ın genel except'ine düşüyor ve TÜM ucu
+    çalışmaz hâle getiriyordu (chatbot: "Sistem şu anda yanıt veremiyor.").
+    """
+    h = _WireHandler()
+    h._send_json_contract({"tutar": Decimal("10748030.54")}, None)
+
+    body = h.payload()
+    assert h.status == 200
+    assert body["success"] is True
+    assert body["data"]["tutar"] == 10748030.54
+
+
+def test_contract_serializes_dates():
+    h = _WireHandler()
+    h._send_json_contract({"gun": date(2026, 6, 30), "an": datetime(2026, 6, 30, 12, 0)}, None)
+
+    body = h.payload()
+    assert body["data"]["gun"] == "2026-06-30"
+    assert body["data"]["an"].startswith("2026-06-30T12:00")
+
+
+def test_contract_still_rejects_unknown_types():
+    # Neden: Savunma katmanı "her şeyi str'e çevir" DEĞİL — bilinmeyen tip
+    # sessizce bozuk veriye dönüşmemeli, hata vermeli.
+    with pytest.raises(TypeError):
+        DashboardRequestHandler._json_default(object())
+
+
+# ----------------------------------------------------------------------
+# 7. "Raporu Yeniden Üret" — force cache'i atlamalı (2026-07-28)
+# ----------------------------------------------------------------------
+def _prev_month_str():
+    """Neden: Uç 'bu aydan önce' ve 'en fazla 2 yıl geriye' doğrulaması yapıyor;
+    sabit ay yazmak testi zamanla çürütürdü."""
+    first_of_this_month = date.today().replace(day=1)
+    prev = first_of_this_month - timedelta(days=1)
+    return f"{prev.year:04d}-{prev.month:02d}"
+
+
+class _RecordingJob:
+    """Neden: Job'un GERÇEKTEN koşup koşmadığını kaydetmek (asıl iddia bu)."""
+
+    calls = []
+
+    def run(self, target_month=None):
+        _RecordingJob.calls.append(target_month)
+        return {"status": "SUCCESS", "report_path": "outputs/reports/x.xlsx"}
+
+
+@pytest.fixture
+def existing_report(monkeypatch):
+    """Neden: Hem DB satırı hem rapor dosyası VAR — cache dalının tetiklendiği durum."""
+    import app.database.settlement_repository as repo_mod
+    import app.jobs.monthly_settlement_job as job_mod
+
+    class _FakeRepo:
+        def has_monthly_data(self, year, month):
+            return True
+
+        def get_monthly_report_path(self, year, month):
+            return f"outputs/reports/{year:04d}-{month:02d}/mahsup_{year:04d}{month:02d}_aylik.xlsx"
+
+    _RecordingJob.calls = []
+    monkeypatch.setattr(repo_mod, "SettlementRepository", _FakeRepo)
+    monkeypatch.setattr(job_mod, "MonthlySettlementJob", _RecordingJob)
+    return _RecordingJob
+
+
+def test_force_regenerates_even_when_report_exists(existing_report):
+    """
+    Neden (regresyon): Faturalama akışındaki "Raporu Yeniden Üret" butonu tam da
+    raporun ZATEN var olduğu durumda basılır (OSB birim fiyatı girildikten
+    sonra). Cache dalı yüzünden job hiç koşmuyor, uç success=true dönüyor ve
+    arayüz "✓ Rapor yeniden üretildi." diyordu — tutarlar Excel'e hiç
+    yansımıyordu.
+    """
+    month = _prev_month_str()
+    h = _FakeHandler({"month": month, "force": True})
+    h._handle_settlement_trigger_monthly_date()
+
+    assert existing_report.calls == [month], "force=true iken job koşmalıydı"
+    assert h.sent["error"] is None
+    assert h.sent["data"]["status"] == "SUCCESS"
+    assert h.sent["data"]["download_url"].endswith(month)
+
+
+def test_without_force_cache_behaviour_is_preserved(existing_report):
+    # Neden: "Geçmiş ay raporu üret" formu aynı ucu kullanıyor; oradaki cache
+    # davranışı bilinçli ve korunmalı.
+    month = _prev_month_str()
+    h = _FakeHandler({"month": month})
+    h._handle_settlement_trigger_monthly_date()
+
+    assert existing_report.calls == [], "force yokken job koşmamalıydı"
+    assert h.sent["data"]["status"] == "cached"
+
+
+def test_force_runs_job_when_nothing_cached(monkeypatch):
+    import app.database.settlement_repository as repo_mod
+    import app.jobs.monthly_settlement_job as job_mod
+
+    class _EmptyRepo:
+        def has_monthly_data(self, year, month):
+            return False
+
+        def get_monthly_report_path(self, year, month):
+            return None
+
+    _RecordingJob.calls = []
+    monkeypatch.setattr(repo_mod, "SettlementRepository", _EmptyRepo)
+    monkeypatch.setattr(job_mod, "MonthlySettlementJob", _RecordingJob)
+
+    month = _prev_month_str()
+    h = _FakeHandler({"month": month, "force": True})
+    h._handle_settlement_trigger_monthly_date()
+
+    assert _RecordingJob.calls == [month]
+
+
+def test_force_does_not_bypass_month_validation(existing_report):
+    # Neden: force bir yetki/doğrulama kaçamağı değil, yalnızca cache'i atlar.
+    h = _FakeHandler({"month": "gecersiz", "force": True})
+    h._handle_settlement_trigger_monthly_date()
+
+    assert h.sent["error"] is not None
+    assert existing_report.calls == []
