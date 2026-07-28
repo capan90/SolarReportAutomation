@@ -6,6 +6,16 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Sağlık Kontrolü: Tarayıcı Kontrolü Kapanışı Değil Başlatmayı Ölçüyor (2026-07-28)
+
+- **Yanlış pozitif**: `BrowserCheck`, launch + sayfa + **kapanışı** tek bir 10 sn'lik pencerede ölçüyordu. Dev laptopta `browser.close()` geçici olarak 22 sn sürünce (aynı anda `chromium.launch` 0,22 sn'ydi) kontrol TIMEOUT verdi, genel durum FAILED oldu ve pre-commit hook commit'i engelledi — bir `--no-verify` bypass'ına mal oldu. Oysa kontrolün sorduğu soru "tarayıcı kullanılabilir mi"; cevabı **başlatmadır**. Kapanış yavaşlığı ETL sonucunu etkilemez, işi biten tarayıcının kapanması gecikir sadece.
+- **Ölçüm artık `with` bloğunun İÇİNDE alınıyor** — yani `__exit__` çalışmadan önce. `duration_ms` başlatma süresidir; kapanış süresi `details.teardown_ms` olarak ayrıca raporlanır. `PlaywrightClient`'a dokunulmadı (ETL yolları paylaşıyor).
+- **Kapanış SENKRON kaldı**: Ayrı bir thread'e atılsaydı süreç kapanışında orphan chromium ve `%TEMP%` kalıntısı bırakma riski doğardı — `PlaywrightClient`'ın var oluş sebebi tam da bunu önlemek. Yavaşlık **yutulmuyor**, WARNING olarak raporlanıyor: sağlık raporunda ve JSON'da görünür, ama commit'i/ETL'i engellemez (`main.py` yalnızca `FAILED`'de sıfırdan farklı çıkış kodu verir). Sessiz hata yok kuralı, "hatayı gizle" ile değil "doğru şiddette raporla" ile karşılanıyor.
+- **Durum ayrımı netleşti**: başlatma başarısız → `FAILED` (tarayıcı gerçekten kullanılamıyor); başlatma başarılı + kapanış hatalı veya 5 sn'den yavaş → `WARNING`; ikisi de normal → `SUCCESS`.
+- **Zaman aşımı penceresi 10 sn → 60 sn**: Artık başarı ölçütü değil, yalnızca **gerçek takılmaya** karşı emniyet supabı; yavaş-ama-biten kapanış sığsın diye genişletildi. 60 sn, GAOSB extractor'daki `LAUNCH_TIMEOUT_MS` ile aynı büyüklük (bilinçli tercih).
+- **Kök neden teşhis edildi ama düzeltilmedi (kasıtlı)**: Yavaşlık A/B/C deneyiyle ölçüldü — geçici profil silme değilmiş (`shutil.rmtree` 0,01 sn; silme yapmayan persistent context bile aynı hızda). Sistem olay günlüğü, laptopun modern standby'a girip çıktığını gösteriyor (24 saatte 9 çevrim; yavaş pencere bir uyanıştan ~5 dk sonra, Defender yapılandırma olayıyla aynı dakikalarda). Sonraki 8 ölçümün tamamı normal (close 0,19–0,27 sn). Kanıtlanmış nedensellik değil korelasyon olduğu ve durum kalıcı olmadığı için AV exclusion / temp dizini taşıma gibi bir değişiklik yapılmadı — kontrolün yanlış pozitife dayanıklı hâle getirilmesi yeterli görüldü.
+- **Testler**: 7 yeni test — sürenin kapanışı içermemesi, yavaş kapanışın FAILED değil WARNING olması, yavaş kapanışın genel durumu FAILED yapmaması (yani commit'i bloklamaması), başlatma hatasının FAILED kalması, kapanış hatasının WARNING olması, zaman aşımı penceresinin yavaş eşiğinden belirgin geniş olması. Gerçek Chromium başlatmadan, sahte `PlaywrightClient` ile. Paket 286 → **293 test**.
+
 ### Chatbot "Sistem şu anda yanıt veremiyor" + "Raporu Yeniden Üret" Sessiz No-Op (2026-07-28)
 
 İki ayrı sunucu bulgusu; ortak yanları, ikisinin de **başarı görünümü altında** hata gizlemesi.

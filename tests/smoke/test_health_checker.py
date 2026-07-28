@@ -93,3 +93,137 @@ def test_filesystem_check_gercek(checker_factory):
     make, _ = checker_factory
     result = make([FilesystemCheck()]).run_all()
     assert result.checks[0].status == "SUCCESS"
+
+
+# ----------------------------------------------------------------------
+# BrowserCheck — ölçülen şey BAŞLATMA, kapanış değil (2026-07-28 regresyonu)
+# ----------------------------------------------------------------------
+def _fake_client(startup=0.0, teardown=0.0, enter_error=None, exit_error=None):
+    """Neden: Gerçek Chromium başlatmadan başlatma/kapanış fazlarını taklit etmek."""
+
+    class _FakePage:
+        def close(self):
+            pass
+
+    class _FakeClient:
+        def __init__(self, headless=True):
+            self.headless = headless
+
+        def __enter__(self):
+            if startup:
+                time.sleep(startup)
+            if enter_error:
+                raise RuntimeError(enter_error)
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if teardown:
+                time.sleep(teardown)
+            if exit_error:
+                raise RuntimeError(exit_error)
+
+        def create_page(self):
+            return _FakePage()
+
+    return _FakeClient
+
+
+@pytest.fixture
+def patch_client(monkeypatch):
+    def _patch(**kwargs):
+        monkeypatch.setattr(
+            "app.monitoring.health.checks.browser_check.PlaywrightClient",
+            _fake_client(**kwargs),
+        )
+
+    return _patch
+
+
+def test_browser_check_normal_basarili(patch_client):
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    patch_client()
+    result = BrowserCheck().run()
+
+    assert result.status == "SUCCESS"
+    assert result.details["startup_ms"] is not None
+    assert result.details["teardown_ms"] is not None
+
+
+def test_browser_check_suresi_kapanisi_ICERMEZ(patch_client):
+    """
+    Neden (asıl iddia): Kontrolün süresi başlatmayı ölçmeli. Eskiden launch +
+    sayfa + kapanış tek pencerede ölçülüyordu ve yavaş kapanış TIMEOUT üretip
+    commit'i blokluyordu.
+    """
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    patch_client(teardown=0.4)
+    result = BrowserCheck().run()
+
+    assert result.duration_ms < 200, "süre kapanışı içeriyor"
+    assert result.details["teardown_ms"] >= 350
+
+
+def test_browser_check_yavas_kapanis_FAILED_degil_WARNING(patch_client, monkeypatch):
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    # Neden: 22 sn'lik gerçek kapanışı testte beklemek yerine eşik düşürülür.
+    monkeypatch.setattr(BrowserCheck, "SLOW_TEARDOWN_MS", 200)
+    patch_client(teardown=0.4)
+    result = BrowserCheck().run()
+
+    assert result.status == "WARNING"
+    assert result.status != "FAILED"
+    assert "kapanış" in result.message
+
+
+def test_browser_check_yavas_kapanis_commiti_BLOKLAMAZ(patch_client, monkeypatch, checker_factory):
+    """
+    Neden: main.py yalnızca overall_status == FAILED iken sıfırdan farklı çıkış
+    kodu verir; pre-commit hook da buna bakar. Yavaş kapanış görünür olmalı ama
+    commit'i/ETL'i engellememeli.
+    """
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    monkeypatch.setattr(BrowserCheck, "SLOW_TEARDOWN_MS", 200)
+    patch_client(teardown=0.4)
+    make, _ = checker_factory
+
+    report = make([BrowserCheck()]).run_all()
+
+    assert report.overall_status == "WARNING"
+    assert report.errors == 0
+    assert report.warnings == 1
+
+
+def test_browser_check_baslatma_hatasi_FAILED(patch_client):
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    patch_client(enter_error="chromium bulunamadı")
+    result = BrowserCheck().run()
+
+    assert result.status == "FAILED"
+    assert "chromium bulunamadı" in result.message
+
+
+def test_browser_check_kapanis_hatasi_WARNING(patch_client):
+    # Neden: Kapanış patlasa bile tarayıcı KULLANILABİLİR; kontrol FAILED olmamalı.
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    patch_client(exit_error="pipe kapandı")
+    result = BrowserCheck().run()
+
+    assert result.status == "WARNING"
+    assert result.details["teardown_error"] == "pipe kapandı"
+
+
+def test_browser_check_timeout_penceresi_yavas_kapanisa_dayanikli():
+    """
+    Neden: Emniyet supabı, "yavaş ama biten" kapanıştan önce devreye girmemeli.
+    Yapısal iddia — pencere, yavaş sayılan eşikten belirgin şekilde geniş olmalı.
+    """
+    from app.monitoring.health.checks.browser_check import BrowserCheck
+
+    check = BrowserCheck()
+    assert check.timeout_seconds * 1000 >= check.SLOW_TEARDOWN_MS * 4
