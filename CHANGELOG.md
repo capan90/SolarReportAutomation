@@ -6,6 +6,17 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### GAOSB Login: Şifre Maskesiz Alana Sızıyordu — Odak Doğrulaması (2026-08-01)
+
+- **Kök neden**: DevExpress maskeli şifre kutusu iki input kullanıyor — boşken görünen dummy (`_I_CLND`) ve gizli gerçek alan (`_I`). Dummy→gerçek geçişi olmadığında `password_el.click()` odağı taşımıyor, odak kullanıcı adı alanında kalıyor ve `press_sequentially(password)` şifreyi **maskesiz** kullanıcı adı kutusuna döküyordu. 1 Ağustos aylık koşusunun log imzası bunu tam olarak gösteriyor: kullanıcı adı 9 → 13, şifre 0 — **13 = 9 + 4** (tuş vuruşları korunmuş). Üç deneme de aynı yerde düştü, login butonuna hiç basılmadı; portal kimlik bilgilerini hiç görmedi.
+- **Güvenlik etkisi**: `_log_login_failure_diagnostics` tam bu durumdayken sayfanın ekran görüntüsünü alıyordu; şifre `outputs/gaosb_diag/*.png` içine açık metin düşebiliyordu ve o dizin `.gitignore` kapsamında **değildi**. Depoya hiç PNG girmemiş (`git ls-files` boş), risk diskle sınırlı kaldı.
+- **Düzeltme — sızıntı önlenir, tespit edilmez**: Şifre yazılmadan önce `document.activeElement.id` ile odak doğrulanıyor; eşleşmiyorsa açık `focus()` deneniyor, yine olmazsa `GaosbLoginFocusError` ile **şifre hiç yazılmadan** duruluyor. İkinci emniyet olarak yazım sonrası kullanıcı adı alanının uzunluğu kontrol ediliyor (DevExpress odağı yazım ortasında geri alırsa).
+- **Sessiz tekrar kaldırıldı**: `GaosbLoginFocusError` ayrı tip; `_perform_login`'in 3'lük ValueError döngüsüne düşmüyor. Sızıntıda tekrar denemek şifreyi yanlış alana yeniden yazmak demekti.
+- **Kör nokta kapatıldı**: Şifre alanı akışındaki iki `except Exception: pass` bloğu loglanıyor — dummy görünür müydü, tıklama patladı mı, `wait_for_selector` timeout mu verdi. 1 Ağustos teşhizinde bunlar görünmediği için hangi adımın kırıldığı logdan ayırt edilemiyordu (sessiz hata yok kuralı).
+- **Ekran görüntüsü artık temizlenmiş alanlarla alınıyor**; temizlik başarısız olursa görüntü hiç alınmıyor. `outputs/gaosb_diag/` `.gitignore`'a eklendi.
+- **Doğrulama**: Laptopta gerçek portal login'i başarılı (`check_session` → `Default.aspx`, captcha yok). Bu, sağlıklı render'ın bozulmadığını gösterir; sunucudaki arıza yeniden üretilmedi, sızıntı yolu unit testlerle kapsandı.
+- **Testler**: 5 yeni test — odak semantiğini taklit eden sahte sayfa üzerinde happy path, odak alınamamasında şifrenin kullanıcı adına sızmaması, yazım sırasında odağın çalınmasının 9→13 imzasıyla yakalanması, sessiz 3-tekrar yapılmaması, temizlik başarısızken ekran görüntüsünün atlanması. Paket 293 → **298 test**.
+
 ### Sağlık Kontrolü: Tarayıcı Kontrolü Kapanışı Değil Başlatmayı Ölçüyor (2026-07-28)
 
 - **Yanlış pozitif**: `BrowserCheck`, launch + sayfa + **kapanışı** tek bir 10 sn'lik pencerede ölçüyordu. Dev laptopta `browser.close()` geçici olarak 22 sn sürünce (aynı anda `chromium.launch` 0,22 sn'ydi) kontrol TIMEOUT verdi, genel durum FAILED oldu ve pre-commit hook commit'i engelledi — bir `--no-verify` bypass'ına mal oldu. Oysa kontrolün sorduğu soru "tarayıcı kullanılabilir mi"; cevabı **başlatmadır**. Kapanış yavaşlığı ETL sonucunu etkilemez, işi biten tarayıcının kapanması gecikir sadece.

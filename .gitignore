@@ -64,3 +64,8 @@ config/isolar_browser_profile/
 # Üretim rapor arşivi ve manuel test çıktıları (raw archive diskte korunur, Git'e girmez)
 outputs/reports/
 outputs/test_*
+
+# GAOSB login teşhis ekran görüntüleri — odak sızıntısında şifre maskesiz alana
+# düşebiliyordu (2026-08-01 olayı); ekran görüntüsü artık temizlenmiş alanlarla
+# alınıyor ama bu dizin hiçbir koşulda Git'e girmez.
+outputs/gaosb_diag/
