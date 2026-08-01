@@ -196,6 +196,43 @@ class SettlementMonthly(Base):
     )
 
 
+class SettlementReconciliation(Base):
+    """
+    Neden: Aylık iş, günlük işin yazdığı veriyi üzerine yazıyor ve iki yolun aynı
+    sayıyı üretip üretmediği hiç ölçülmedi (ADR-0003). Bu tablo, aylık iş DB'ye
+    YAZMADAN ÖNCE yaptığı karşılaştırmayı kaydeder — Faz 2 (hibrit) kararı 3 aylık
+    birikimle bu tablodan verilecek.
+
+    Uzun (long) format: her koşuda her gün × her metrik için bir satır. EŞLEŞEN
+    günler de yazılır — yalnızca farklar yazılsaydı "kaç günün kaçı farklı" oranının
+    paydası kaybolurdu.
+
+    `within_tolerance=False` iki durumdan biri anlamına gelir: (a) metrik değeri
+    toleransı aştı, (b) kapsam uyuşmazlığı var (db_hours != scrape_hours). İkisini
+    ayırt etmek için db_hours/scrape_hours kolonlarına bakılır. Basit "sorun var mı"
+    sorgusunun hiçbir vakayı sessizce kaçırmaması için bu şekilde birleştirildi.
+    """
+    __tablename__ = "settlement_reconciliation"
+
+    id = Column(Integer, primary_key=True)
+    run_id = Column(String(80), nullable=False)
+    target_month = Column(String(7), nullable=False, index=True)  # "2026-07"
+    date = Column(Date, nullable=False)
+    metric = Column(String(24), nullable=False)
+    db_value = Column(Float, nullable=False)       # yazmadan ÖNCE DB'de duran değer
+    scrape_value = Column(Float, nullable=False)   # aylık işin yeni hesapladığı değer
+    diff = Column(Float, nullable=False)           # scrape_value - db_value
+    diff_pct = Column(Float)                       # db_value == 0 ise NULL (bölme yok)
+    within_tolerance = Column(Boolean, nullable=False)
+    db_hours = Column(Integer, nullable=False)     # o gün DB'de kaç saatlik kayıt vardı
+    scrape_hours = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('run_id', 'date', 'metric', name='uq_settlement_reconciliation'),
+    )
+
+
 class PerformanceMetric(Base):
     """
     Neden: Pipeline aşama süreleri, sistem durumları (CPU/RAM/Disk) ve operasyonel metriklerin 

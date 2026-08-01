@@ -6,6 +6,18 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### ADR-0003 Faz 1: Aylık İş Artık Ezmeden Önce Karşılaştırıyor (2026-08-01)
+
+- **Neden**: Aylık iş, günlük işin yazdığı ayı portallardan yeniden çekip üzerine yazıyor ve **iki yolun aynı sayıyı üretip üretmediği hiç ölçülmemişti** — ikincisi birincisini ezdiği için fark görünmüyordu. ADR-0003 otoriteyi günlük ETL'e devrediyor; bu commit o geçişin **Faz 1**'i: gözlem, davranış değişikliği yok.
+- **Değişmeyenler (kasıtlı)**: Ezme davranışı, zamanlama (08:30), scraping akışı, rapor üretimi ve e-posta gönderimi aynen korundu. Faz 1'in tek işi veri biriktirmek; otorite değişimi Faz 2'ye ait.
+- **Karşılaştırma**: Aylık iş `upsert_hourly`'den ÖNCE `settlement_hourly`'nin o aya ait mevcut halini okuyup kendi hesapladığıyla karşılaştırıyor. Sonuç hem loglanıyor (fark yoksa tek satır INFO, varsa gün/metrik bazında WARNING) hem de yeni `settlement_reconciliation` tablosuna yazılıyor.
+- **Uzun (long) format ve eşleşenler de kaydediliyor**: Her koşuda gün × metrik için bir satır (~155 satır/ay). Yalnızca farklar yazılsaydı "kaç günün kaçı farklı" oranının **paydası** kaybolurdu — Faz 2 kararı tam olarak bu orana dayanacak.
+- **Tolerans — iki eşik birden**: `|fark| > 1 kWh` **VE** `|fark| > %0,1`. Tek başına oransal eşik gece 0'a yakın değerlerde (grid_export = 0) gürültüyü %100 fark gösterirdi; tek başına mutlak eşik ~200.000 kWh'lik günlük değerlerde anlamsız kalırdı. Eşik yalnızca **uyarıyı** belirliyor: ham db/scrape değerleri her koşuda saklandığı için eşik geriye dönük olarak tek SQL ile yeniden değerlendirilebilir, veri yeniden toplanmaz.
+- **Kapsam uyuşmazlığı eşikten bağımsız işaretlenir**: `db_hours != scrape_hours` (gün hiç yok veya kısmi). Metrik değeri tesadüfen tolerans içinde kalabilir ama eksik/kısmi gün Faz 2 için en değerli sinyal.
+- **Gözlem katmanı yazma akışını ASLA bozmaz**: `_reconcile_best_effort` hiçbir koşulda istisna fırlatmıyor. Karşılaştırma kodu mevcut `try` bloğunun içine düz konsaydı, bir hata aynı bloktaki **upsert'leri atlatırdı** — bu yüzden ayrı metoda çıkarıldı ve garanti üç senaryoda testle sabitlendi (normal / snapshot patlar / save patlar). Hata sessizce yutulmuyor, stack trace ile loglanıyor.
+- **Dev doğrulaması**: Gerçek Haziran 2026 kaynak dosyalarıyla (720 saatlik veri) tam akış koşturuldu — DB'de 30 gün / 720 saat, **150 karşılaştırma satırının tamamı tolerans içinde, sıfır fark**. Doğrulama satırları sonradan silindi (sahte koşu Faz 2 istatistiğini bozmasın).
+- **Testler**: 13 yeni test — aynı veride sıfır fark, gerçek farkın değerleriyle tespiti, %0,1 altı gürültünün elenmesi, 0'a yakın değerde mutlak tabanın çalışması, DB'de olmayan gün, değerler eşitken bile kısmi günün işaretlenmesi, `db_value=0`'da `diff_pct=None`, boş DB, ve gözlem katmanının yazma akışını bozmaması. Paket 298 → **311 test**.
+
 ### GAOSB Login: Şifre Maskesiz Alana Sızıyordu — Odak Doğrulaması (2026-08-01)
 
 - **Kök neden**: DevExpress maskeli şifre kutusu iki input kullanıyor — boşken görünen dummy (`_I_CLND`) ve gizli gerçek alan (`_I`). Dummy→gerçek geçişi olmadığında `password_el.click()` odağı taşımıyor, odak kullanıcı adı alanında kalıyor ve `press_sequentially(password)` şifreyi **maskesiz** kullanıcı adı kutusuna döküyordu. 1 Ağustos aylık koşusunun log imzası bunu tam olarak gösteriyor: kullanıcı adı 9 → 13, şifre 0 — **13 = 9 + 4** (tuş vuruşları korunmuş). Üç deneme de aynı yerde düştü, login butonuna hiç basılmadı; portal kimlik bilgilerini hiç görmedi.

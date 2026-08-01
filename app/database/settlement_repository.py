@@ -1,24 +1,30 @@
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 
 from app.core.logger import setup_logger
 from app.database.db_session import SessionLocal, create_tables
-from app.database.models import SettlementHourly, SettlementDaily, SettlementMonthly
+from app.database.models import (
+    SettlementHourly, SettlementDaily, SettlementMonthly, SettlementReconciliation,
+)
 from app.settlement.models import HourlySettlement
 
 logger = setup_logger("SettlementRepository")
 
+# Neden: Beş mahsuplaşma metriğinin adı hem agregatlarda hem ADR-0003 karşılaştırma
+# katmanında kullanılıyor; tek yerde tanımlı olsun ki ikisi ayrışmasın.
+RECON_METRICS = [
+    "production_kwh",
+    "consumption_kwh",
+    "settled_kwh",
+    "grid_import_kwh",
+    "grid_export_kwh",
+]
+
 
 def _totals(settlements: List[HourlySettlement]) -> Dict[str, float]:
     """Neden: Gün/ay agregatları için beş metriğin toplamını tek yerde hesaplamak."""
-    return {
-        "production_kwh": sum(s.production_kwh for s in settlements),
-        "consumption_kwh": sum(s.consumption_kwh for s in settlements),
-        "settled_kwh": sum(s.settled_kwh for s in settlements),
-        "grid_import_kwh": sum(s.grid_import_kwh for s in settlements),
-        "grid_export_kwh": sum(s.grid_export_kwh for s in settlements),
-    }
+    return {m: sum(getattr(s, m) for s in settlements) for m in RECON_METRICS}
 
 
 class SettlementRepository:
@@ -117,6 +123,73 @@ class SettlementRepository:
             session.commit()
             logger.info(f"settlement_monthly upsert tamamlandı: {year}-{month:02d}")
             return 1
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_hourly_month_snapshot(self, year: int, month: int) -> Dict[str, Dict[str, float]]:
+        """
+        Neden: ADR-0003 Faz 1 — aylık iş DB'ye yazmadan ÖNCE o ayda hâlihazırda ne
+        olduğunu görmek zorunda. settlement_hourly'deki ilgili ay kayıtları güne
+        gruplanıp beş metriğin toplamı ve o günün saat sayısı ile döner.
+
+        Dönüş: {"YYYY-MM-DD": {"production_kwh": .., ..., "hours": 24}}
+        Ay hiç yoksa boş sözlük (hata değil — ilk koşuda beklenen durum).
+        """
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(SettlementHourly)
+                .filter(
+                    SettlementHourly.date >= date(year, month, 1),
+                    SettlementHourly.date < (date(year + 1, 1, 1) if month == 12
+                                             else date(year, month + 1, 1)),
+                )
+                .all()
+            )
+            snapshot: Dict[str, Dict[str, float]] = {}
+            for row in rows:
+                key = row.date.strftime("%Y-%m-%d")
+                day = snapshot.setdefault(
+                    key, {m: 0.0 for m in RECON_METRICS} | {"hours": 0}
+                )
+                for m in RECON_METRICS:
+                    day[m] += float(getattr(row, m) or 0.0)
+                day["hours"] += 1
+            return snapshot
+        finally:
+            session.close()
+
+    def save_reconciliation(self, run_id: str, target_month: str,
+                            comparisons: List[Dict]) -> int:
+        """
+        Neden: Karşılaştırma sonuçlarını settlement_reconciliation'a yazar (ADR-0003
+        Faz 1). Eşleşen satırlar da yazılır — payda kaybolmasın diye.
+
+        comparisons: _compare_month_with_db çıktısı. Dönüş: yazılan satır sayısı.
+        """
+        session = SessionLocal()
+        try:
+            for c in comparisons:
+                session.add(SettlementReconciliation(
+                    run_id=run_id,
+                    target_month=target_month,
+                    date=datetime.strptime(c["date"], "%Y-%m-%d").date(),
+                    metric=c["metric"],
+                    db_value=float(c["db_value"]),
+                    scrape_value=float(c["scrape_value"]),
+                    diff=float(c["diff"]),
+                    diff_pct=None if c["diff_pct"] is None else float(c["diff_pct"]),
+                    within_tolerance=bool(c["within_tolerance"]),
+                    db_hours=int(c["db_hours"]),
+                    scrape_hours=int(c["scrape_hours"]),
+                ))
+            session.commit()
+            logger.info("settlement_reconciliation yazıldı: %d satır (%s)",
+                        len(comparisons), target_month)
+            return len(comparisons)
         except Exception:
             session.rollback()
             raise

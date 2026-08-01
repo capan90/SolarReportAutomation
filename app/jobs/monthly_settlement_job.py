@@ -14,6 +14,7 @@ from app.sources.gaosb.extractor import (
 )
 from app.settlement.engine import SettlementEngine
 from app.settlement.models import HourlySettlement
+from app.database.settlement_repository import RECON_METRICS
 from app.notifications.notification_service import NotificationService
 from app.core.logger import setup_logger
 from app.core.config import settings
@@ -95,6 +96,128 @@ class MonthlySettlementJob:
                 grid_import_kwh=max(0.0, cons - prod),
             ))
         return settlements
+
+    # Neden: ADR-0003 Faz 1 tolerans eşiği. Fark, İKİ eşiği birden aşarsa anlamlı
+    # sayılır — tek başına oransal eşik gece 0'a yakın değerlerde (grid_export = 0)
+    # gürültüyü %100 fark gösterirdi, tek başına mutlak eşik ise ~200.000 kWh'lik
+    # günlük değerlerde anlamsız kalırdı. Eşik yalnızca UYARIYI belirler; ham
+    # db/scrape değerleri her koşuda saklandığı için eşik geriye dönük olarak
+    # yeniden değerlendirilebilir (veri yeniden toplanmaz).
+    RECON_TOLERANCE_ABS_KWH = 1.0
+    RECON_TOLERANCE_REL = 0.001  # %0,1
+
+    @staticmethod
+    def _compare_month_with_db(
+        settlements: List[HourlySettlement],
+        db_snapshot: Dict[str, Dict[str, float]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Neden: ADR-0003 Faz 1 (Karşılaştır-ve-Uyar). Aylık iş DB'ye YAZMADAN ÖNCE,
+        yeni hesapladığı değerlerle DB'de hâlihazırda duran (günlük işin yazdığı)
+        değerleri karşılaştırır. Bu faz hiçbir davranışı değiştirmez — yalnızca
+        "iki yol aynı sayıyı veriyor mu" sorusuna veri biriktirir.
+
+        Saf fonksiyon: DB'ye dokunmaz, log yazmaz, istisna fırlatmaz. Her iki
+        taraftaki günlerin BİRLEŞİMİ üzerinden her gün × her metrik için bir kayıt
+        döner (eşleşenler dahil — payda kaybolmasın).
+
+        within_tolerance=False iki durumdan biridir: metrik toleransı aştı VEYA
+        kapsam uyuşmazlığı var (db_hours != scrape_hours). Kapsam uyuşmazlığı
+        eşikten bağımsız olarak her zaman işaretlenir; metrik değeri tesadüfen
+        tolerans içinde kalabilir ama eksik/kısmi gün en değerli sinyaldir.
+        """
+        by_day: Dict[str, List[HourlySettlement]] = {}
+        for s in settlements:
+            by_day.setdefault(str(s.timestamp)[:10], []).append(s)
+
+        abs_tol = MonthlySettlementJob.RECON_TOLERANCE_ABS_KWH
+        rel_tol = MonthlySettlementJob.RECON_TOLERANCE_REL
+
+        results: List[Dict[str, Any]] = []
+        for day in sorted(set(by_day) | set(db_snapshot)):
+            day_settlements = by_day.get(day, [])
+            db_day = db_snapshot.get(day, {})
+
+            scrape_hours = len(day_settlements)
+            db_hours = int(db_day.get("hours", 0))
+            coverage_mismatch = db_hours != scrape_hours
+
+            for metric in RECON_METRICS:
+                scrape_value = sum(float(getattr(s, metric) or 0.0) for s in day_settlements)
+                db_value = float(db_day.get(metric, 0.0))
+                diff = scrape_value - db_value
+                diff_pct = (diff / db_value * 100.0) if db_value else None
+
+                significant = abs(diff) > abs_tol and abs(diff) > rel_tol * abs(db_value)
+                results.append({
+                    "date": day,
+                    "metric": metric,
+                    "db_value": db_value,
+                    "scrape_value": scrape_value,
+                    "diff": diff,
+                    "diff_pct": diff_pct,
+                    "within_tolerance": not (significant or coverage_mismatch),
+                    "db_hours": db_hours,
+                    "scrape_hours": scrape_hours,
+                })
+        return results
+
+    @staticmethod
+    def _log_reconciliation(target_month: str, comparisons: List[Dict[str, Any]]) -> None:
+        """
+        Neden: Karşılaştırma sonucu logdan da okunabilmeli (tablo sorgulamadan).
+        Fark yoksa tek satır INFO; fark varsa gün/metrik bazında WARNING.
+        """
+        days = {c["date"] for c in comparisons}
+        problems = [c for c in comparisons if not c["within_tolerance"]]
+        if not problems:
+            logger.info(
+                "Karşılaştırma (ADR-0003 Faz 1): %s ayı için %d gün, tümü tolerans içinde.",
+                target_month, len(days),
+            )
+            return
+
+        problem_days = sorted({c["date"] for c in problems})
+        logger.warning(
+            "Karşılaştırma (ADR-0003 Faz 1): %s ayı için %d günün %d'inde fark var. "
+            "Aylık iş DB'yi yine de üzerine yazacak (Faz 1 gözlem amaçlıdır).",
+            target_month, len(days), len(problem_days),
+        )
+        for c in problems:
+            if c["db_hours"] != c["scrape_hours"]:
+                logger.warning(
+                    "  %s / %s — KAPSAM: DB'de %d saat, yeni çekimde %d saat "
+                    "(DB=%.2f, yeni=%.2f)",
+                    c["date"], c["metric"], c["db_hours"], c["scrape_hours"],
+                    c["db_value"], c["scrape_value"],
+                )
+            else:
+                pct = "—" if c["diff_pct"] is None else f"{c['diff_pct']:+.3f}%"
+                logger.warning(
+                    "  %s / %s — DB=%.2f, yeni=%.2f, fark=%+.2f (%s)",
+                    c["date"], c["metric"], c["db_value"], c["scrape_value"],
+                    c["diff"], pct,
+                )
+
+    @staticmethod
+    def _reconcile_best_effort(repo, run_id: str, target_month: str, year: int,
+                               month: int, settlements: List[HourlySettlement]) -> None:
+        """
+        Neden: ADR-0003 Faz 1 karşılaştırmasını yürütür ve **hiçbir koşulda istisna
+        fırlatmaz**. Bu garanti kritik: çağıran taraftaki upsert'ler bu çağrıdan
+        SONRA geliyor ve gözlem amaçlı bir katmanın yazma akışını atlatması kabul
+        edilemez. Hata yalnızca stack trace ile loglanır (sessiz hata yok).
+        """
+        try:
+            db_snapshot = repo.get_hourly_month_snapshot(year, month)
+            comparisons = MonthlySettlementJob._compare_month_with_db(settlements, db_snapshot)
+            MonthlySettlementJob._log_reconciliation(target_month, comparisons)
+            repo.save_reconciliation(run_id, target_month, comparisons)
+        except Exception as recon_err:
+            logger.error(
+                "Karşılaştırma katmanı başarısız (ADR-0003 Faz 1, gözlem amaçlı; "
+                "yazma ve rapor akışı etkilenmedi): %s", recon_err, exc_info=True,
+            )
 
     @staticmethod
     def _five_metrics(settlements: List[HourlySettlement]) -> Dict[str, float]:
@@ -557,6 +680,11 @@ class MonthlySettlementJob:
 
                 prev_month_dt = month_dt.replace(day=1) - datetime.timedelta(days=1)
                 prev_totals = repo.get_monthly(prev_month_dt.year, prev_month_dt.month)
+
+                # 3b-i. ADR-0003 Faz 1 — Karşılaştır-ve-Uyar (yazmadan ÖNCE, asla fırlatmaz).
+                self._reconcile_best_effort(
+                    repo, run_id, target_month, month_dt.year, month_dt.month, settlements
+                )
 
                 repo.upsert_hourly(settlements)  # tüm ay saatlik
 
