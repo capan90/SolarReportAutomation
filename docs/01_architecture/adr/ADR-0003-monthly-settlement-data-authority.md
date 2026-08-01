@@ -50,6 +50,41 @@ tarayıcı açma + login sabiti. **Asıl kuyruk riski iSolar'da** — nadir ama 
 yavaşlama/takılma potansiyeli var ve tek gözlem 22 dakika. Marj hesabı tipik süreye
 değil bu kuyruğa göre yapılmalıdır.
 
+### Kısmi backtest (21–30 Temmuz 2026) — erken uyarı sondajı
+
+Faz 1 verisini beklemeden, arşivlenmiş dosyalardan **geriye dönük** bir sınama
+yapıldı: günlük yol yeniden üretilip DB'de duran aylık yol çıktısıyla karşılaştırıldı
+(`scratch/backtest_recon_july_partial.py`, yeniden scraping yok).
+
+Pencere şu iki koşul birlikte sağlandığı için seçildi:
+- **DB tarafı aylık yol çıktısı**: satırları günlük iş yarattı (`created_at` 22–31
+  Temmuz) ama değerlerini 1 Ağustos'taki aylık koşu üzerine yazdı.
+- **Günlük taraf zamanında arşivlendi**: GAOSB dosyaları D+1'de, iSolar curve
+  dosyaları D+1 ~09:00'da indirilmiş.
+
+Kapsam dışı bırakılanlar: **1–20 Temmuz** (dosyaları 18/20 Temmuz'da toplu
+indirilmiş) ve **27 Temmuz kurtarma partisi** (GAOSB launch arızası sonrası 7 günün
+toplu doldurulması). Bu günlerde her iki taraf da aynı gün okunmuş olurdu; çıkacak
+"sıfır fark" yanıltıcı olurdu.
+
+**Sonuç: 10 gün × 5 metrik = 50 satır, 0 tanesi tolerans dışı. Hiçbir fark yok —
+10 günlük pencerede iki yol tam olarak aynı sonucu üretti.** Sonuç
+`settlement_reconciliation` tablosuna `run_id="backtest-2026-07-partial-21-30"` ile
+kaydedildi; `settlement_hourly/daily/monthly`'ye dokunulmadı.
+
+**Bu sonuç üç tam ay şartını KISALTMAZ**, ancak Faz 2'ye geçişin önündeki **en büyük
+riski önemli ölçüde azaltır**: kararın dayandığı temel varsayımın — iki yolun aynı
+sayıyı ürettiği varsayımının — yanlış olması. İlk erken sinyal olumlu.
+
+Gücü ve sınırları:
+- **Güçlendiren**: Pencerede aylık okumaya kadar geçen süre gün başına 2 ile 11 gün
+  arasında değişiyordu. Ayrışmanın en olası nedeni olarak öngörülen **portal
+  revizyonu**, 11 günlük gecikmede bile hiç görünmedi.
+- **Sınırlayan**: 10 gün tek bir yük profilini temsil eder. Daha önemlisi, pencereye
+  yalnızca günlük işin **sağlıklı koştuğu** günler girdi — dolayısıyla bu sondaj
+  Faz 2'nin diğer riski olan **eksik/kısmi gün** davranışı hakkında hiçbir şey
+  söylemez. O risk yalnızca canlı Faz 1 verisiyle ölçülebilir.
+
 ## Karar
 
 1. **Otorite günlük ETL'e devredilir.** Bir ayın saatlik mahsuplaşma verisinde
