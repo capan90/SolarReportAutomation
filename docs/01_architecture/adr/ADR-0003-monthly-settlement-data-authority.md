@@ -72,9 +72,12 @@ toplu doldurulması). Bu günlerde her iki taraf da aynı gün okunmuş olurdu; 
 `settlement_reconciliation` tablosuna `run_id="backtest-2026-07-partial-21-30"` ile
 kaydedildi; `settlement_hourly/daily/monthly`'ye dokunulmadı.
 
-**Bu sonuç üç tam ay şartını KISALTMAZ**, ancak Faz 2'ye geçişin önündeki **en büyük
-riski önemli ölçüde azaltır**: kararın dayandığı temel varsayımın — iki yolun aynı
-sayıyı ürettiği varsayımının — yanlış olması. İlk erken sinyal olumlu.
+Bu sonuç Faz 2'ye geçişin önündeki **en büyük riski önemli ölçüde azaltır**: kararın
+dayandığı temel varsayımın — iki yolun aynı sayıyı ürettiği varsayımının — yanlış
+olması. İlk erken sinyal olumlu. Faz 1 çıkış kriterinin (a) maddesini **karşılamaz**
+(backtest canlı Faz 1 verisi değildir), ama sabit "üç tam ay" şartının yerini
+kanıt tabanlı kritere bırakmasının gerekçesidir: normal gün davranışı artık büyük
+ölçüde bilinen bir şeydir, kalan belirsizlik kötü gün davranışıdır.
 
 Gücü ve sınırları:
 - **Güçlendiren**: Pencerede aylık okumaya kadar geçen süre gün başına 2 ile 11 gün
@@ -103,10 +106,36 @@ Gücü ve sınırları:
    **tetiklemez**, risksizdir ve "iki yol aynı sayıyı veriyor mu" sorusunu ilk kez
    ölçülebilir hale getirir. Hibrit kararı bu veriyle desteklenir.
 
-   **Faz 2 — Boşluk-farkında hibrit.** En az üç tam ay Faz 1 verisi toplandıktan ve
-   uzlaşmazlık oranı kabul eşiğinin altında kaldıktan sonra: aylık iş ayın saat
-   envanterini çıkarır, **tam günleri DB'den türetir**, yalnızca **eksik veya kısmi**
-   günleri hedefli olarak yeniden çeker.
+   **Faz 2 — Boşluk-farkında hibrit.** Aşağıdaki **çıkış kriteri** sağlandıktan sonra:
+   aylık iş ayın saat envanterini çıkarır, **tam günleri DB'den türetir**, yalnızca
+   **eksik veya kısmi** günleri hedefli olarak yeniden çeker.
+
+   **Faz 1 çıkış kriteri (sabit takvim değil, kanıt tabanlı).** Her ayın 1'inde o ayın
+   Faz 1 sonucuna bakılır; şu iki koşul **birlikte** sağlandığında Faz 2'ye geçilebilir:
+
+   - **(a) Sağlıklı günlerde değer farkı yok.** Kapsamı tam olan günlerde
+     (`db_hours == scrape_hours == 24`) hiçbir metrik toleransı aşmadı.
+   - **(b) Kötü gün davranışı en az bir kez gerçekten gözlendi.** Ay içinde en az bir
+     gerçek eksik veya kısmi gün oluştu (günlük iş o gün portala giremedi ya da yarım
+     veri yazdı) ve Faz 1 bunu **kapsam farkı olarak doğru işaretledi**.
+
+   İki koşulun ayrı tutulması şart: (b)'deki eksik gün, tanımı gereği kapsam farkı
+   üretir. (a) bu yüzden "hiç işaretli satır yok" değil, "**tam günlerde** değer farkı
+   yok" olarak okunur — aksi halde kriter kendi kendisiyle çelişir ve hiçbir zaman
+   sağlanamaz.
+
+   Ay sorunsuz geçtiyse — yani hiç arıza/eksik gün yaşanmadıysa — (b) sağlanmamış
+   demektir ve **kötü gün davranışı hâlâ test edilmemiştir**; en az bir ay daha
+   beklenir. Gerekçe: 2026-08-01 kısmi backtest'i "normal günlerde iki yol uyuşuyor"
+   sorusuna zaten güçlü bir cevap verdi. Kalan asıl belirsizlik "eksik/kısmi günde ne
+   olur" sorusudur ve bu, sabit bir takvimle değil ancak **gerçek bir arıza
+   senaryosuyla** sınanabilir. Sabit "üç tam ay" şartı bu yüzden kaldırıldı: takvim,
+   kanıtın yerine geçmez.
+
+   **Kriterin kapsamadığı**: (b) yalnızca **tespitin** doğru çalıştığını gösterir,
+   **telafinin** (eksik günün hedefli yeniden çekilmesi) doğru çalıştığını değil —
+   Faz 1 gözlem katmanıdır, telafi Faz 2'nin işidir. Telafi yolu Faz 2 kapsamında
+   kendi testleriyle doğrulanmak zorundadır.
 
 3. **Ön koşul — zamanlama (Faz 2 için, ertelenemez).** Günlük iş dünü işler ve
    09:00'da koşar; aylık iş ayın 1'inde 08:30'da. Bugün zararsızdır (aylık iş DB'ye
@@ -187,7 +216,7 @@ değiştirmeden asıl bilinmeyeni ölçer.
 
 - Faz 1 (karşılaştır-ve-uyar) ayrı bir sprint olarak planlanacak; kod bu ADR
   onaylanmadan yazılmayacak.
-- Faz 2 (hibrit) en az üç tam ay Faz 1 verisi biriktikten sonra, zamanlama ön koşulu
+- Faz 2 (hibrit) yukarıdaki **Faz 1 çıkış kriteri** sağlandıktan sonra, zamanlama ön koşulu
   ve kilit/zincirleme çözümüyle **birlikte** ele alınacak.
 - Bu ADR onaylandığında `docs/ROADMAP.md`'deki "Aylık İş Günlük Veriyi Sessizce
   Eziyor" teknik borç maddesi bu belgeye referans verecek şekilde kısaltılabilir.
