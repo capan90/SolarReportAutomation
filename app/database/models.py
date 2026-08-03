@@ -317,6 +317,55 @@ class BillingRate(Base):
     )
 
 
+class MonthlyElectricityPrice(Base):
+    """
+    Neden: OSB katsayısı bugüne kadar elle giriliyordu ama değeri aslında türetilmiş:
+    bir ayın OSB katsayısı, BİR ÖNCEKİ ayın faturasındaki elektrik birim fiyatıdır
+    (mevcut OSB modalinin metni de bunu söylüyor; Mayıs katsayısı 0.810049 = Nisan
+    faturası, Haziran 1.452381 = Mayıs faturası). Bu tablo o KAYNAK değeri tutar ve
+    hedef aya otomatik besler.
+
+    Neden ayrı tablo:
+    - monthly_billing'e kolon olamaz: kaynak, henüz SATIRI OLMAYAN bir aya beslenebilir
+      (bekletme senaryosunun tanımı bu). Ayrıca orası hesaplanmış finansal kayıt.
+    - billing_rate'e rate_type olamaz: UNIQUE(rate_type, valid_from) yüzünden aynı ay
+      için düzeltme ancak SİLEREK yapılabiliyor (2026-08-03'te id=4 vakası). Kaynak
+      değer düzeltilebilir olmak zorunda.
+    - Yeni TABLO create_all ile kendiliğinden oluşur; yeni KOLON oluşmazdı (migration
+      gerekirdi). Bu tercih prod'da migration ihtiyacını ortadan kaldırıyor.
+
+    Append-only DEĞİL, satır güncellenir: değişmez finansal kayıt zaten
+    monthly_billing.osb_unit_price_try snapshot'ıdır. Burası kaynak kütüğü; "kim, ne
+    zaman, neden değiştirdi" audit_log'a yazılır (override akışıyla aynı kalıp).
+
+    target_year/target_month HESAPLANMAZ, SAKLANIR: bu işin en tehlikeli hata sınıfı ay
+    kaydırmasıdır. Kural tek bir yerde (yazma anında) uygulanır, okuyan hiçbir taraf
+    aritmetik yapmaz — Aralık→Ocak yıl dönümü de tek yerde doğrulanır.
+    """
+    __tablename__ = "monthly_electricity_price"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Faturanın ait olduğu ay (kullanıcının girdiği)
+    source_year = Column(Integer, nullable=False)
+    source_month = Column(Integer, nullable=False)
+    unit_price_try = Column(Numeric(18, 6), nullable=False)
+    # Besleyeceği ay — source + 1 ay, yazarken hesaplanıp sabitlenir
+    target_year = Column(Integer, nullable=False)
+    target_month = Column(Integer, nullable=False)
+    # BEKLIYOR | UYGULANDI | DUZELTME_BEKLIYOR
+    status = Column(String(20), nullable=False, default="BEKLIYOR")
+    applied_at = Column(DateTime, nullable=True)
+    applied_by = Column(String(100), nullable=True)
+    created_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    note = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("source_year", "source_month", name="uq_electricity_price_source"),
+    )
+
+
 class MonthlyBilling(Base):
     """
     Neden: Bir ayın kilitlenmiş finansal kaydı (ADR-0002 §3-4).

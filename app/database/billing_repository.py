@@ -17,10 +17,12 @@ from app.billing.models import (
     BillingMonthNotFoundError,
     BillingRateExistsError,
     BillingValidationError,
+    PRICE_STATUS_APPLIED,
+    PRICE_STATUS_PENDING,
 )
 from app.core.logger import setup_logger
 from app.database.db_session import SessionLocal, create_tables
-from app.database.models import BillingRate, MonthlyBilling
+from app.database.models import BillingRate, MonthlyBilling, MonthlyElectricityPrice
 
 logger = setup_logger("BillingRepository")
 
@@ -41,6 +43,22 @@ def _dec_or_none(value) -> Optional[Decimal]:
     """Neden: Numeric kolonların Decimal'e güvenli çevrimi (override öncesi/sonrası
     değerleri audit kaydına taşınırken kullanılır)."""
     return Decimal(str(value)) if value is not None else None
+
+
+def _price_to_dict(row: "MonthlyElectricityPrice") -> Dict[str, Any]:
+    return {
+        "source_year": row.source_year,
+        "source_month": row.source_month,
+        "unit_price_try": _dec_or_none(row.unit_price_try),
+        "target_year": row.target_year,
+        "target_month": row.target_month,
+        "status": row.status,
+        "applied_at": row.applied_at,
+        "applied_by": row.applied_by,
+        "created_by": row.created_by,
+        "created_at": row.created_at,
+        "note": row.note,
+    }
 
 
 def _monthly_to_dict(row: MonthlyBilling) -> Dict[str, Any]:
@@ -273,6 +291,125 @@ class BillingRepository:
             session.refresh(row)
             logger.info("monthly_billing upsert tamamlandı: %04d-%02d (%s)", year, month, row.status)
             return _monthly_to_dict(row)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # Fatura elektrik birim fiyatı (OSB katsayısının kaynağı)
+    # ------------------------------------------------------------------
+    def upsert_electricity_price(
+        self,
+        source_year: int,
+        source_month: int,
+        unit_price_try: Decimal,
+        target_year: int,
+        target_month: int,
+        created_by: str,
+        note: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Neden: Kaynak kütüğüne yazar/günceller. Append-only DEĞİL — düzeltme bu tablonun
+        gereği (billing_rate'te aynı ay için ikinci kayıt UNIQUE'e takılıp SİLME
+        gerektiriyordu, 2026-08-03 id=4 vakası). Değişmez finansal kayıt zaten
+        monthly_billing snapshot'ıdır.
+
+        Dönüş sözlüğünde "_previous_unit_price_try" bulunur (None ise yeni kayıt);
+        çağıran taraf düzeltme mi yeni giriş mi olduğunu buradan anlar.
+        """
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyElectricityPrice)
+                .filter(
+                    MonthlyElectricityPrice.source_year == source_year,
+                    MonthlyElectricityPrice.source_month == source_month,
+                )
+                .first()
+            )
+            previous = _dec_or_none(row.unit_price_try) if row else None
+            if row is None:
+                row = MonthlyElectricityPrice(
+                    source_year=source_year, source_month=source_month,
+                    target_year=target_year, target_month=target_month,
+                    created_by=created_by, status=status or PRICE_STATUS_PENDING,
+                )
+                session.add(row)
+            row.unit_price_try = unit_price_try
+            row.note = note
+            if status is not None:
+                row.status = status
+            session.commit()
+            session.refresh(row)
+            out = _price_to_dict(row)
+            out["_previous_unit_price_try"] = previous
+            return out
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_electricity_price_for_target(self, target_year: int, target_month: int) -> Optional[Dict[str, Any]]:
+        """Hedef aya beslenecek kaynak kayıt (kanca bunu sorar)."""
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyElectricityPrice)
+                .filter(
+                    MonthlyElectricityPrice.target_year == target_year,
+                    MonthlyElectricityPrice.target_month == target_month,
+                )
+                .first()
+            )
+            return _price_to_dict(row) if row else None
+        finally:
+            session.close()
+
+    def list_electricity_prices(self, limit: int = 24) -> List[Dict[str, Any]]:
+        """Ekrandaki kaynak listesi; en yeni kaynak ayı başta."""
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(MonthlyElectricityPrice)
+                .order_by(
+                    MonthlyElectricityPrice.source_year.desc(),
+                    MonthlyElectricityPrice.source_month.desc(),
+                )
+                .limit(limit)
+                .all()
+            )
+            return [_price_to_dict(r) for r in rows]
+        finally:
+            session.close()
+
+    def mark_electricity_price_status(
+        self, source_year: int, source_month: int, status: str,
+        applied_by: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Durum geçişi (BEKLIYOR -> UYGULANDI / DUZELTME_BEKLIYOR -> UYGULANDI)."""
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyElectricityPrice)
+                .filter(
+                    MonthlyElectricityPrice.source_year == source_year,
+                    MonthlyElectricityPrice.source_month == source_month,
+                )
+                .first()
+            )
+            if row is None:
+                return None
+            row.status = status
+            if status == PRICE_STATUS_APPLIED:
+                row.applied_at = datetime.utcnow()
+                row.applied_by = applied_by
+            session.commit()
+            session.refresh(row)
+            return _price_to_dict(row)
         except Exception:
             session.rollback()
             raise

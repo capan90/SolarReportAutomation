@@ -15,6 +15,15 @@ RATE_TYPE_EXCESS_SALE = "EXCESS_SALE_UNIT_PRICE"
 STATUS_PENDING_RATE = "PENDING_RATE"
 STATUS_LOCKED = "LOCKED"
 
+# Neden: Fatura elektrik birim fiyatı kaydının yaşam döngüsü. BEKLIYOR = hedef ayın
+# monthly_billing satırı henüz yok (mahsuplaşma hesaplanmamış); UYGULANDI = hedef aya
+# yazıldı ve ay kilitlendi; DUZELTME_BEKLIYOR = kaynak sonradan değişti ama hedef ay
+# KİLİTLİ olduğu için otomatik yansıtılmadı — kullanıcı override ile onaylamalı
+# (kilitli bir ayın tutarı şifre + gerekçe olmadan değişmemeli).
+PRICE_STATUS_PENDING = "BEKLIYOR"
+PRICE_STATUS_APPLIED = "UYGULANDI"
+PRICE_STATUS_CORRECTION_PENDING = "DUZELTME_BEKLIYOR"
+
 
 class BillingError(Exception):
     """Billing katmanının temel hata tipi."""

@@ -13,6 +13,9 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 
 from app.billing.models import (
+    PRICE_STATUS_APPLIED,
+    PRICE_STATUS_CORRECTION_PENDING,
+    PRICE_STATUS_PENDING,
     RATE_TYPE_EXCESS_SALE,
     STATUS_LOCKED,
     STATUS_PENDING_RATE,
@@ -228,6 +231,23 @@ class BillingService:
             rate_snapshot_try=rate_snapshot,
             rate_id=rate_id,
         )
+
+        # Neden: Satır AZ ÖNCE oluştu; bu aya beslenmeyi bekleyen bir fatura fiyatı
+        # varsa şimdi uygulanır. BEST-EFFORT — kaynak kütüğündeki bir hata
+        # mahsuplaşma yazımını ASLA düşürmemeli (ADR-0003 Faz 1'deki
+        # _reconcile_best_effort ile aynı gerekçe). Hata sessizce yutulmuyor,
+        # stack trace ile loglanıyor.
+        applied = None
+        try:
+            applied = self.apply_pending_electricity_price(year, month)
+        except Exception as e:
+            logger.error(
+                "%04d-%02d için bekleyen fatura fiyatı uygulanamadı (yazım etkilenmedi): "
+                "%s: %s", year, month, type(e).__name__, e, exc_info=True,
+            )
+        if applied is not None:
+            row = self.repo.get_monthly(year, month) or row
+
         return self._to_result(row)
 
     def set_osb_unit_price(
@@ -271,6 +291,112 @@ class BillingService:
             osb_deduction_try=deduction_try,
         )
         return self._to_result(row)
+
+    # ------------------------------------------------------------------
+    # Fatura elektrik birim fiyatı — OSB katsayısının kaynağı
+    # ------------------------------------------------------------------
+    @staticmethod
+    def next_month(year: int, month: int) -> tuple:
+        """
+        Neden: N faturası → N+1 katsayısı kuralının TEK uygulandığı yer. Ay kaydırması
+        bu işin en tehlikeli hata sınıfı; aritmetik tek noktada tutulur ve Aralık→Ocak
+        yıl dönümü tek yerde doğrulanır.
+        """
+        return (year + 1, 1) if month == 12 else (year, month + 1)
+
+    def set_electricity_price(self, source_year: int, source_month: int,
+                              unit_price_try: Any, created_by: str,
+                              note: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Neden: Kullanıcı OSB katsayısını değil, elindeki faturadaki elektrik birim
+        fiyatını girer; hedef ayın katsayısı bundan türetilir (dönüşüm YOK, değer
+        aynen aktarılır).
+
+        Hedef ayın durumuna göre üç yol:
+        - Hedef satır yok        -> BEKLIYOR (compute() kancası hazır olduğunda uygular)
+        - Hedef var, kilitsiz    -> hemen uygulanır, ay kilitlenir
+        - Hedef KİLİTLİ + değer değişti -> DUZELTME_BEKLIYOR; monthly_billing'e
+          DOKUNULMAZ. Kilitli ayın tutarı şifre + gerekçe olmadan değişmemeli —
+          override akışının üç koruması (şifre, 15 karakter gerekçe, denetim kaydı)
+          otomatik bir zincirlemeyle baypas edilemez.
+        """
+        price = _to_decimal(unit_price_try, "unit_price_try")
+        if price <= 0:
+            raise BillingValidationError(f"Birim fiyat pozitif olmalıdır: {price}")
+        if not 1 <= int(source_month) <= 12:
+            raise BillingValidationError(f"Geçersiz ay: {source_month}")
+        if not str(created_by).strip():
+            raise BillingValidationError("created_by boş olamaz (denetim izi zorunlu).")
+
+        target_year, target_month = self.next_month(int(source_year), int(source_month))
+        existing_target = self.repo.get_monthly(target_year, target_month)
+
+        status = PRICE_STATUS_PENDING
+        if existing_target is not None and existing_target.get("status") == STATUS_LOCKED:
+            current = existing_target.get("osb_unit_price_try")
+            # Neden: Aynı değer yeniden girildiyse ortada düzeltilecek bir şey yok;
+            # gereksiz "onay bekliyor" uyarısı üretmek kullanıcıyı köreltir.
+            status = (PRICE_STATUS_APPLIED if current is not None and
+                      Decimal(str(current)) == price else PRICE_STATUS_CORRECTION_PENDING)
+
+        saved = self.repo.upsert_electricity_price(
+            source_year=int(source_year), source_month=int(source_month),
+            unit_price_try=price, target_year=target_year, target_month=target_month,
+            created_by=str(created_by).strip(), note=note, status=status,
+        )
+
+        # Hedef hazır ve kilitsizse hemen uygula (bekletmeye gerek yok).
+        if existing_target is not None and existing_target.get("status") != STATUS_LOCKED:
+            self.apply_pending_electricity_price(target_year, target_month,
+                                                 applied_by=str(created_by).strip())
+            saved = self.repo.get_electricity_price_for_target(target_year, target_month)
+
+        logger.info(
+            "Fatura elektrik birim fiyatı kaydedildi: %04d-%02d = %s TL/kWh -> hedef "
+            "%04d-%02d (durum: %s)",
+            source_year, source_month, price, target_year, target_month, saved["status"],
+        )
+        return saved
+
+    def apply_pending_electricity_price(self, year: int, month: int,
+                                        applied_by: str = "otomatik") -> Optional[Dict[str, Any]]:
+        """
+        Neden: compute() kancası — bir ayın monthly_billing satırı OLUŞTUĞU anda,
+        o aya beslenmeyi bekleyen kaynak varsa otomatik uygular.
+
+        Kanca compute()'ta, MonthlySettlementJob'da DEĞİL: 2026-08-03'te Mayıs'ın
+        satırı job ile değil izole bir script ile oluşturuldu; kanca job'da olsaydı
+        kuyruk sessizce atlanırdı. compute() satır yazan tek boğaz.
+
+        İdempotan: ayın osb_unit_price_try'ı doluysa hiç girmez.
+        Uygulama ayı KİLİTLER (set_osb_unit_price'ın davranışı) — otomasyonun amacı bu.
+        """
+        source = self.repo.get_electricity_price_for_target(year, month)
+        if source is None or source["status"] != PRICE_STATUS_PENDING:
+            return None
+
+        target = self.repo.get_monthly(year, month)
+        if target is None or target.get("osb_unit_price_try") is not None:
+            return None
+
+        self.set_osb_unit_price(
+            year=year, month=month,
+            unit_price_try=source["unit_price_try"],
+            entered_by=f"{applied_by} ({source['source_year']}-{source['source_month']:02d} faturası)",
+        )
+        updated = self.repo.mark_electricity_price_status(
+            source["source_year"], source["source_month"],
+            PRICE_STATUS_APPLIED, applied_by=applied_by,
+        )
+        logger.info(
+            "%04d-%02d OSB katsayısı %04d-%02d faturasından OTOMATİK uygulandı: %s TL/kWh",
+            year, month, source["source_year"], source["source_month"],
+            source["unit_price_try"],
+        )
+        return updated
+
+    def list_electricity_prices(self, limit: int = 24) -> List[Dict[str, Any]]:
+        return self.repo.list_electricity_prices(limit=limit)
 
     # Neden: Gerekçe zorunlu VE anlamlı olmalı. Yalnızca "boş olamaz" denseydi "x" veya
     # "düzeltme" gibi kayıtlar denetim izini doldurur ama hiçbir soruyu cevaplamazdı;
@@ -330,6 +456,24 @@ class BillingService:
                              production_kwh=production, excess_sale_kwh=excess)
 
         kind = "osb_unit_price_try" if osb is not None else "excess_sale_rate_try"
+
+        # Neden: Zincirin kapanışı. Kaynak fatura fiyatı düzeltilip hedef ay kilitli
+        # olduğu için DUZELTME_BEKLIYOR'da kalmıştı; kullanıcı override'ı onayladıysa
+        # ve uygulanan değer kaynakla aynıysa kaynak UYGULANDI'ya döner. Değer farklıysa
+        # (kullanıcı başka bir sayı yazdıysa) kaynak beklemede KALIR — ekranda tutarsızlık
+        # görünmeye devam etmeli, sessizce "tamam" denmemeli.
+        if osb is not None:
+            try:
+                source = self.repo.get_electricity_price_for_target(year, month)
+                if source and source["status"] == PRICE_STATUS_CORRECTION_PENDING \
+                        and Decimal(str(source["unit_price_try"])) == osb:
+                    self.repo.mark_electricity_price_status(
+                        source["source_year"], source["source_month"],
+                        PRICE_STATUS_APPLIED, applied_by=changed_by,
+                    )
+            except Exception as e:
+                logger.error("Kaynak fatura kaydı güncellenemedi (best-effort): %s", e)
+
         logger.warning(
             "%04d-%02d OVERRIDE (%s) uygulandı — gerekçe: %s (yapan: %s)",
             year, month, kind, reason, changed_by,

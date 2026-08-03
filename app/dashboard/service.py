@@ -271,6 +271,21 @@ class DashboardService:
             })
         return result
 
+    def get_electricity_prices(self, limit: int = 24) -> dict:
+        """
+        Neden: "Fatura Elektrik Birim Fiyatı" ekranının listesi. Her satır hangi aya
+        beslendiğini ve durumunu (BEKLIYOR / UYGULANDI / DUZELTME_BEKLIYOR) taşır —
+        otomatik doldurma sessiz olmamalı, kullanıcı ne olduğunu ekranda görmeli.
+        """
+        return {"prices": self._billing().list_electricity_prices(limit=limit)}
+
+    def set_electricity_price(self, source_year: int, source_month: int,
+                              unit_price_try, created_by: str, note=None) -> dict:
+        return self._billing().set_electricity_price(
+            source_year=source_year, source_month=source_month,
+            unit_price_try=unit_price_try, created_by=created_by, note=note,
+        )
+
     def override_billing_month(self, year: int, month: int, reason: str, changed_by: str,
                                osb_unit_price_try=None, excess_sale_rate_try=None) -> dict:
         """

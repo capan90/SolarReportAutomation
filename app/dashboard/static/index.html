@@ -864,6 +864,12 @@
                     ⚠️ <b>Dikkat:</b> Kaydettikten sonra bu ay <b>kilitlenir</b> ve birim fiyat değiştirilemez.
                 </div>
             </div>
+            <!-- Neden: Otomatik akış bu formu KALDIRMADI, besliyor. Kullanıcı hangi
+                 yolun geçerli olduğunu bilmeli (S4 kararı). -->
+            <div class="muted small" style="text-align:left; margin-bottom:10px;">
+                💡 Bu değeri artık <b>Fatura Elektrik Fiyatı</b> sekmesinden otomatik besleyebilirsiniz.
+                Elle girerseniz o ay için bekleyen otomatik değer <b>uygulanmaz</b>.
+            </div>
             <div class="form-grid" style="grid-template-columns:1fr;">
                 <div class="field"><label>Ay</label><select id="bm-month"></select></div>
                 <div class="field"><label>Birim Fiyat (TL/kWh, KDV hariç)</label><input id="bm-price" type="number" step="0.000001" placeholder="Örn. 1.234567"></div>
@@ -1298,6 +1304,8 @@
                                     onclick="switchBillingTab('enerjisa')">Enerjisa Katsayısı</button>
                             <button class="tab" role="tab" id="tab-btn-osb"
                                     onclick="switchBillingTab('osb')">OSB Katsayısı</button>
+                            <button class="tab" role="tab" id="tab-btn-fatura"
+                                    onclick="switchBillingTab('fatura')">Fatura Elektrik Fiyatı</button>
                         </div>
 
                         <div id="tab-enerjisa" class="tab-panel">
@@ -1361,6 +1369,31 @@
                                 <tbody id="osb-history"><tr><td colspan="6" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
                             </div>
                         </div><!-- /tab-osb -->
+
+                        <!-- Neden: OSB katsayısı aslında türetilmiş bir değer — bir ayın
+                             katsayısı BİR ÖNCEKİ ayın faturasındaki elektrik birim fiyatıdır.
+                             Kullanıcı katsayıyı değil kaynağı girer, sistem N+1 ayına uygular. -->
+                        <div id="tab-fatura" class="tab-panel" style="display:none;">
+                            <p class="muted small" style="margin-bottom:10px;">Faturadaki <b>elektrik birim fiyatını</b> (TL/kWh, <b>KDV hariç</b>) girin. Bu değer <b>otomatik olarak bir sonraki ayın</b> OSB katsayısı olur — dönüşüm veya çarpan uygulanmaz.</p>
+                            <div style="border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                                ℹ️ <b>Örnek:</b> <b>Haziran 2026</b> faturasını girerseniz → <b>Temmuz 2026</b> OSB katsayısı olur.<br>
+                                Hedef ayın mahsuplaşması henüz hesaplanmadıysa değer <b>bekletilir</b> ve ay hazır olduğunda otomatik uygulanır.
+                            </div>
+                            <div class="form-grid">
+                                <div class="field"><label>Fatura Ayı</label><input id="ep-month" type="month" oninput="updateTargetHint()"></div>
+                                <div class="field"><label>Elektrik Birim Fiyatı (TL/kWh)</label><input id="ep-price" type="number" step="0.000001" placeholder="Örn. 1.452381"></div>
+                                <div class="field"><label>Açıklama (opsiyonel)</label><input id="ep-note" type="text" placeholder="Örn. GAOSB Haziran faturası"></div>
+                                <div class="field"><label>Yönetici Şifresi *</label><input id="ep-admin" type="password" placeholder="Zorunlu"></div>
+                            </div>
+                            <div id="ep-target-hint" class="muted small" style="margin-top:8px;"></div>
+                            <div style="margin-top:14px;"><button id="btn-ep-save" class="btn blue" onclick="saveElectricityPrice()">Kaydet</button></div>
+                            <div id="ep-msg" class="msg"></div>
+                            <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Girilen Fatura Fiyatları</div>
+                            <div style="overflow-x:auto;">
+                                <table class="table"><thead><tr><th>Fatura Ayı</th><th>Birim Fiyat (TL/kWh)</th><th>Beslediği Ay</th><th>Durum</th><th>Giren</th></tr></thead>
+                                <tbody id="ep-history"><tr><td colspan="5" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
+                            </div>
+                        </div><!-- /tab-fatura -->
                     </div>
 
                     <div class="card">
@@ -3022,14 +3055,104 @@
         }
 
         function switchBillingTab(which) {
-            const isOsb = which === "osb";
-            document.getElementById("tab-enerjisa").style.display = isOsb ? "none" : "";
-            document.getElementById("tab-osb").style.display = isOsb ? "" : "none";
-            document.getElementById("tab-btn-enerjisa").classList.toggle("active", !isOsb);
-            document.getElementById("tab-btn-osb").classList.toggle("active", isOsb);
-            // Neden: OSB geçmişi yalnızca sekme açıldığında çekilir; ayarlar sayfası
-            // her açılışta gereksiz bir sorgu daha yapmasın.
-            if (isOsb) loadOsbHistory();
+            const tabs = ["enerjisa", "osb", "fatura"];
+            tabs.forEach(t => {
+                document.getElementById("tab-" + t).style.display = (t === which) ? "" : "none";
+                document.getElementById("tab-btn-" + t).classList.toggle("active", t === which);
+            });
+            // Neden: Geçmişler yalnızca sekme açıldığında çekilir; ayarlar sayfası
+            // her açılışta gereksiz sorgu yapmasın.
+            if (which === "osb") loadOsbHistory();
+            if (which === "fatura") loadElectricityPrices();
+        }
+
+        // Neden: Ay kaydırması bu özelliğin en tehlikeli hata sınıfı. Kullanıcı
+        // kaydetmeden ÖNCE hangi aya gideceğini yazıyla görsün.
+        function updateTargetHint() {
+            const v = document.getElementById("ep-month").value;
+            const hint = document.getElementById("ep-target-hint");
+            if (!v) { hint.innerText = ""; return; }
+            const y = parseInt(v.slice(0, 4), 10), m = parseInt(v.slice(5, 7), 10);
+            const ty = m === 12 ? y + 1 : y, tm = m === 12 ? 1 : m + 1;
+            hint.innerHTML = `→ Bu değer <b>${fmtAy(ty, tm)}</b> ayının OSB katsayısı olacak.`;
+        }
+
+        async function loadElectricityPrices() {
+            const tbody = document.getElementById("ep-history");
+            const info = await api("/api/billing/electricity-price");
+            if (!info || !info.prices) {
+                tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;">Liste okunamadı.</td></tr>';
+                return;
+            }
+            if (!info.prices.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;">Henüz fatura fiyatı girilmemiş.</td></tr>';
+                return;
+            }
+            const rozet = {
+                "UYGULANDI": '<span class="badge ok sm">Otomatik Uygulandı</span>',
+                "BEKLIYOR": '<span class="badge warn sm">Bekliyor</span>',
+                "DUZELTME_BEKLIYOR": '<span class="badge bad sm">Düzeltme Onayı Bekliyor</span>',
+            };
+            tbody.innerHTML = info.prices.map(p => {
+                const hedef = fmtAy(p.target_year, p.target_month);
+                let not = "";
+                if (p.status === "BEKLIYOR") {
+                    not = `<div class="muted" style="font-size:0.72rem;">${hedef} mahsuplaşması hesaplanınca uygulanacak</div>`;
+                } else if (p.status === "DUZELTME_BEKLIYOR") {
+                    not = `<div class="muted" style="font-size:0.72rem;">${hedef} kilitli — OSB sekmesinden "Düzelt" ile onaylayın</div>`;
+                }
+                return `<tr class="${p.status === 'UYGULANDI' ? '' : 'rate-superseded'}">
+                        <td>${fmtAy(p.source_year, p.source_month)}</td>
+                        <td>${Number(p.unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })}</td>
+                        <td>${hedef}</td>
+                        <td>${rozet[p.status] || p.status}${not}</td>
+                        <td>${p.created_by || "-"}</td>
+                    </tr>`;
+            }).join("");
+        }
+
+        async function saveElectricityPrice() {
+            const btn = document.getElementById("btn-ep-save");
+            const msg = document.getElementById("ep-msg");
+            const month = document.getElementById("ep-month").value;
+            const price = document.getElementById("ep-price").value;
+            const note = document.getElementById("ep-note").value;
+            const adminPass = document.getElementById("ep-admin").value;
+
+            const fail = (t) => { msg.className = "msg bad"; msg.innerText = t; msg.style.display = "block"; };
+            if (!month) return fail("Fatura ayı zorunludur.");
+            if (!price) return fail("Birim fiyat zorunludur.");
+            if (!adminPass) return fail("Yönetici şifresi zorunludur.");
+
+            btn.disabled = true;
+            btn.innerText = "Kaydediliyor...";
+            try {
+                const res = await fetch("/api/billing/electricity-price", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ month, unit_price: price, note, admin_password: adminPass }),
+                });
+                const body = await res.json();
+                if (body.success) {
+                    const p = body.data.price;
+                    const durum = {
+                        "UYGULANDI": `${body.data.target_month} ayına otomatik uygulandı.`,
+                        "BEKLIYOR": `${body.data.target_month} hazır olduğunda otomatik uygulanacak (bekliyor).`,
+                        "DUZELTME_BEKLIYOR": `${body.data.target_month} KİLİTLİ — OSB sekmesinden "Düzelt" ile onaylamanız gerekiyor.`,
+                    }[p.status] || p.status;
+                    msg.className = p.status === "DUZELTME_BEKLIYOR" ? "msg warn" : "msg ok";
+                    msg.innerText = `✓ Kaydedildi. ${durum}`;
+                    document.getElementById("ep-admin").value = "";
+                    loadElectricityPrices();
+                } else {
+                    fail(body.error || "Kaydedilemedi.");
+                }
+            } catch (e) {
+                fail("Sunucu bağlantı hatası.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Kaydet";
+            }
         }
 
         let _osbMonths = [];
@@ -3060,6 +3183,20 @@
             document.getElementById("ov-reason").value = "";
             document.getElementById("ov-admin").value = "";
             document.getElementById("ov-msg").style.display = "none";
+
+            // Neden: Kaynak fatura fiyatı düzeltilmiş ama hedef ay kilitli olduğu için
+            // otomatik yansıtılmamışsa (DUZELTME_BEKLIYOR), form önceden doldurulur.
+            // Otomatik zincirleme YAPILMIYOR — kullanıcı şifre + gerekçeyle onaylıyor;
+            // biz yalnızca yazma işini kolaylaştırıyoruz.
+            const bekleyen = _epPrices.find(p =>
+                `${p.target_year}-${String(p.target_month).padStart(2, "0")}` === month
+                && p.status === "DUZELTME_BEKLIYOR");
+            if (bekleyen) {
+                document.getElementById("ov-osb").value = bekleyen.unit_price_try;
+                document.getElementById("ov-reason").value =
+                    `${fmtAy(bekleyen.source_year, bekleyen.source_month)} fatura birim fiyatı `
+                    + `düzeltildi: ${m.osb_unit_price_try} → ${bekleyen.unit_price_try}`;
+            }
             document.getElementById("override-modal").classList.add("visible");
         }
 
@@ -3120,8 +3257,14 @@
             }
         }
 
+        let _epPrices = [];
+
         async function loadOsbHistory() {
             const tbody = document.getElementById("osb-history");
+            // Neden: Kaynak kayıtlar da çekilir — "Düzelt" modalını önceden doldurmak
+            // ve düzeltme onayı bekleyen ayı işaretlemek için gerekli.
+            const epInfo = await api("/api/billing/electricity-price");
+            _epPrices = (epInfo && epInfo.prices) || [];
             const info = await api("/api/billing/months");
             if (!info || !info.months) {
                 tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;">Geçmiş okunamadı.</td></tr>';

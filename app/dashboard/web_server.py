@@ -266,6 +266,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/billing/monthly/") and path.endswith("/osb-rate"):
                 month_str = path.replace("/api/billing/monthly/", "").replace("/osb-rate", "").strip()
                 self._handle_billing_set_osb_rate(username, month_str)
+            elif path == "/api/billing/electricity-price":
+                self._handle_billing_electricity_price(username)
             elif path.startswith("/api/billing/monthly/") and path.endswith("/override"):
                 month_str = path.replace("/api/billing/monthly/", "").replace("/override", "").strip()
                 self._handle_billing_override(username, month_str)
@@ -466,6 +468,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             # aşağıdaki "/api/billing/monthly/" ön ek kuralıyla çakışmaz.
             elif path == "/api/billing/months":
                 response_data = self.service.get_billing_months()
+            elif path == "/api/billing/electricity-price":
+                response_data = self.service.get_electricity_prices()
             elif path.startswith("/api/billing/monthly/"):
                 month_str = path.replace("/api/billing/monthly/", "").strip()
                 if re.match(r"^\d{4}-\d{2}$", month_str):
@@ -1364,6 +1368,50 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             },
             None,
         )
+
+    def _handle_billing_electricity_price(self, username: str) -> None:
+        """
+        Neden: Kullanıcı OSB katsayısını değil, elindeki faturadaki elektrik birim
+        fiyatını girer; hedef ayın (N+1) katsayısı bundan türetilir.
+
+        Hedef ay kilitliyse ve değer değiştiyse monthly_billing'e DOKUNULMAZ — kayıt
+        DUZELTME_BEKLIYOR'a geçer ve kullanıcı override akışıyla onaylar. Otomatik
+        zincirleme, override'ın üç korumasını (şifre, gerekçe, denetim) baypas ederdi.
+        """
+        body = self._read_json_body()
+        if not self._verify_admin_password(body, username, "billing_electricity_price"):
+            return
+
+        month_str = str(body.get("month", "")).strip()
+        if not re.match(r"^\d{4}-\d{2}$", month_str):
+            self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM", status_code=400)
+            return
+
+        year, month = int(month_str[:4]), int(month_str[5:7])
+        try:
+            saved = self.service.set_electricity_price(
+                source_year=year, source_month=month,
+                unit_price_try=body.get("unit_price"),
+                created_by=username,
+                note=(str(body.get("note")).strip() or None) if body.get("note") else None,
+            )
+        except Exception as e:
+            self.auth.log_action(
+                username, self._get_client_ip(), "billing_electricity_price",
+                details=f"{month_str} reddedildi: {e}", success=False,
+            )
+            self._send_billing_error(e)
+            return
+
+        hedef = f"{saved['target_year']}-{saved['target_month']:02d}"
+        self.auth.log_action(
+            username, self._get_client_ip(), "billing_electricity_price",
+            details=(f"{month_str} fatura elektrik birim fiyatı: {saved['unit_price_try']} "
+                     f"TL/kWh -> hedef {hedef} (durum: {saved['status']})"),
+        )
+        # Neden: Decimal/datetime alanlarını _json_default zaten serileştiriyor
+        # (contract testleriyle sabitlenmiş); ayrıca dönüştürmeye gerek yok.
+        self._send_json_contract({"price": saved, "target_month": hedef}, None)
 
     def _handle_billing_override(self, username: str, month_str: str) -> None:
         """
