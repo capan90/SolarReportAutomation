@@ -215,6 +215,15 @@
         .badge.ok { background: rgba(34,197,94,0.14); color: var(--green); }
         .badge.warn { background: rgba(245,158,11,0.14); color: var(--yellow); }
         .badge.bad { background: rgba(239,68,68,0.14); color: var(--red); }
+        .badge.sm { padding: 2px 7px; font-size: 0.68rem; }
+
+        /* Neden: Katsayı geçmişi APPEND-ONLY olduğu için düzeltilmiş kayıtlar tabloda
+           kalır (ADR-0002). Hangisinin BUGÜN geçerli olduğu görsel olarak ayrılmazsa
+           okuyan kişi en üstteki veya en yenisini geçerli sanabiliyor — 2026-07-27'de
+           yaşanan katsayı karışıklığının bir sebebi buydu. */
+        tr.rate-active > td { background: rgba(34,197,94,0.07); }
+        tr.rate-active > td:first-child { box-shadow: inset 3px 0 0 var(--green); }
+        tr.rate-superseded > td { opacity: 0.55; }
 
         .status-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
         .status-row:last-child { border-bottom: none; }
@@ -2924,6 +2933,22 @@
             }
         }
 
+        function rateRowState(row, current) {
+            // Neden: "Hangisi geçerli" kuralı SUNUCUDA yaşıyor (valid_from <= ay sonu olan
+            // en güncel kayıt). Burada yeniden uygulanmaz — yalnızca sunucunun döndürdüğü
+            // current.id ile kimlik karşılaştırması yapılır, yoksa iki mantık zamanla ayrışır.
+            if (current && row.id != null && row.id === current.id) {
+                return { cls: "rate-active", badge: '<span class="badge ok sm">Şu an geçerli</span>' };
+            }
+            // Neden: Gelecek tarihli kayıt "düzeltilmiş" DEĞİLDİR — henüz sırası gelmemiştir.
+            // Soluk gösterip geçmişe karıştırmak yanlış bilgi olurdu; 2028 tarihli kayıt
+            // tam olarak bu yüzden gözden kaçmıştı.
+            if (row.valid_from && row.valid_from > new Date().toISOString().slice(0, 10)) {
+                return { cls: "", badge: '<span class="badge warn sm">Gelecek tarihli</span>' };
+            }
+            return { cls: "rate-superseded", badge: '<span class="badge sm muted">Düzeltilmiş</span>' };
+        }
+
         async function loadBillingRateCard() {
             const info = await api("/api/billing/rate");
             if (!info) return;
@@ -2936,13 +2961,16 @@
 
             const tbody = document.getElementById("br-history");
             if (info.history && info.history.length) {
-                tbody.innerHTML = info.history.map(r => `
-                    <tr>
-                        <td>${fmtDateTr(r.valid_from)}</td>
+                tbody.innerHTML = info.history.map(r => {
+                    const st = rateRowState(r, cur);
+                    return `
+                    <tr class="${st.cls}">
+                        <td>${fmtDateTr(r.valid_from)} ${st.badge}</td>
                         <td>${Number(r.unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })}</td>
                         <td>${r.created_by || "-"}</td>
                         <td>${r.note || "-"}</td>
-                    </tr>`).join("");
+                    </tr>`;
+                }).join("");
             } else {
                 tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;">Henüz katsayı tanımlanmamış.</td></tr>';
             }

@@ -6,6 +6,15 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Katsayı Geçmişinde Görsel Durum Ayrımı (2026-08-03)
+
+- **Neden**: `billing_rate` APPEND-ONLY olduğu için düzeltilmiş kayıtlar tabloda kalıyor (ADR-0002 §2) ama hepsi aynı görünüyordu. Hangisinin bugün geçerli olduğu tabloya bakınca anlaşılmıyor, okuyan kişi en üstteki veya en yeni eklenen kaydı geçerli sanabiliyordu — 27 Temmuz'daki katsayı karışıklığının bir sebebi buydu (aynı anda 0.810049 ve 2.909687 kayıtları vardı).
+- **Üç durum**: "Şu an geçerli" (yeşil vurgu + sol şerit), "Düzeltilmiş" (soluk), "Gelecek tarihli" (sarı rozet, soluk DEĞİL).
+- **Üçüncü durum neden şart**: Yalnızca aktif/düzeltilmiş ayrımı yapılsaydı `valid_from=2028-01-01` olan kayıt "Düzeltilmiş" etiketi alırdı — oysa düzeltilmiş değil, henüz sırası gelmemiş. Yanlış etiket, gözden kaçmasının sebebini tekrar üretirdi.
+- **"Hangisi geçerli" kuralı JS'te YENİDEN UYGULANMADI**: Kural sunucuda yaşıyor (`valid_from <= ay sonu` olan en güncel kayıt). Arayüz yalnızca sunucunun döndürdüğü `current.id` ile kimlik karşılaştırması yapıyor; iki mantık yazılsaydı zamanla ayrışır ve tablo yanlış kaydı vurgulardı.
+- **Hesaplamaya dokunulmadı**: Değişiklik tamamen görüntüleme katmanında (CSS + tablo render). Faturalama, katsayı seçimi ve API sözleşmesi aynı.
+- **Doğrulama**: Gerçek prod verisiyle (id=5 aktif, id=4 düzeltilmiş, id=1 gelecek tarihli) izole harness'ta render edilip görsel olarak doğrulandı. Test paketi 333, regresyon yok.
+
 ### İş Watchdog'u: Asılan Koşu Artık Kendi Ölümünü Haber Veriyor (2026-08-03)
 
 - **Kapatılan açık**: 3 Ağustos 09:00 koşusu iSolar tarayıcısının kapanışında asıldı ve süreç **yaşamaya devam etti**. İstisna oluşmadığı için ne `main.py`'nin `except` dalları, ne `system_alert`, ne de graceful FAILED yolu devreye girebildi. Task Scheduler limiti 72 saat, politika `IgnoreNew` — süreç elle sonlandırılmasaydı 4 ve 5 Ağustos koşuları da sessizce atlanacaktı. Veri-eksik alarmı bunu ertesi sabah **tespit** ediyor; watchdog **oluşmasını** engelliyor.
