@@ -6,6 +6,14 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Geçmiş Fatura Fiyatları Kütüğe Tohumlandı (2026-08-03)
+
+- **Neden**: Kaynak kütüğü yeni; tohumlanmasaydı Nisan–Haziran ayları "bu katsayı nereden geldi" sorusuna cevapsız kalır, ekranda yalnızca bundan sonraki aylar izlenebilir olurdu.
+- **Yazılan üç kayıt**: Nisan 2026 faturası 0.810049 → Mayıs'ı besledi; Mayıs 2026 faturası 0.810049 → Haziran'ı besledi; Haziran 2026 faturası 1.452381 → Temmuz'u besledi. Üçü de `UYGULANDI`.
+- **Kilitli aylara DOKUNULMADI**: Script `set_electricity_price` yolundan geçmiyor (o yol hedefi karşılaştırıp gerekirse uygular veya `DUZELTME_BEKLIYOR` üretir) ve `compute()` çağırmıyor; doğrudan kütük metodunu kullanıyor. Tohumlanan değerler zaten uygulanmış durumdaydı, yeniden uygulanmamalıydı.
+- **Güvenlik kontrolü bir hatayı yakaladı**: Script her satırda hedef ayın **gerçek** katsayısını tohum değeriyle karşılaştırıp uyuşmazsa yazmıyor. İlk verilen tohum listesi Haziran'ı 1.452381 olarak gösteriyordu; oysa o değer aynı gün 12:32'de override ile 0.810049'a düzeltilmişti (audit id=258, gerekçe "Haziran OSB Katsayısı Gerçek"). Liste olduğu gibi uygulansaydı kütük gerçekle çelişir, sistem o ayı anında "düzeltme bekliyor" sanıp kullanıcıyı **bilerek düzeltilmiş değere geri çağırırdı**. Doğru eşleme prod verisinden türetildi: 1.452381 Mayıs değil **Haziran** faturasıydı.
+- **Doğrulama (uygulama sonrası, ham SQL ile)**: (1) hiçbir `DUZELTME_BEKLIYOR` oluşmadı — üç kayıt da `UYGULANDI`; (2) Mayıs/Haziran/Temmuz'un durumu, katsayısı ve kesintisi bit bazında değişmedi; (3) kütükteki her satır hedef ayın gerçek katsayısıyla eşleşiyor, yetim kayıt yok.
+
 ### Fatura Elektrik Birim Fiyatı: OSB Katsayısı Artık Kaynağından Türetiliyor (2026-08-03)
 
 - **Kullanıcı artık katsayı değil kaynak giriyor**: OSB katsayısı zaten türetilmiş bir değerdi — bir ayın katsayısı **bir önceki ayın faturasındaki** elektrik birim fiyatıdır. Mevcut OSB modalinin metni de bunu söylüyordu ("bir önceki aya ait gerçek faturadaki birim fiyat") ama kural kullanıcının kafasındaydı ve elle uygulanıyordu. Artık fatura fiyatı girilir, hedef ayın katsayısı otomatik türetilir. **Dönüşüm yok** — değer aynen aktarılır.
