@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 from pathlib import Path
 
 # Add project root to path
@@ -51,7 +52,12 @@ def test_production_readiness():
     print("\n[TEST 2] Retry Policy ve Database Log Testi...")
     create_tables()
     
-    operation = TargetOperation(run_id="test-retry-uuid-999")
+    # Neden: Sabit run_id ("test-retry-uuid-999") kullanılıyordu; retry kayıtları
+    # temizlenmediği için her koşu aynı anahtara 2 satır daha ekliyor ve sayım birikiyordu
+    # (2026-08-03: 10 == 2 ile düştü, ilk koşudan sonra kalıcı olarak kırık). Koşuya özel
+    # run_id, geçmiş satırları silmeden izolasyonu sağlar — audit geçmişi korunur.
+    run_id = f"test-retry-{uuid.uuid4()}"
+    operation = TargetOperation(run_id=run_id)
     result = operation.run_unstable_operation()
     
     print(f"  - Operasyon Sonucu: {result} (Toplam Deneme: {attempt_counter})")
@@ -59,7 +65,7 @@ def test_production_readiness():
     # Veritabanını sorgula
     db = SessionLocal()
     try:
-        retries = db.query(RetryHistory).filter(RetryHistory.run_id == "test-retry-uuid-999").all()
+        retries = db.query(RetryHistory).filter(RetryHistory.run_id == run_id).all()
         print(f"  - Veritabanındaki Retry Log Sayısı: {len(retries)}")
         for log in retries:
             print(f"    * Operasyon: {log.operation} | Deneme: {log.attempt} | Gecikme: {log.delay_seconds}s | Hata: {log.error_message}")
