@@ -2,6 +2,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 
+from sqlalchemy import func
+
 from app.core.logger import setup_logger
 from app.database.db_session import SessionLocal, create_tables
 from app.database.models import (
@@ -234,6 +236,30 @@ class SettlementRepository:
                 .first()
             )
             return row is not None
+        finally:
+            session.close()
+
+    def count_hourly(self, date: str) -> int:
+        """
+        Neden: Veri-eksik kontrolü "gün var mı"nın yanında "gün TAM mı"yı da sormak
+        zorunda. 2026-07-13 vakasında settlement_daily satırı VARDI ama
+        settlement_hourly yalnızca 12 saat içeriyordu (yarım kalan çekim) — yalnızca
+        satır varlığına bakan bir kontrol o günü sağlıklı sayardı.
+
+        Geçersiz tarih biçimi veri eksikliği değil çağıran hatasıdır; ValueError
+        fırlatılır (has_daily_data'nın False'u ile karıştırılmasın).
+        """
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError as e:
+            raise ValueError(f"Geçersiz tarih biçimi: {date!r} (beklenen YYYY-MM-DD)") from e
+        session = SessionLocal()
+        try:
+            return int(
+                session.query(func.count(SettlementHourly.id))
+                .filter(SettlementHourly.date == target_date)
+                .scalar() or 0
+            )
         finally:
             session.close()
 

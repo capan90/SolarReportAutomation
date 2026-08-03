@@ -90,6 +90,29 @@ def run():
             send_job_failure_alert("Aylık Mahsup", str(e))
             sys.exit(1)
 
+    # Neden: Veri-eksik kontrolü ETL'den bağımsız, hafif ve salt-okunur olduğu için ağır
+    # dallardan ÖNCE ele alınır; lock/ETL kurulumuna hiç girmez (2026-08-03 asılma olayı:
+    # ETL'e bağlı her alarm yolu sessiz kaldı).
+    if args and getattr(args, 'check_data', False):
+        from app.jobs.data_freshness_job import DataFreshnessJob
+        try:
+            result = DataFreshnessJob().run(
+                target_date=getattr(args, 'check_date', None)
+            )
+            print(f"Veri Kontrolü: {result.level}")
+            print(f"Tarih: {result.target_date}")
+            print(f"Saat sayısı: {result.hours}")
+            print(result.message)
+            # Neden: 6 = veri eksik (kontrol düzgün koştu, bulgusu olumsuz); 1 = kontrolün
+            # KENDİSİ koşamadı. İkisi ayrı olmalı ki Task Scheduler'daki kırmızı sonuç
+            # "veri yok" mu "kontrol bozuk" mu ayırt edilebilsin.
+            sys.exit(6 if result.is_problem else 0)
+        except Exception as e:
+            print(f"Veri kontrolü çalıştırılamadı: {e}")
+            from app.notifications.system_alert import send_job_failure_alert
+            send_job_failure_alert("Günlük Veri Kontrolü", str(e))
+            sys.exit(1)
+
     if args and args.settlement:
         from app.jobs.daily_settlement_job import DailySettlementJob
         try:

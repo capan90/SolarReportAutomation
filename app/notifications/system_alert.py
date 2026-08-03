@@ -43,7 +43,19 @@ def collect_log_tail(lines: int = LOG_TAIL_LINES) -> str:
         return f"(log kuyruğu okunamadı: {e})"
 
 
-def build_body(job_name: str, error: str, now: datetime, log_tail: str = "") -> str:
+# Neden: Bu modül 2026-07-22'de yalnızca "yakalanmamış istisna" senaryosu için yazıldı ve
+# açıklama metni gövdeye sabitlenmişti. Veri-eksik kontrolü (2026-08-03) aynı gönderim
+# yolunu kullanıyor ama nedeni istisna DEĞİL — sabit metin o mailde yanlış bilgi verirdi.
+# Varsayılanlar korunur; yalnızca farklı nedeni olan çağıran kendi metnini geçer.
+DEFAULT_HEADLINE = "{job} beklenmeyen bir hatayla sonlandı."
+DEFAULT_EXPLANATION = (
+    "İş, hatayı kendi bildirim akışına ulaşamadan kaybetti (yakalanmamış istisna) — "
+    "bu mail olmasaydı başarısızlık yalnızca gelmeyen rapordan anlaşılacaktı."
+)
+
+
+def build_body(job_name: str, error: str, now: datetime, log_tail: str = "",
+               headline: str = "", explanation: str = "") -> str:
     log_section = ""
     if log_tail:
         log_section = (
@@ -52,10 +64,11 @@ def build_body(job_name: str, error: str, now: datetime, log_tail: str = "") -> 
             'border-radius:6px;font-size:12px;overflow-x:auto;white-space:pre-wrap;">'
             f"{html.escape(log_tail)}</pre>"
         )
+    headline = headline or DEFAULT_HEADLINE.format(job=job_name)
+    explanation = explanation or DEFAULT_EXPLANATION
     return f"""
-    <p><b>{html.escape(job_name)} beklenmeyen bir hatayla sonlandı.</b></p>
-    <p>İş, hatayı kendi bildirim akışına ulaşamadan kaybetti (yakalanmamış istisna) —
-    bu mail olmasaydı başarısızlık yalnızca gelmeyen rapordan anlaşılacaktı.</p>
+    <p><b>{html.escape(headline)}</b></p>
+    <p>{html.escape(explanation)}</p>
     <p style="background:#f6f8fa;padding:8px 12px;">
     <b>Zaman:</b> {now.strftime("%d.%m.%Y %H:%M:%S")}<br>
     <b>Hata:</b> <code>{html.escape(error)}</code></p>
@@ -64,8 +77,14 @@ def build_body(job_name: str, error: str, now: datetime, log_tail: str = "") -> 
     """
 
 
-def send_job_failure_alert(job_name: str, error: str) -> bool:
-    """İş çökme uyarısını gönderir. Best-effort: hiçbir durumda exception fırlatmaz."""
+def send_job_failure_alert(job_name: str, error: str,
+                           headline: str = "", explanation: str = "") -> bool:
+    """
+    İş çökme uyarısını gönderir. Best-effort: hiçbir durumda exception fırlatmaz.
+
+    headline/explanation boş bırakılırsa yakalanmamış istisna metni kullanılır
+    (mevcut çağıranların davranışı değişmez).
+    """
     try:
         now = datetime.now()
         recipient = settings.smtp_to_system or settings.alert_email
@@ -81,7 +100,10 @@ def send_job_failure_alert(job_name: str, error: str) -> bool:
         msg["From"] = settings.smtp_from if settings.smtp_from else settings.smtp_username
         msg["To"] = recipient
         msg["Subject"] = build_subject(job_name, now)
-        msg.attach(MIMEText(build_body(job_name, error, now, collect_log_tail()), "html", "utf-8"))
+        msg.attach(MIMEText(
+            build_body(job_name, error, now, collect_log_tail(), headline, explanation),
+            "html", "utf-8",
+        ))
 
         server = None
         try:

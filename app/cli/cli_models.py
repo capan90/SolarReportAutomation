@@ -19,3 +19,5 @@ class CliArgs:
     settlement_monthly: bool = False
     settlement_month: Optional[str] = None  # 'YYYY-MM'
     plant_status: bool = False
+    check_data: bool = False
+    check_date: Optional[str] = None  # 'YYYY-MM-DD'

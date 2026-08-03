@@ -103,6 +103,19 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         help="Santral durum kontrolü job'unu çalıştır"
     )
 
+    parser.add_argument(
+        "--check-data",
+        action="store_true",
+        default=False,
+        help="Dünün mahsuplaşma verisi yazılmış ve tam mı kontrol eder, eksikse uyarı maili atar"
+    )
+
+    parser.add_argument(
+        "--check-date",
+        default=None,
+        help="Veri kontrolü için hedef tarih (Format: YYYY-MM-DD), yoksa dün"
+    )
+
     parsed = parser.parse_args(args_list)
 
     # Neden: Tarih parametresinin YYYY-MM-DD formatında olmasını zorunlu kılmak (Fail-Fast)
@@ -137,6 +150,17 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         except ValueError:
             raise ValueError(f"Geçersiz ay değeri: '{parsed.settlement_month}'")
 
+    # Neden: Veri kontrolü tarihi de fail-fast doğrulanır; hatalı biçim repository'de
+    # ValueError'a dönüşüp "veri eksik" alarmıyla karıştırılmasın.
+    if parsed.check_date:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", parsed.check_date):
+            raise ValueError(f"Hatalı tarih formatı: '{parsed.check_date}'. Beklenen format: YYYY-MM-DD")
+        try:
+            from datetime import datetime
+            datetime.strptime(parsed.check_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"Geçersiz tarih değeri: '{parsed.check_date}'")
+
     return CliArgs(
         mode=parsed.mode,
         date=parsed.date,
@@ -149,5 +173,7 @@ def parse_args(args_list: Optional[List[str]] = None) -> CliArgs:
         settlement_date=parsed.settlement_date,
         settlement_monthly=parsed.settlement_monthly,
         settlement_month=parsed.settlement_month,
-        plant_status=parsed.plant_status
+        plant_status=parsed.plant_status,
+        check_data=parsed.check_data,
+        check_date=parsed.check_date
     )
