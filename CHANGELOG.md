@@ -6,6 +6,16 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Arıza Bildirimleri Rapor Alıcılarından Ayrıldı (2026-08-03)
+
+- **Politika değişikliği — bilerek yapıldı**: Yönetici artık **hata maili almıyor**, **başarı raporunu almaya devam ediyor**. Gelecekte "neden yöneticiye hata gitmiyor" diye sorulursa cevap burada: başarı raporu iş biriminin işine yarar; başarısız koşunun teknik dökümü (hangi aşama düştü, hata metni, run id) müdahale edecek teknik ekibin işidir ve yönetici için gürültüdür.
+- **Kök sebep .env'de değil koddaydı**: Alıcı, olay tipine göre değil `email_profile` parametresine göre seçiliyor (`email_sender.py:250-258`). Her iki iş de hem SUCCESS hem FAILED için **aynı profili** geçiyordu (`daily` / `monthly`), yani ikisi de `SMTP_TO_DAILY` / `SMTP_TO_MONTHLY` listesine düşüyordu. Bu yüzden `.env`'den yöneticiyi çıkarmak çözüm değildi — başarı mailini de keserdi.
+- **Değişiklik dört satır**: Günlük ve aylık işlerin başarısızlık dalları ile her iki işin `CAPTCHA_REQUIRED` dalı `email_profile="system"` oldu. `SMTP_TO_SYSTEM` zaten teknik kanaldı; yeni ortam değişkeni **eklenmedi**, `.env` değişikliği **gerekmedi**.
+- **CAPTCHA_REQUIRED ayrıca düzeldi**: Önceden `default` profilindeydi, o da `settings.alert_email` → `SMTP_TO`'ya düşüyordu (prod'da tek kişi). Yani GAOSB güvenlik doğrulaması beklediğinde bildirim teknik ekibin tamamına ulaşmıyordu. Artık `SMTP_TO_SYSTEM`'e gidiyor.
+- **Sonuç — tüm arıza sinyalleri tek kanalda**: Günlük/aylık başarısızlık, captcha beklemesi, watchdog sonlandırması, veri-eksik alarmı ve yakalanmamış istisna uyarısı artık `SMTP_TO_SYSTEM`'de toplanıyor. Başarı raporları kendi listelerinde kaldı.
+- **Kabul edilen bedel**: Yönetici bugüne kadar "mail gelmedi = bir şey ters" sinyalini kısmen hata mailinden alıyordu. Artık başarı maili gelmediğinde bunu fark edecek otomatik bir mekanizma yönetici tarafında yok; teknik tarafta aynı gün eklenen veri-eksik alarmı bu boşluğu kapatıyor.
+- **Testler**: 10 yeni test. İş tarafındaki yönlendirme **AST ile** doğrulanıyor (düz metin araması biçim değişikliğinde sessizce yanlış sonuç verirdi): SUCCESS çağrıları `daily`/`monthly` profilinde kalmalı, `CAPTCHA_REQUIRED` ve `event_type` verilmeyen başarısızlık dalları `system` olmalı. Ayrıca profil→alıcı çözümlemesi sahte SMTP sunucusuyla uçtan uca sınanıyor ve `system` profilinin rapor listesinden bağımsız bir değişken okuduğu ayrıca sabitleniyor. Paket 333 → **343 test**.
+
 ### Mayıs 2026 Faturalaması Yeniden Scraping YAPMADAN Açıldı (2026-08-03)
 
 - **Sorun**: Mayıs 2026'nın OSB birim fiyatı hiçbir ekrandan girilemiyordu, çünkü `monthly_billing`'de 2026-05 satırı **yoktu**. Sebep: mahsuplaşma verisi tamdı (`settlement_daily` 31 gün, `settlement_hourly` 744/744 saat, `settlement_monthly` mevcut) ama faturalama katmanı (ADR-0002 / S19) Temmuz sonunda eklendi — Mayıs koşusu ondan önceydi.

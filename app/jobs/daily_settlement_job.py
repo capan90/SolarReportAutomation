@@ -138,7 +138,10 @@ class DailySettlementJob:
                     ),
                     event_type="CAPTCHA_REQUIRED",
                     force=True,
-                    email_profile="default"
+                    # Neden: Bu da bir arıza bildirimi — koşu durdu ve müdahale gerekiyor.
+                    # "default" profili SMTP_TO'ya düşüyordu (tek kişi); teknik ekibin
+                    # tamamı görmeli, rapor alıcıları görmemeli.
+                    email_profile="system"
                 )
             except Exception as mail_err:
                 logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")
@@ -254,7 +257,12 @@ class DailySettlementJob:
                     exit_code=exit_code,
                     duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
                     stage_summary=stage_summary,
-                    email_profile="daily"
+                    # Neden: Arıza bildirimi rapor alıcılarına DEĞİL teknik ekibe gider
+                    # (SMTP_TO_SYSTEM). Başarı raporu iş biriminin işine yarar; başarısız
+                    # koşunun teknik dökümü yöneticiye gürültüdür ve müdahale edecek kişi
+                    # zaten teknik ekip. Watchdog, veri-eksik alarmı ve çökme uyarıları da
+                    # aynı kanalda — tüm arıza sinyalleri tek yerde toplanır.
+                    email_profile="system"
                 )
             logger.info("5. Aşama BAŞARILI. Bildirim tamamlandı.")
         except Exception as e:

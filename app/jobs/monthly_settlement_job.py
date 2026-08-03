@@ -640,7 +640,9 @@ class MonthlySettlementJob:
                         ),
                         event_type="CAPTCHA_REQUIRED",
                         force=True,
-                        email_profile="default"
+                        # Neden: Arıza bildirimi — teknik ekibe gider (SMTP_TO_SYSTEM).
+                        # "default" profili SMTP_TO'ya, yani tek kişiye düşüyordu.
+                        email_profile="system"
                     )
                 except Exception as mail_err:
                     logger.error(f"Captcha bildirimi gönderilemedi (best-effort): {mail_err}")
@@ -832,7 +834,9 @@ class MonthlySettlementJob:
                     exit_code=1,
                     duration_ms=int((datetime.datetime.now() - start_time).total_seconds() * 1000),
                     stage_summary=stage_summary,
-                    email_profile="monthly",
+                    # Neden: Arıza bildirimi rapor alıcılarına DEĞİL teknik ekibe gider
+                    # (SMTP_TO_SYSTEM) — bkz. daily_settlement_job.py'deki aynı karar.
+                    email_profile="system",
                 )
             logger.info("5. Aşama BAŞARILI. Bildirim tamamlandı.")
         except Exception as e:
