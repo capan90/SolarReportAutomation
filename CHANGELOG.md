@@ -6,6 +6,17 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Aylık Excel Raporuna İki Açıklayıcı Satır + Başlık Düzeni (2026-08-03)
+
+- **Hesaplama mantığı DEĞİŞMEDİ**: `BillingService.compute()`, `monthly_billing`, `billing_repository` ve mahsuplaşma motoruna dokunulmadı. Değişiklik tek dosyada, yalnızca Excel yazım katmanında (`monthly_settlement_job.py`).
+- **"Ay Özeti" — yeni satır**: `Üretim − Fazla Satış (= Mahsup, OSB'ye Kalan)`. Kullanıcının her ay Excel'de elle eklediği satır. **Yeni hesaplama değil** — tablodaki iki satırın farkı; kaynağı `settlement` toplamları olduğu için faturalama kaydı olmasa da çalışır.
+- **Etiket eşitliği açıkça söylüyor (bilinçli)**: Bu değer tanım gereği `Toplam Mahsup` ile **aynı sayıdır** (motorda `fazla satış = üretim − mahsup`). Yani elle eklenen satırın karşılığı tabloda zaten vardı, ama "Mahsup" adı o sayının **OSB'ye giden miktar** olduğunu söylemiyordu. Etikette `(= Mahsup, OSB'ye Kalan)` yazılarak hem bağlantı kuruldu hem "aynı tabloda neden iki özdeş sayı var" sorusu peşinen cevaplandı.
+- **"Faturalama Özeti" — yeni satır**: `Bu Ayki OSB Kesintisi, {N+1 Ay} Faturasından Düşülecektir`. Tutar zaten hesaplanmış `osb_deduction_try`; yeni matematik yok. Ay adı **`BillingService.next_month()`** ile bulunuyor — aynı gün eklenen ve Aralık→Ocak yıl dönümü testiyle sabitlenmiş tek ay aritmetiği yeri; ikinci bir "+1 ay" mantığı açılmadı. Best-effort: açıklayıcı bir satır raporu düşürmemeli.
+- **Başlıklar birleştirildi**: "Faturalama Özeti"nin 1. satırı gerçek bir sayfa başlığıydı → `A1:C1` birleştirilip ortalandı. "Ay Özeti"nde başlık satırı **yoktu** — 1. satır gerçek sütun etiketleri taşıyordu (`METRİK | ay | önceki ay | değişim`) ve birleştirilseydi etiketler silinirdi; bu yüzden üstüne yeni bir başlık satırı eklendi (`A1:D1` birleşik) ve tablo bir satır aşağı kaydı. Aynı sebeple `FATURALAMA (TL, KDV HARİÇ)` bölüm başlığı birleştirilmedi — o da sütun etiketleri taşıyor.
+- **Ay Özeti'nde binlik ayraç düzeltildi**: Sayılar biçimlendirilmemiş görünüyordu (`7612731.2`), oysa Faturalama Özeti'nde `#,##0.0` uygulanıyordu — aynı raporun iki sayfası farklı okunuyordu. Artık Ay Özeti'ndeki sayısal hücrelere de aynı biçim uygulanıyor; metin hücreleri ("-", "Bekleniyor", katsayı metinleri) ve başlıklar etkilenmiyor.
+- **Satır kaydırma güvenli**: Üretilen Excel'i hiçbir kod satır/sütun indeksiyle okumuyor — dosya yalnızca indirilmek ve e-postaya eklenmek için üretiliyor (`grep` ile doğrulandı).
+- **Doğrulama**: Temmuz 2026'nın gerçek prod verisiyle (744 saatlik kayıt) örnek rapor üretildi; iki sayfa da beklenen şekilde render oldu, birleşik hücreler `A1:D1` ve `A1:C1` olarak doğrulandı, sayısal hücrelerin `number_format` değeri `#,##0.0` olarak teyit edildi. Test paketi 379, regresyon yok.
+
 ### Geçmiş Fatura Fiyatları Kütüğe Tohumlandı (2026-08-03)
 
 - **Neden**: Kaynak kütüğü yeni; tohumlanmasaydı Nisan–Haziran ayları "bu katsayı nereden geldi" sorusuna cevapsız kalır, ekranda yalnızca bundan sonraki aylar izlenebilir olurdu.

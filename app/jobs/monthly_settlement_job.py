@@ -341,6 +341,9 @@ class MonthlySettlementJob:
 
         ws = wb.create_sheet("Faturalama Özeti", 1)
         ws.append([f"{ay_str} — FATURALAMA ÖZETİ (KDV HARİÇ)", "", ""])
+        # Neden: Bu satır gerçek bir SAYFA BAŞLIĞI (yanındaki iki hücre boş), sütun
+        # etiketi değil — birleştirilip ortalanabilir.
+        ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=3)
         style_header(ws, ws.max_row, 3)
         ws.append(["KALEM", "kWh", "TL"])
         style_header(ws, ws.max_row, 3)
@@ -368,6 +371,25 @@ class MonthlySettlementJob:
         style_header(ws, ws.max_row, 3)
 
         ws.append([])
+        # Neden: Raporu okuyan kişi "bu kesinti ne zaman tahsil edilecek" sorusunu
+        # sormaya devam ediyordu; cevap raporun kendisinde olmalı. YENİ HESAPLAMA YOK —
+        # tutar yukarıdaki osb_deduction_try'ın aynısı. Ay adı BillingService.next_month
+        # ile bulunuyor; ay aritmetiği için ikinci bir yol açılmıyor (Aralık→Ocak yıl
+        # dönümü orada testle sabitlenmiş).
+        try:
+            from app.billing import BillingService as _BS
+
+            sonraki_yil, sonraki_ay = _BS.next_month(month_dt.year, month_dt.month)
+            sonraki_str = f"{AY_ADLARI[sonraki_ay - 1]} {sonraki_yil}"
+            ws.append([
+                f"Bu Ayki OSB Kesintisi, {sonraki_str} Faturasından Düşülecektir",
+                "—",
+                _tl(cur.osb_deduction_try),
+            ])
+        except Exception as e:
+            # Neden: Açıklayıcı bir satır raporu düşürmemeli (best-effort).
+            logger.warning("OSB kesinti açıklama satırı yazılamadı: %s", e)
+
         ws.append([
             "Kullanılan Katsayılar (Fazla Satış / OSB)",
             "—",
@@ -433,8 +455,15 @@ class MonthlySettlementJob:
         ws1 = wb.active
         ws1.title = "Ay Özeti"
         totals = self._five_metrics(settlements)
-        ws1.append(["METRİK", f"{ay_str}", f"Önceki Ay ({prev_ay_str})", "DEĞİŞİM (%)"])
+        # Neden: Sayfa başlığı — Faturalama Özeti sayfasıyla simetrik görünüm için.
+        # Mevcut 1. satır GERÇEK SÜTUN BAŞLIKLARI taşıyor (METRİK | ay | önceki ay |
+        # değişim); onu birleştirmek etiketleri silerdi. Bu yüzden üstüne ayrı bir
+        # başlık satırı eklenip A:D birleştiriliyor, tablo bir satır aşağı kayıyor.
+        ws1.append([f"{ay_str} — AY ÖZETİ"])
+        ws1.merge_cells(start_row=1, start_column=1, end_row=1, end_column=4)
         _style_header(ws1, 1, 4)
+        ws1.append(["METRİK", f"{ay_str}", f"Önceki Ay ({prev_ay_str})", "DEĞİŞİM (%)"])
+        _style_header(ws1, ws1.max_row, 4)
         for key in metric_keys:
             cur = round(totals[key], 1)
             if prev_totals:
@@ -445,6 +474,29 @@ class MonthlySettlementJob:
             ws1.append([f"Toplam {key}", cur, prev if prev is not None else "-",
                         degisim if degisim is not None else "-"])
 
+        # Neden: Kullanıcının Excel'de elle eklediği satır — üretimin fazla satış dışında
+        # kalan kısmı, yani OSB'ye giden miktar. YENİ HESAPLAMA DEĞİL: yukarıdaki iki
+        # satırın farkı. Faturalama Özeti sayfasındaki "OSB'ye Kalan" ile aynı sayıdır;
+        # etikette bunu belirtmek iki sayfadaki aynı değerin farklı şeyler sanılmasını
+        # önlüyor. Kaynak settlement toplamları — faturalama kaydı olmasa da çalışır.
+        kalan_cur = round(totals["Üretim (kWh)"] - totals["Fazla Satış (kWh)"], 1)
+        if prev_totals:
+            kalan_prev = round(prev_totals["production_kwh"] - prev_totals["grid_export_kwh"], 1)
+            kalan_degisim = (round((kalan_cur - kalan_prev) / kalan_prev * 100, 1)
+                             if kalan_prev else None)
+        else:
+            kalan_prev, kalan_degisim = None, None
+        # Neden: Etikette eşitlik AÇIKÇA yazılıyor — bu değer tanım gereği "Toplam
+        # Mahsup" ile aynıdır (motor: fazla satış = üretim − mahsup). Aynı tabloda iki
+        # özdeş sayı farklı adlarla dursaydı "neden aynı bunlar?" sorusu doğardı;
+        # etiket hem OSB bağlantısını hem eşitliği söylüyor.
+        ws1.append([
+            "Üretim − Fazla Satış (= Mahsup, OSB'ye Kalan)",
+            kalan_cur,
+            kalan_prev if kalan_prev is not None else "-",
+            kalan_degisim if kalan_degisim is not None else "-",
+        ])
+
         # ---- Faturalama bölümü (ADR-0002) ----
         # Neden: Bu rapor OSB faturasının teyidi için kullanılıyor; tutarların yanında
         # HANGİ katsayıyla hesaplandığı da raporun kendisinde görünmeli. Değer yoksa
@@ -454,6 +506,16 @@ class MonthlySettlementJob:
         ws1.column_dimensions["A"].width = 30
         for col in ("B", "C", "D"):
             ws1.column_dimensions[col].width = 22
+
+        # Neden: Bu sayfadaki sayılar binlik ayraçsız görünüyordu (7612731.2), Faturalama
+        # Özeti'nde ise biçimlendiriliyordu — aynı raporun iki sayfası farklı okunuyordu.
+        # Yalnızca sayısal hücrelere uygulanır; "-", "Bekleniyor" gibi metinler ve
+        # başlık satırları etkilenmez. Yüzde sütunu (D) da sayı olduğu için aynı biçimi
+        # alır; tek ondalık gösterim yüzde için de doğru okuma.
+        for row in ws1.iter_rows(min_row=2, min_col=2, max_col=4):
+            for cell in row:
+                if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
+                    cell.number_format = '#,##0.0'
 
         # ---- Sheet 2: Faturalama Özeti (ADR-0002) ----
         # Neden: 2. sıraya konur — OSB faturasıyla karşılaştırma yapan kişi
