@@ -6,6 +6,15 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Veri Temizliği: 2028 Tarihli Yetim Katsayı Kaydı Silindi (2026-08-03)
+
+- **Kayıt**: `billing_rate` id=1 — fiyat 2.909687 (doğru), `valid_from=2028-01-01` (yanlış). 27 Temmuz'da `murat` tarafından girilen orijinal kayıt; tarih sekmesi yüzünden hiçbir zaman devreye girmedi. Aynı katsayı 2026-06-01 geçerlilikle id=5 olarak yeniden girildi ve tüm faturalama onu kullanıyor.
+- **Silme gerekçesi zararsızlık DEĞİL, gecikmeli risk**: Kayıt bugün etkisizdi ama 1 Ocak 2028'de kendiliğinden "en güncel geçerli katsayı" haline gelirdi ve o tarihe kadar girilecek her yeni katsayıyı **sessizce ezerdi**. Fiyatı bugünkiyle aynı olduğu için hata ancak aradaki bir zam sonrası, 2028'de yanlış fatura olarak ortaya çıkardı.
+- **ADR-0002 append-only ilkesi ihlal edilmedi**: İlke, hesaplanmış bir ayın tutarını etkileyen kayıtlar içindir — onlar silinmez, üzerine yeni kayıt eklenir (Haziran/Temmuz düzeltmesinde yapıldığı gibi). id=1 **hiçbir** `monthly_billing` satırında kullanılmamıştı (0 referans, silme öncesi ve apply anında iki kez doğrulandı), yani kapsamın dışında.
+- **Denetim izi korundu**: Silinen kaydın tüm alanları (id, fiyat, valid_from, created_at, created_by, note) + sebep + kim/ne zaman sildi `audit_log`'a **silme ile aynı transaction'da** yazıldı (id=240, action=`billing_rate_deletion`). id=5'in notu hâlâ "id=1 doğru katsayıydı ama..." diyor; "id=1 neydi" sorusu audit_log'dan tam olarak cevaplanabiliyor. Zincir kopmadı, yalnızca kayıt aktif satır olmaktan çıktı.
+- **Script tekrar çalıştırılabilir ve güvenli**: `scripts/delete_orphan_billing_rate.py` varsayılan olarak dry-run; `--apply` gerekiyor. FK kontrolü **apply anında yeniden** yapılıyor — dry-run ile apply arasında bir ay bu katsayıya bağlanmışsa durur ve silmez. Kayıt yoksa "yapılacak bir şey yok" deyip çıkar.
+- **Doğrulama sonrası durum**: `billing_rate` = id=4 (0.810049, 2026-05-01), id=5 (2.909687, 2026-06-01). `monthly_billing` 2026-06 ve 2026-07 satırlarının ikisi de id=5'e bağlı, sarkan referans yok.
+
 ### Katsayı Geçmişinde Görsel Durum Ayrımı (2026-08-03)
 
 - **Neden**: `billing_rate` APPEND-ONLY olduğu için düzeltilmiş kayıtlar tabloda kalıyor (ADR-0002 §2) ama hepsi aynı görünüyordu. Hangisinin bugün geçerli olduğu tabloya bakınca anlaşılmıyor, okuyan kişi en üstteki veya en yeni eklenen kaydı geçerli sanabiliyordu — 27 Temmuz'daki katsayı karışıklığının bir sebebi buydu (aynı anda 0.810049 ve 2.909687 kayıtları vardı).
