@@ -82,6 +82,10 @@ class MonthlyBillingResult:
     excess_sale_invoice_try: Optional[Decimal] = None
     osb_deduction_try: Optional[Decimal] = None
     locked_at: Optional[datetime] = None
+    # Neden: OSB birim fiyatının denetim izi (kim/ne zaman girdi) repository dict'inde
+    # vardı ama DTO'da düşüyordu; dashboard'daki OSB geçmiş tablosu bunu gösteriyor.
+    osb_price_entered_by: Optional[str] = None
+    osb_price_entered_at: Optional[datetime] = None
 
     @property
     def is_locked(self) -> bool:
@@ -102,4 +106,8 @@ class MonthlyBillingResult:
             "excess_sale_invoice_try": _num(self.excess_sale_invoice_try),
             "osb_deduction_try": _num(self.osb_deduction_try),
             "locked_at": self.locked_at.isoformat() if self.locked_at else None,
+            "osb_price_entered_by": self.osb_price_entered_by,
+            "osb_price_entered_at": (
+                self.osb_price_entered_at.isoformat() if self.osb_price_entered_at else None
+            ),
         }

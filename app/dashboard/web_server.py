@@ -459,6 +459,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 response_data = self.service.get_billing_rate_info()
             elif path == "/api/billing/pending":
                 response_data = self.service.get_pending_billing_months()
+            # Neden: OSB katsayı geçmişi (salt-okunur). Tam eşleşme olduğu için
+            # aşağıdaki "/api/billing/monthly/" ön ek kuralıyla çakışmaz.
+            elif path == "/api/billing/months":
+                response_data = self.service.get_billing_months()
             elif path.startswith("/api/billing/monthly/"):
                 month_str = path.replace("/api/billing/monthly/", "").strip()
                 if re.match(r"^\d{4}-\d{2}$", month_str):

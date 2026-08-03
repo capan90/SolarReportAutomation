@@ -215,6 +215,17 @@ class DashboardService:
             "history": [r.to_dict() for r in service.list_rate_history(limit=history_limit)],
         }
 
+    def get_billing_months(self, limit: int = 24) -> dict:
+        """
+        Neden: Faturalama ayarlarındaki "OSB Katsayısı" sekmesinin geçmiş tablosu.
+        Enerjisa katsayısının append-only geçmişi ekranda vardı ama OSB birim fiyatının
+        geçmişi hiçbir yerde görünmüyordu; girildikten sonra "hangi aya ne girildi"
+        izlenemiyordu. Salt-okunur — yazma yolları değişmedi.
+        """
+        return {
+            "months": [m.to_dict() for m in self._billing().list_months(limit=limit)],
+        }
+
     def get_monthly_billing(self, year: int, month: int) -> Optional[dict]:
         result = self._billing().get_monthly(year, month)
         return result.to_dict() if result else None

@@ -283,6 +283,17 @@ class BillingService:
         """
         return [self._to_result(r) for r in self.repo.list_pending_months(limit=limit)]
 
+    def list_months(self, limit: int = 24) -> List[MonthlyBillingResult]:
+        """
+        Neden: OSB birim fiyatının geçmişi hiçbir ekranda görünmüyordu — giriş yalnızca
+        bekleyen ay varken banner'dan açılan modaldan yapılabiliyor, girildikten sonra
+        "hangi aya hangi fiyat, kim, ne zaman girdi" sorusunun cevabı kayboluyordu.
+        Enerjisa katsayısının append-only geçmiş tablosu vardı, OSB'nin karşılığı yoktu.
+
+        Bekleyen ve kilitli TÜM ayları en yeniden eskiye döner (salt-okunur).
+        """
+        return [self._to_result(r) for r in self.repo.list_months(limit=limit)]
+
     @staticmethod
     def _to_result(row: Dict[str, Any]) -> MonthlyBillingResult:
         return MonthlyBillingResult(
@@ -296,6 +307,8 @@ class BillingService:
             excess_sale_invoice_try=row.get("excess_sale_invoice_try"),
             osb_deduction_try=row.get("osb_deduction_try"),
             locked_at=row.get("locked_at"),
+            osb_price_entered_by=row.get("osb_price_entered_by"),
+            osb_price_entered_at=row.get("osb_price_entered_at"),
         )
 
 

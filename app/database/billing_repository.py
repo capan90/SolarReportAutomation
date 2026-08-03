@@ -189,6 +189,25 @@ class BillingRepository:
         finally:
             session.close()
 
+    def list_months(self, limit: int = 24) -> List[Dict[str, Any]]:
+        """
+        Neden: Dashboard'daki OSB katsayı geçmişi — bekleyen ve kilitli AYRIM YAPMADAN
+        tüm aylar. list_pending_months yalnızca PENDING_RATE döndürdüğü için girilmiş
+        (kilitlenmiş) fiyatların geçmişi hiçbir yerden okunamıyordu. Salt-okunur.
+        En yeni ay başta döner.
+        """
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(MonthlyBilling)
+                .order_by(MonthlyBilling.year.desc(), MonthlyBilling.month.desc())
+                .limit(limit)
+                .all()
+            )
+            return [_monthly_to_dict(r) for r in rows]
+        finally:
+            session.close()
+
     def upsert_monthly(
         self,
         year: int,

@@ -6,6 +6,18 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Faturalama Katsayıları Tek Kartta: Sekmeli Yapı + OSB Giriş Geçmişi (2026-08-03)
+
+- **İstek ve kapsam**: İki katsayının (Enerjisa sabit / OSB aylık değişken) tek yerden yönetilmesi. Erişim birleştirildi, **formlar birleştirilmedi** — gerekçe aşağıda.
+- **Tek forma alıp "tip" seçtirme REDDEDİLDİ**: İki katsayının arka plan davranışı zıt. Enerjisa append-only (hata ucuz, yeni kayıt eklenerek düzeltilir); OSB ayı **geri dönüşsüz kilitler** (`BillingLockedError`, override akışı ADR-0002'de kapsam dışı). Tek forma alınsaydı aynı hareket — fiyat yaz, Kaydet'e bas — bir radio düğmesinin konumuna göre ya geri alınabilir bir kayıt ekler ya da bir ayı kalıcı kilitlerdi; tehlikeli olan seçenek yanlışlıkla seçilebilen konumda kalırdı. Bu risk teorik değil: `billing_rate` id=5'in notu 27 Temmuz'daki karışıklığı "OSB değişken katsayısıyla karıştırılmış hatalı sabit katsayı kaydı" diye tarif ediyor. Aynı hata sınıfını kolaylaştıracak bir arayüz seçilmedi.
+- **Alanlar da zaten ortak değil**: "Ay" alanı Enerjisa'da "bu aydan **itibaren**", OSB'de "**bu** ayın faturası" demek; kaynağı da farklı (serbest ay seçici / yalnızca bekleyen aylar). Ortak kalan tek şey fiyat ve şifre kutularıydı.
+- **Sekmeler mod düğmesi gibi davranmıyor**: Her panel kendi açıklamasını, kendi uyarısını (Enerjisa sarı "geçmiş aylar etkilenmez" / OSB **kırmızı** "kaydedilince ay kilitlenir, düzeltme kaydı eklenemez") ve kendi buton metnini koruyor: "Katsayıyı Kaydet" vs **"Birim Fiyatı Gir ve Ayı Kilitle"**.
+- **OSB formu KOPYALANMADI**: Giriş, banner'dan da açılan mevcut modalın **tek uygulaması** üzerinden yapılıyor; sekmedeki buton aynı modalı açıyor. İkinci bir kopya zamanla ayrışır ve iki farklı davranış doğururdu.
+- **Asıl eksik kapatıldı — OSB'nin geçmişi yoktu**: Enerjisa'nın append-only geçmiş tablosu vardı; OSB tarafında "hangi aya hangi fiyat, kim, ne zaman girdi" sorusunun dashboard'da **hiçbir** cevabı yoktu. Giriş yalnızca bekleyen ay varken banner'dan ulaşılabildiği için, girildikten sonra iz ekrandan kayboluyordu. Veri `monthly_billing`'de duruyordu ama hiçbir ekran göstermiyordu.
+- **Yeni salt-okunur uç nokta**: `GET /api/billing/months` — bekleyen ve kilitli tüm ayları döner. `MonthlyBillingResult` DTO'suna `osb_price_entered_by` / `osb_price_entered_at` eklendi; repository dict'inde zaten vardılar ama DTO'da düşüyorlardı. Fiyat girilmemiş ay tabloda "0" değil **"Bekleniyor"** gösterilir (ADR-0002 §6).
+- **Yazma yollarına hiç dokunulmadı**: `billing_rate` ve `monthly_billing` yazma mantığı, kilit kuralları ve mevcut uç noktalar aynen duruyor. Değişiklik görüntüleme + gezinme katmanında.
+- **Doğrulama**: Yeni uç nokta gerçek prod verisiyle koşturuldu (2026-07 PENDING_RATE / fiyat yok, 2026-06 LOCKED / 1.452381 / murat / 27.07 13:52) ve sekme izole harness'ta görsel olarak doğrulandı. Test paketi 333, regresyon yok.
+
 ### Veri Temizliği: 2028 Tarihli Yetim Katsayı Kaydı Silindi (2026-08-03)
 
 - **Kayıt**: `billing_rate` id=1 — fiyat 2.909687 (doğru), `valid_from=2028-01-01` (yanlış). 27 Temmuz'da `murat` tarafından girilen orijinal kayıt; tarih sekmesi yüzünden hiçbir zaman devreye girmedi. Aynı katsayı 2026-06-01 geçerlilikle id=5 olarak yeniden girildi ve tüm faturalama onu kullanıyor.
