@@ -70,6 +70,8 @@ def run():
 
     if args and getattr(args, 'settlement_monthly', False):
         from app.jobs.monthly_settlement_job import MonthlySettlementJob
+        from app.monitoring import watchdog
+        watchdog.arm("Aylık Mahsup", watchdog.MONTHLY_SETTLEMENT_TIMEOUT)
         try:
             job = MonthlySettlementJob()
             result = job.run(
@@ -115,6 +117,8 @@ def run():
 
     if args and args.settlement:
         from app.jobs.daily_settlement_job import DailySettlementJob
+        from app.monitoring import watchdog
+        watchdog.arm("Günlük Mahsup", watchdog.DAILY_SETTLEMENT_TIMEOUT)
         try:
             job = DailySettlementJob()
             result = job.run(
@@ -137,7 +141,9 @@ def run():
 
     if args and getattr(args, 'plant_status', False):
         from app.jobs.plant_status_job import PlantStatusJob
+        from app.monitoring import watchdog
         import traceback
+        watchdog.arm("Santral Durum Kontrolü", watchdog.PLANT_STATUS_TIMEOUT)
         try:
             job = PlantStatusJob()
             result = job.run()
