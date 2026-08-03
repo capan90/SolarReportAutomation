@@ -1,21 +1,25 @@
 """
-Neden: billing_rate id=1 (2.909687, valid_from=2028-01-01) orijinal girişte tarihi
-yanlışlıkla 2028 yazılmış bir kayıt. Aynı katsayı 2026-06-01 geçerlilikle id=5 olarak
-yeniden girildi (manual-correction) ve tüm faturalama o kaydı kullanıyor.
-
-id=1 hiçbir monthly_billing satırında kullanılmadı, ama zararsız değil: valid_from=2028
-olduğu için 1 Ocak 2028'de kendiliğinden "en güncel geçerli katsayı" haline gelir ve o
-tarihe kadar girilmiş her yeni katsayıyı sessizce ezer. Temizliğin gerçek gerekçesi budur.
+Neden: Hiçbir faturalama hesabında kullanılmamış hatalı bir billing_rate kaydını
+İZLENEBİLİR şekilde siler.
 
 ADR-0002 append-only ilkesi kapsamı: ilke, hesaplanmış bir ayın tutarını etkileyen
-kayıtlar içindir (onlar asla silinmez, üzerine yeni kayıt eklenir). id=1 hiçbir hesapta
-kullanılmadığı için bu kapsamın dışında. Yine de silme İZLENEBİLİR yapılır: kaydın tüm
-alanları audit_log'a yazılır ve silme ile aynı transaction'da commit edilir.
+kayıtlar içindir (onlar asla silinmez, üzerine yeni kayıt eklenir). Hiçbir
+monthly_billing satırının kullanmadığı bir kayıt bu kapsamın dışındadır. Yine de iz
+korunur: kaydın tüm alanları + sebep audit_log'a, silme ile AYNI transaction'da yazılır.
+
+Kullanıldığı vakalar:
+- id=1 (2026-08-03): 2.909687 / valid_from=2028-01-01. Fiyat doğru, tarih yanlış girilmişti.
+  Zararsız değildi: 2028'de kendiliğinden geçerli katsayı olup araya girecek katsayıları
+  ezecekti.
+- id=4 (2026-08-03): 0.810049 / valid_from=2026-05-01. Değer doğruydu ama YANLIŞ TABLODA —
+  bu bir OSB değişken katsayısı, Enerjisa sabit katsayısı değil. Ayrıca billing_rate'teki
+  UNIQUE(rate_type, valid_from) kısıtı yüzünden, bu kayıt dururken Mayıs 2026 için doğru
+  Enerjisa katsayısı EKLENEMİYORDU — silme, düzeltmenin ön koşuluydu.
 
 Kullanım:
-    python scripts/delete_orphan_billing_rate.py                 # dry-run (varsayılan)
-    python scripts/delete_orphan_billing_rate.py --apply         # gerçekten sil
-    python scripts/delete_orphan_billing_rate.py --database-url ...   # hedef DB override
+    python scripts/delete_orphan_billing_rate.py --rate-id 4              # dry-run
+    python scripts/delete_orphan_billing_rate.py --rate-id 4 --apply      # gerçekten sil
+    python scripts/delete_orphan_billing_rate.py --rate-id 4 --database-url ...
 """
 import argparse
 import json
@@ -28,14 +32,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from sqlalchemy import create_engine, text  # noqa: E402
 
-TARGET_RATE_ID = 1
 AUDIT_ACTION = "billing_rate_deletion"
-DELETION_REASON = (
-    "Orijinal girişte valid_from 2028-01-01 olarak yanlış yazılmış kayıt; aynı katsayı "
-    "id=5 olarak 2026-06-01 geçerlilikle yeniden girildi. Hiçbir monthly_billing satırı "
-    "bu kaydı kullanmadı. Silinmeseydi 2028-01-01'de kendiliğinden geçerli katsayı olup "
-    "araya girilecek yeni katsayıları ezecekti."
-)
+DEFAULT_REASON = "Hiçbir faturalama hesabında kullanılmamış hatalı katsayı kaydı."
 
 
 def resolve_url(override):
@@ -46,26 +44,31 @@ def resolve_url(override):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="billing_rate id=1 temizliği")
+    parser = argparse.ArgumentParser(description="Kullanılmamış billing_rate kaydı temizliği")
+    parser.add_argument("--rate-id", type=int, required=True,
+                        help="Silinecek billing_rate.id (zorunlu — yanlış kaydı silmemek için)")
     parser.add_argument("--apply", action="store_true",
                         help="Gerçekten sil (verilmezse yalnızca dry-run)")
     parser.add_argument("--database-url", default=None, help="Hedef DB (varsayılan: .env)")
     parser.add_argument("--by", default="manual-cleanup", help="audit_log kullanıcı adı")
+    parser.add_argument("--reason", default=DEFAULT_REASON,
+                        help="audit_log'a yazılacak silme sebebi")
     args = parser.parse_args()
 
+    target_rate_id = args.rate_id
     url = resolve_url(args.database_url)
     engine = create_engine(url)
     mode = "APPLY" if args.apply else "DRY-RUN"
-    print(f"=== billing_rate id={TARGET_RATE_ID} temizliği [{mode}] ===\n")
+    print(f"=== billing_rate id={target_rate_id} temizliği [{mode}] ===\n")
 
     with engine.begin() as con:
         row = con.execute(text(
             "SELECT id, rate_type, unit_price_try, valid_from, created_at, created_by, note "
             "FROM billing_rate WHERE id = :rid"
-        ), {"rid": TARGET_RATE_ID}).fetchone()
+        ), {"rid": target_rate_id}).fetchone()
 
         if row is None:
-            print(f"Kayıt bulunamadı (id={TARGET_RATE_ID}). Yapılacak bir şey yok.")
+            print(f"Kayıt bulunamadı (id={target_rate_id}). Yapılacak bir şey yok.")
             return 0
 
         record = {
@@ -87,7 +90,7 @@ def main():
         refs = con.execute(text(
             "SELECT id, year, month, status FROM monthly_billing "
             "WHERE excess_sale_rate_id = :rid ORDER BY year, month"
-        ), {"rid": TARGET_RATE_ID}).fetchall()
+        ), {"rid": target_rate_id}).fetchall()
 
         print(f"\nBu katsayıyı kullanan monthly_billing satırı: {len(refs)}")
         for r in refs:
@@ -105,7 +108,7 @@ def main():
 
         details = json.dumps({
             "deleted_record": record,
-            "reason": DELETION_REASON,
+            "reason": args.reason,
             "monthly_billing_references": 0,
         }, ensure_ascii=False)
 
@@ -119,7 +122,7 @@ def main():
             "action": AUDIT_ACTION, "details": details, "success": True,
         })
         deleted = con.execute(text("DELETE FROM billing_rate WHERE id = :rid"),
-                              {"rid": TARGET_RATE_ID}).rowcount
+                              {"rid": target_rate_id}).rowcount
 
         print(f"\n[APPLY] Silinen satır: {deleted}")
         print(f"[APPLY] audit_log kaydı yazıldı (action={AUDIT_ACTION}, by={args.by})")
