@@ -6,6 +6,16 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### GAOSB Login: Odak Doğrulaması Tek Atışta Pes Ediyordu — 2 Ağustos Koşu Kaybı (2026-08-03)
+
+- **Regresyon**: Bir gün önceki odak doğrulaması (`ac13669`) sızıntıyı önledi ama **kurtarma yolunu da kapattı**. 2 Ağustos 09:00 koşusunda odak alınamayınca `GaosbLoginFocusError` fırlatıldı, `_perform_login` bunu bilinçli olarak yeniden denemediği için günlük mahsuplaşma tamamen düştü (`DOWNLOAD_FAILED`). 1 Ağustos'ta aynı arıza **ikinci denemede kendiliğinden düzelmişti**; eski koddaki 3'lük döngü onu kurtarıyordu.
+- **Kök neden — mask geç initialize oluyor**: Prod log imzası net: `Şifre dummy (_CLND) alanı görünür mü: False` → gerçek alan görünür → tıklandı → `activeElement id: ''` (odak `<body>`'de). DevExpress maskesi tıklamadan hemen sonra initialize olup alanı yeniden gizlediğinde odak hiçbir input'ta kalmıyor. Aynı gün 09:11'deki başarılı koşuda dummy görünürdü (`True`) ve login sorunsuz geçti — yani durum **yarış koşulu**, kalıcı bozukluk değil.
+- **İki durum ayrıldı**: `GaosbLoginFocusError` artık **şifre yazılmadan önce** fırlar (sızıntı YOK → yeniden denenebilir). Fiilî sızıntı için yeni `GaosbPasswordLeakError` tipi var (kullanıcı adı alanı büyüdü → asla yeniden denenmez). Böylece 1 Ağustos'un güvenlik kazanımı korunurken 2 Ağustos'un kullanılabilirlik kaybı geri alındı.
+- **Odak alma tek atıştan sınırlı tekrara geçti**: `_focus_password_field` her turda dummy görünürlüğünü **yeniden okuyor** (mask bu arada hazır olmuş olabilir), gerekirse dummy'ye tıklıyor, gerçek alanın görünür olmasını bekliyor, tıklıyor ve `focus()` ile destekliyor. 3 tur da başarısızsa şifre **hiç yazılmadan** duruluyor. Üstüne `_perform_login` formu baştan doldurup 3 kez daha deniyor.
+- **Neden yeniden deneme güvenli**: Doğrulama şifre yazımından ÖNCE yapıldığı için başarısız turda tuş vuruşu hiç üretilmiyor — tekrar etmek maskesiz alana yazma riskini taşımıyor. Riskli olan tek senaryo (yazım sırasında odağın çalınması) ayrı tipe alındı ve tek atışta durduruluyor.
+- **Doğrulama**: Prod logu (`\\10.0.0.169`) üzerinden 1–2 Ağustos koşuları satır satır karşılaştırıldı; Temmuz aylık raporunun 1 Ağustos 09:12'de **başarıyla üretilip e-postayla gönderildiği** teyit edildi (08:30 zamanlı koşu düşmüş, 09:10 tekrar koşusu başarılı).
+- **Testler**: 2 yeni test (mask geç initialize olduğunda ikinci turda şifrenin doğru alana yazılması; odak hatasının yeniden denenmesi ama şifrenin hiç yazılmaması) + sızıntı testi yeni tipe göre sıkılaştırıldı. Paket 311 → **313 test**.
+
 ### ADR-0003 Faz 1: Aylık İş Artık Ezmeden Önce Karşılaştırıyor (2026-08-01)
 
 - **Neden**: Aylık iş, günlük işin yazdığı ayı portallardan yeniden çekip üzerine yazıyor ve **iki yolun aynı sayıyı üretip üretmediği hiç ölçülmemişti** — ikincisi birincisini ezdiği için fark görünmüyordu. ADR-0003 otoriteyi günlük ETL'e devrediyor; bu commit o geçişin **Faz 1**'i: gözlem, davranış değişikliği yok.

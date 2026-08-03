@@ -4,13 +4,23 @@ Kök neden: DevExpress maskeli şifre kutusunun dummy (_CLND) → gerçek (_I) a
 olmadı, odak kullanıcı adı alanında kaldı ve şifre tuşları MASKESİZ kullanıcı adı
 kutusuna döküldü (log kanıtı: kullanıcı adı 9 → 13, şifre 0; 13 = 9 + 4).
 
-Bu testler odak sızıntısının hem ÖNLENDİĞİNİ (şifre yanlış alana hiç yazılmaz) hem de
+Bu testler odak sızıntısının ÖNLENDİĞİNİ (şifre yanlış alana hiç yazılmaz) ve sızıntının
 sessizce yeniden denenmediğini doğrular.
+
+2026-08-02 09:00 regresyonu: odak alınamadığında (şifre HİÇ yazılmadan) da tek atışta pes
+ediliyordu ve günlük mahsuplaşma tamamen düşüyordu. Oysa DevExpress maskesi bazen geç
+initialize oluyor ve ikinci deneme başarılı oluyor. Bu yüzden iki durum ayrıldı:
+sızıntı = yeniden deneme YOK, odak alınamadı = yeniden deneme VAR.
 """
 
 import pytest
 
-from app.sources.gaosb.extractor import GaosbExtractor, GaosbLoginFocusError
+from app.sources.exceptions import SourceAuthenticationError
+from app.sources.gaosb.extractor import (
+    GaosbExtractor,
+    GaosbLoginFocusError,
+    GaosbPasswordLeakError,
+)
 
 USERNAME = "251842607"  # 9 karakter — gerçek koşudaki uzunluk
 PASSWORD = "1234"       # 4 karakter — gerçek koşudaki uzunluk
@@ -65,15 +75,46 @@ class FakeInput:
             target.value += text
 
 
+class LateMaskDummy(FakeInput):
+    """
+    DevExpress maskesinin GEÇ initialize olduğu durum (2026-08-02 09:00 imzası): ilk
+    kontrolde dummy alan henüz görünmüyor ve gerçek alan tıklansa da odağı tutmuyor.
+    Mask hazır olduğunda dummy görünür oluyor ve tıklanınca gerçek alan odak alabiliyor.
+    """
+
+    def __init__(self, page, el_id, visible_from_check):
+        super().__init__(page, el_id, visible=False)
+        self._checks = 0
+        self._visible_from_check = visible_from_check
+
+    def is_visible(self, **_kw):
+        self._checks += 1
+        return self._checks >= self._visible_from_check
+
+    def click(self, **_kw):
+        super().click(**_kw)
+        self.page.pwd.takes_focus = True
+
+
 class FakePage:
-    def __init__(self, password_takes_focus=True, steal_focus_on_type=False):
+    def __init__(
+        self,
+        password_takes_focus=True,
+        steal_focus_on_type=False,
+        mask_ready_at_check=None,
+    ):
         self.user = FakeInput(self, "ctl00_ContentPlaceHolder1_eUserName_I")
         self.pwd = FakeInput(
             self,
             "ctl00_ContentPlaceHolder1_ePassword_I",
-            takes_focus=password_takes_focus,
+            takes_focus=password_takes_focus and mask_ready_at_check is None,
         )
-        self.dummy = FakeInput(self, "ctl00_ContentPlaceHolder1_ePassword_I_CLND")
+        if mask_ready_at_check is None:
+            self.dummy = FakeInput(self, "ctl00_ContentPlaceHolder1_ePassword_I_CLND")
+        else:
+            self.dummy = LateMaskDummy(
+                self, "ctl00_ContentPlaceHolder1_ePassword_I_CLND", mask_ready_at_check
+            )
         self.eula = FakeInput(self, "chk", visible=False)
         self.by_id = {e.id: e for e in (self.user, self.pwd, self.dummy)}
         self.active_id = ""
@@ -136,7 +177,7 @@ def test_focus_stolen_during_typing_is_detected():
     """Odak doğrulaması geçse bile kullanıcı adı büyüdüyse süreç durmalı."""
     page = FakePage(steal_focus_on_type=True)
 
-    with pytest.raises(GaosbLoginFocusError) as exc:
+    with pytest.raises(GaosbPasswordLeakError) as exc:
         GaosbExtractor()._fill_login_form(page, USERNAME, PASSWORD)
 
     # 2026-08-01'deki tam imza: 9 → 13
@@ -144,8 +185,40 @@ def test_focus_stolen_during_typing_is_detected():
     assert "sızıntı" in str(exc.value).lower()
 
 
-def test_focus_leak_is_not_silently_retried():
-    """GaosbLoginFocusError, _perform_login'in 3'lük ValueError döngüsüne düşmemeli."""
+def test_late_devexpress_mask_init_recovers_without_leak():
+    """
+    2026-08-02 regresyonu: mask geç initialize olduğunda ilk turda odak alınamıyor.
+    İkinci tur şifreyi doğru alana yazmalı — koşu düşmemeli.
+    """
+    page = FakePage(mask_ready_at_check=2)
+
+    GaosbExtractor()._fill_login_form(page, USERNAME, PASSWORD)
+
+    assert page.pwd.value == PASSWORD
+    assert page.user.value == USERNAME  # maskesiz alana sızmadı
+
+
+def test_password_leak_is_not_silently_retried():
+    """
+    GaosbPasswordLeakError, _perform_login'in 3'lük döngüsüne düşmemeli. Dışarıya
+    SourceAuthenticationError olarak çıkar (teşhis logu asıl nedeni yazar).
+    """
+    page = FakePage(steal_focus_on_type=True)
+    extractor = GaosbExtractor()
+    page.wait_for_function = lambda *_a, **_kw: None
+
+    with pytest.raises(SourceAuthenticationError):
+        extractor._perform_login(page, USERNAME, PASSWORD)
+
+    # Tek deneme yapılmış olmalı (3 değil) — şifre alanı yalnızca bir kez tıklandı.
+    assert page.pwd.clicked == 1
+
+
+def test_focus_failure_is_retried_but_password_never_typed():
+    """
+    Odak hiç alınamadığında şifre yazılmadığı için sızıntı yok; tek atışta pes etmek
+    yerine form baştan doldurulup yeniden denenmeli (2026-08-02 koşu kaybı).
+    """
     page = FakePage(password_takes_focus=False)
     extractor = GaosbExtractor()
     page.wait_for_function = lambda *_a, **_kw: None
@@ -153,8 +226,9 @@ def test_focus_leak_is_not_silently_retried():
     with pytest.raises(Exception):
         extractor._perform_login(page, USERNAME, PASSWORD)
 
-    # Tek deneme yapılmış olmalı (3 değil) — şifre alanı yalnızca bir kez tıklandı.
-    assert page.pwd.clicked == 1
+    assert page.pwd.clicked > 1, "Odak hatası yeniden denenmeliydi"
+    assert page.pwd.value == ""
+    assert page.user.value == USERNAME  # şifre maskesiz alana düşmedi
 
 
 def test_screenshot_skipped_when_credential_fields_cannot_be_cleared(tmp_path, monkeypatch):

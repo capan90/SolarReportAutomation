@@ -36,12 +36,25 @@ class GaosbBrowserLaunchError(Exception):
 class GaosbLoginFocusError(Exception):
     """
     Neden: DevExpress maskeli şifre kutusu iki input kullanır — boşken görünen dummy
-    (`_I_CLND`) ve gizli gerçek alan (`_I`). Dummy→gerçek geçişi olmazsa odak kullanıcı
-    adı alanında kalıyor ve şifre tuşları MASKESİZ kullanıcı adı kutusuna dökülüyordu
-    (2026-08-01 aylık koşusu: kullanıcı adı 9→13, şifre 0 — 13 = 9 + 4).
+    (`_I_CLND`) ve gizli gerçek alan (`_I`). Dummy→gerçek geçişi olmazsa odak şifre
+    alanına taşınmıyor.
 
-    Bu durumda tekrar denemek şifreyi yeniden yanlış alana yazma riski taşır; ayrı tip
-    olarak fırlatılır ve `_perform_login` bunu YENİDEN DENEMEZ.
+    Bu tip ŞİFRE YAZILMADAN ÖNCE fırlatılır: sızıntı olmamıştır, form baştan
+    doldurularak yeniden denenebilir (bkz. `_perform_login`). 2026-08-02 koşusunda tek
+    atışta pes edilmesi tüm günlük mahsuplaşmayı düşürdü — DevExpress maskesi bazen geç
+    initialize oluyor ve ikinci deneme başarılı oluyor (2026-08-01 09:11 koşusu).
+    """
+    pass
+
+
+class GaosbPasswordLeakError(GaosbLoginFocusError):
+    """
+    Neden: Odak doğrulaması geçtikten SONRA DevExpress odağı geri alırsa şifre tuşları
+    MASKESİZ kullanıcı adı kutusuna dökülüyor (2026-08-01 aylık koşusu: kullanıcı adı
+    9→13, şifre 0 — 13 = 9 + 4).
+
+    Sızıntı GERÇEKLEŞMİŞTİR; tekrar denemek şifreyi yeniden yanlış alana yazma riski
+    taşır — `_perform_login` bunu YENİDEN DENEMEZ.
     """
     pass
 
@@ -388,62 +401,9 @@ class GaosbExtractor(ISourceExtractor):
         # Neden: DevExpress maskeli şifre alanı boşken _CLND (Dummy) alanını gösterir.
         # Gerçek şifre alanı gizlidir. İlk önce dummy alana tıklayıp gerçeği görünür yapmalıyız.
         dummy_pw_sel = "#ctl00_ContentPlaceHolder1_ePassword_I_CLND, #ePassword_I_CLND"
-        try:
-            dummy_el = page.locator(dummy_pw_sel).first
-            dummy_visible = dummy_el.is_visible(timeout=2000)
-            logger.info("Şifre dummy (_CLND) alanı görünür mü: %s", dummy_visible)
-            if dummy_visible:
-                dummy_el.click()
-                logger.info("Şifre maskesi/dummy tıklandı.")
-                time.sleep(0.3)
-        except Exception as de:
-            # Neden: Bu blok sessizce yutuluyordu; 2026-08-01 teşhisinde dummy geçişinin
-            # mi yoksa görünürlüğün mü başarısız olduğu logdan ayırt edilemedi.
-            logger.warning("Şifre dummy alanı kontrolü/tıklaması başarısız: %s: %s",
-                           type(de).__name__, de)
-
         password_sel = "#ctl00_ContentPlaceHolder1_ePassword_I, #ePassword_I"
-        try:
-            page.wait_for_selector(password_sel, state="visible", timeout=5000)
-            logger.info("Gerçek şifre alanı görünür duruma geldi.")
-        except Exception as we:
-            logger.warning(
-                "Gerçek şifre alanı 5 sn içinde görünür olmadı (%s); yine de denenecek.",
-                type(we).__name__,
-            )
 
-        password_el = page.locator(password_sel).first
-        try:
-            expected_pw_id = password_el.get_attribute("id") or ""
-        except Exception:
-            expected_pw_id = ""
-
-        password_el.click()
-
-        # Neden: click() DevExpress'te odağı her zaman gerçek input'a taşımıyor; odak
-        # kullanıcı adında kalırsa press_sequentially şifreyi MASKESİZ alana yazıyor.
-        # Yazmadan ÖNCE odağı doğrula — sızıntı oluştuktan sonra tespit etmek geç.
-        active_id = self._active_element_id(page)
-        if expected_pw_id and active_id != expected_pw_id:
-            logger.warning(
-                "Şifre alanı tıklandı ama odak başka elemanda (aktif: %r, beklenen: %r); "
-                "açıkça focus() deneniyor.", active_id, expected_pw_id,
-            )
-            try:
-                password_el.focus()
-                time.sleep(0.2)
-            except Exception as fe:
-                logger.warning("focus() çağrısı başarısız: %s: %s", type(fe).__name__, fe)
-            active_id = self._active_element_id(page)
-
-        if expected_pw_id and active_id != expected_pw_id:
-            # Neden: Şifreyi yazmadan dur — yanlış alana yazmak hem girişi bozuyor hem de
-            # teşhis ekran görüntüsüne maskesiz şifre düşürüyordu.
-            raise GaosbLoginFocusError(
-                f"Şifre alanına odaklanılamadı (aktif eleman: {active_id!r}, "
-                f"beklenen: {expected_pw_id!r}). DevExpress dummy→gerçek alan geçişi "
-                f"başarısız; şifre yazılmadan durduruldu."
-            )
+        password_el = self._focus_password_field(page, password_sel, dummy_pw_sel)
 
         password_el.press("Control+a")
         password_el.press_sequentially(password, delay=40)
@@ -460,7 +420,7 @@ class GaosbExtractor(ISourceExtractor):
                 logger.warning("Kullanıcı adı alanı yazım sonrası okunamadı: %s", ue)
                 user_len_after = user_len_before
             if user_len_after != user_len_before:
-                raise GaosbLoginFocusError(
+                raise GaosbPasswordLeakError(
                     f"Odak sızıntısı: şifre yazımı sırasında kullanıcı adı alanı "
                     f"{user_len_before} → {user_len_after} karaktere çıktı; şifre "
                     f"maskesiz alana yazılmış olabilir. Giriş durduruldu."
@@ -506,6 +466,102 @@ class GaosbExtractor(ISourceExtractor):
                     logger.info("EULA zaten işaretli, tıklama atlandı.")
         except Exception as e:
             logger.error(f"EULA işaretleme hatası: {e}")
+
+    def _focus_password_field(self, page, password_sel: str, dummy_pw_sel: str):
+        """
+        Neden: DevExpress maskeli şifre kutusu bazen geç initialize oluyor. 2026-08-02
+        09:00 koşusunda dummy (_CLND) alan HENÜZ görünür değilken (log: "görünür mü:
+        False") gerçek alana tıklandı; mask init tıklamadan hemen sonra alanı yeniden
+        gizleyince odak <body>'ye düştü (activeElement id: '') ve günlük mahsuplaşma tek
+        atışta iptal oldu. Aynı akış 2026-08-01 09:11'de ikinci denemede sorunsuz geçti.
+
+        Bu yüzden odak alma sınırlı sayıda TEKRARLANIR; her turda dummy görünürlüğü
+        YENİDEN okunur (mask init bu arada tamamlanmış olabilir). Şifre, odak
+        doğrulanmadan hiçbir turda YAZILMAZ. Odaklanmış şifre locator'ını döndürür.
+        """
+        last_active_id = ""
+        expected_pw_id = ""
+
+        for attempt in range(1, 4):
+            try:
+                dummy_el = page.locator(dummy_pw_sel).first
+                dummy_visible = dummy_el.is_visible(timeout=2000)
+                logger.info(
+                    "Şifre dummy (_CLND) alanı görünür mü (odak denemesi %d/3): %s",
+                    attempt, dummy_visible,
+                )
+                if dummy_visible:
+                    dummy_el.click()
+                    logger.info("Şifre maskesi/dummy tıklandı.")
+                    time.sleep(0.3)
+            except Exception as de:
+                # Neden: Bu blok sessizce yutuluyordu; 2026-08-01 teşhisinde dummy geçişinin
+                # mi yoksa görünürlüğün mü başarısız olduğu logdan ayırt edilemedi.
+                logger.warning("Şifre dummy alanı kontrolü/tıklaması başarısız: %s: %s",
+                               type(de).__name__, de)
+
+            try:
+                page.wait_for_selector(password_sel, state="visible", timeout=5000)
+                logger.info("Gerçek şifre alanı görünür duruma geldi.")
+            except Exception as we:
+                logger.warning(
+                    "Gerçek şifre alanı 5 sn içinde görünür olmadı (%s); yine de denenecek.",
+                    type(we).__name__,
+                )
+
+            password_el = page.locator(password_sel).first
+            try:
+                expected_pw_id = password_el.get_attribute("id") or ""
+            except Exception as ie:
+                logger.warning("Şifre alanı id'si okunamadı: %s: %s", type(ie).__name__, ie)
+                expected_pw_id = ""
+
+            try:
+                password_el.click()
+            except Exception as ce:
+                logger.warning("Şifre alanına tıklanamadı (deneme %d/3): %s: %s",
+                               attempt, type(ce).__name__, ce)
+
+            # Neden: click() DevExpress'te odağı her zaman gerçek input'a taşımıyor; odak
+            # kullanıcı adında kalırsa press_sequentially şifreyi MASKESİZ alana yazıyor.
+            # Yazmadan ÖNCE odağı doğrula — sızıntı oluştuktan sonra tespit etmek geç.
+            if not expected_pw_id:
+                # Doğrulama yapılamıyor (id okunamadı); eski davranışa dön ve devam et.
+                logger.warning("Şifre alanı kimliği bilinmiyor; odak doğrulaması atlanıyor.")
+                return password_el
+
+            last_active_id = self._active_element_id(page)
+            if last_active_id == expected_pw_id:
+                return password_el
+
+            logger.warning(
+                "Şifre alanı tıklandı ama odak başka elemanda (aktif: %r, beklenen: %r); "
+                "açıkça focus() deneniyor.", last_active_id, expected_pw_id,
+            )
+            try:
+                password_el.focus()
+                time.sleep(0.2)
+            except Exception as fe:
+                logger.warning("focus() çağrısı başarısız: %s: %s", type(fe).__name__, fe)
+
+            last_active_id = self._active_element_id(page)
+            if last_active_id == expected_pw_id:
+                return password_el
+
+            if attempt < 3:
+                logger.warning(
+                    "Odak %d/3 denemesinde alınamadı (aktif: %r); DevExpress maskesinin "
+                    "hazırlanması beklenip tekrar denenecek.", attempt, last_active_id,
+                )
+                time.sleep(1.0)
+
+        # Neden: Şifreyi yazmadan dur — yanlış alana yazmak hem girişi bozuyor hem de
+        # teşhis ekran görüntüsüne maskesiz şifre düşürüyordu.
+        raise GaosbLoginFocusError(
+            f"Şifre alanına 3 denemede odaklanılamadı (aktif eleman: {last_active_id!r}, "
+            f"beklenen: {expected_pw_id!r}). DevExpress dummy→gerçek alan geçişi "
+            f"başarısız; şifre yazılmadan durduruldu."
+        )
 
     def _active_element_id(self, page) -> str:
         """
@@ -592,12 +648,14 @@ class GaosbExtractor(ISourceExtractor):
             for attempt in range(1, 4):
                 try:
                     self._fill_login_form(page, username, password)
-                except GaosbLoginFocusError:
-                    # Neden: Odak sızıntısında yeniden denemek şifreyi tekrar maskesiz
-                    # alana yazma riski taşır; sessiz 3 tekrar yerine hemen dur.
+                except GaosbPasswordLeakError:
+                    # Neden: Şifre maskesiz alana FİİLEN döküldü; yeniden denemek aynı
+                    # sızıntıyı tekrarlama riski taşır — hemen dur.
                     raise
-                except ValueError:
-                    # Alanlar boş kaldı — sayfa durumunu bozmadan yeni denemeye geç.
+                except (GaosbLoginFocusError, ValueError):
+                    # Neden: Şifre hiç yazılmadı (odak doğrulanamadı) ya da alanlar boş
+                    # kaldı; sızıntı yok. 2026-08-02'de bu durumda tek atışta pes edilmesi
+                    # tüm günlük koşuyu düşürdü — formu baştan doldurup yeniden dene.
                     if attempt == 3:
                         raise
                     time.sleep(1.0)
