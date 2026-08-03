@@ -266,6 +266,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/billing/monthly/") and path.endswith("/osb-rate"):
                 month_str = path.replace("/api/billing/monthly/", "").replace("/osb-rate", "").strip()
                 self._handle_billing_set_osb_rate(username, month_str)
+            elif path.startswith("/api/billing/monthly/") and path.endswith("/override"):
+                month_str = path.replace("/api/billing/monthly/", "").replace("/override", "").strip()
+                self._handle_billing_override(username, month_str)
             elif path == "/api/gaosb/captcha-resolved":
                 self.auth.log_action(username, self._get_client_ip(), "captcha_resolved", details="Captcha resolution submitted")
                 self._handle_captcha_resolved()
@@ -1238,7 +1241,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         elif isinstance(exc, BillingLockedError):
             self._send_json_contract(
                 None,
-                f"{exc} Düzeltme için override akışı gerekir (henüz mevcut değil).",
+                f"{exc} Düzeltmek için ilgili ayın satırındaki 'Düzelt' butonunu kullanın "
+                f"(yönetici şifresi ve gerekçe ister).",
                 status_code=409,
             )
         elif isinstance(exc, BillingMonthNotFoundError):
@@ -1355,6 +1359,95 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "billing": result.to_dict(),
                 # Neden: Arayüz "raporu yeniden üret" butonunu bu adrese bağlar —
                 # tutarların Excel'e yansıması Sprint C'de gelecek.
+                "regenerate_url": "/api/settlement/trigger/monthly-date",
+                "month": month_str,
+            },
+            None,
+        )
+
+    def _handle_billing_override(self, username: str, month_str: str) -> None:
+        """
+        Neden: Kilitli ayın katsayısını düzeltir (ADR-0002'de kapsam dışıydı, ROADMAP
+        açık maddesi). Kilit KALDIRILMADI — bu, şifre + zorunlu gerekçe + audit kaydı
+        ile korunan tek kaçış kapısı.
+
+        İki katsayıdan yalnızca biri gönderilir; hangi alanın doldurulduğu seçimin
+        kendisidir (ayrı bir "tip" seçici konmadı — mod hatası riski, 2026-08-03'teki
+        sekmeli tasarım kararının aynısı).
+        """
+        if not re.match(r"^\d{4}-\d{2}$", month_str):
+            self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM", status_code=400)
+            return
+
+        body = self._read_json_body()
+        if not self._verify_admin_password(body, username, "billing_override"):
+            return
+
+        osb_raw = body.get("osb_unit_price_try")
+        rate_raw = body.get("excess_sale_rate_try")
+        osb_given = osb_raw not in (None, "")
+        rate_given = rate_raw not in (None, "")
+        if osb_given == rate_given:
+            self._send_json_contract(
+                None,
+                "Tam olarak bir katsayı düzeltilebilir: ya OSB birim fiyatı ya da "
+                "fazla satış katsayısı. İkisi birden veya hiçbiri gönderilemez.",
+                status_code=400,
+            )
+            return
+
+        year, month = int(month_str[:4]), int(month_str[5:7])
+        try:
+            outcome = self.service.override_billing_month(
+                year=year, month=month,
+                reason=body.get("reason", ""),
+                changed_by=username,
+                osb_unit_price_try=osb_raw if osb_given else None,
+                excess_sale_rate_try=rate_raw if rate_given else None,
+            )
+        except Exception as e:
+            self.auth.log_action(
+                username, self._get_client_ip(), "billing_override",
+                details=f"{month_str} reddedildi: {e}", success=False,
+            )
+            self._send_billing_error(e)
+            return
+
+        # Neden: Denetim kaydı JSON — "Düzeltildi" rozeti ve geçmiş bu kayıttan
+        # türetiliyor (monthly_billing'e kolon eklenmedi). Alan adları sabit
+        # tutulmalı; okuyan taraf DashboardService._overrides_by_month.
+        self.auth.log_action(
+            username, self._get_client_ip(), "billing_override",
+            details=json.dumps({
+                "year": year, "month": month,
+                "kind": outcome["kind"],
+                "old_value": outcome["old_value"],
+                "new_value": outcome["new_value"],
+                "previous_rate_id": outcome["previous_rate_id"],
+                "old_invoice_try": outcome["old_invoice_try"],
+                "new_invoice_try": outcome["new_invoice_try"],
+                "old_deduction_try": outcome["old_deduction_try"],
+                "new_deduction_try": outcome["new_deduction_try"],
+                "reason": outcome["reason"],
+                "source": "dashboard",
+            }, ensure_ascii=False),
+        )
+        logger.warning(
+            "%s OVERRIDE (%s): %s -> %s (kullanıcı: %s, gerekçe: %s)",
+            month_str, outcome["kind"], outcome["old_value"], outcome["new_value"],
+            username, outcome["reason"],
+        )
+        self._send_json_contract(
+            {
+                "billing": outcome["month_after"],
+                "kind": outcome["kind"],
+                "old_value": outcome["old_value"],
+                "new_value": outcome["new_value"],
+                "old_invoice_try": outcome["old_invoice_try"],
+                "new_invoice_try": outcome["new_invoice_try"],
+                "old_deduction_try": outcome["old_deduction_try"],
+                "new_deduction_try": outcome["new_deduction_try"],
+                # Neden: Tutarlar değişti; o ayın Excel raporu artık bayat.
                 "regenerate_url": "/api/settlement/trigger/monthly-date",
                 "month": month_str,
             },

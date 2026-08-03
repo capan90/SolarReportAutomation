@@ -16,6 +16,7 @@ from app.billing.models import (
     BillingLockedError,
     BillingMonthNotFoundError,
     BillingRateExistsError,
+    BillingValidationError,
 )
 from app.core.logger import setup_logger
 from app.database.db_session import SessionLocal, create_tables
@@ -34,6 +35,12 @@ def _rate_to_dict(row: BillingRate) -> Dict[str, Any]:
         "created_by": row.created_by,
         "note": row.note,
     }
+
+
+def _dec_or_none(value) -> Optional[Decimal]:
+    """Neden: Numeric kolonların Decimal'e güvenli çevrimi (override öncesi/sonrası
+    değerleri audit kaydına taşınırken kullanılır)."""
+    return Decimal(str(value)) if value is not None else None
 
 
 def _monthly_to_dict(row: MonthlyBilling) -> Dict[str, Any]:
@@ -266,6 +273,89 @@ class BillingRepository:
             session.refresh(row)
             logger.info("monthly_billing upsert tamamlandı: %04d-%02d (%s)", year, month, row.status)
             return _monthly_to_dict(row)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def override_locked_month(
+        self,
+        year: int,
+        month: int,
+        osb_unit_price_try: Optional[Decimal] = None,
+        excess_sale_rate_try: Optional[Decimal] = None,
+    ) -> Dict[str, Any]:
+        """
+        Neden: KİLİDİ BİLEREK DELER — kilitli bir ayın katsayısını düzeltmenin tek yolu
+        (ADR-0002'de kapsam dışı bırakılmıştı, ROADMAP'te açık madde).
+
+        Bu metot AYRI durmak zorunda: set_osb_price ve upsert_monthly'nin kilit kuralları
+        gevşetilseydi kilit kavramı fiilen ortadan kalkardı. Bypass tek ve adı açık bir
+        yerde toplanır; çağıran taraf (servis) şifre + zorunlu gerekçe + audit kaydı
+        şartlarını sağlamadan buraya ulaşamaz.
+
+        Yalnızca verilen alanı yazar; tutarları HESAPLAMAZ (çağıran BillingService.compute
+        ile yeniden türetir, matematik ikinci kez yazılmasın). Eski değerleri "_previous_*"
+        anahtarlarıyla döndürür ki audit kaydı eski->yeni gösterebilsin.
+        """
+        if (osb_unit_price_try is None) == (excess_sale_rate_try is None):
+            raise BillingValidationError(
+                "Override için iki katsayıdan tam olarak biri verilmelidir."
+            )
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyBilling)
+                .filter(MonthlyBilling.year == year, MonthlyBilling.month == month)
+                .first()
+            )
+            if row is None:
+                raise BillingMonthNotFoundError(
+                    f"{year}-{month:02d} için faturalama kaydı yok."
+                )
+            if row.status != STATUS_LOCKED:
+                # Neden: Override, normal girişin kısayolu DEĞİL. Kilitlenmemiş ayda
+                # olağan akış (set_osb_price / compute) zaten çalışıyor; buraya
+                # yönlendirmek denetim kaydını gereksiz yere şişirir ve kilit
+                # kavramını bulanıklaştırır.
+                raise BillingValidationError(
+                    f"{year}-{month:02d} kilitli değil (durum: {row.status}); "
+                    f"override yalnızca kilitli aylar içindir."
+                )
+
+            previous = {
+                "_previous_osb_unit_price_try": _dec_or_none(row.osb_unit_price_try),
+                "_previous_excess_sale_rate_try": _dec_or_none(row.excess_sale_rate_try),
+                "_previous_excess_sale_rate_id": row.excess_sale_rate_id,
+                "_previous_excess_sale_invoice_try": _dec_or_none(row.excess_sale_invoice_try),
+                "_previous_osb_deduction_try": _dec_or_none(row.osb_deduction_try),
+            }
+
+            if osb_unit_price_try is not None:
+                row.osb_unit_price_try = osb_unit_price_try
+                logger.warning(
+                    "%04d-%02d OSB birim fiyatı OVERRIDE edildi: %s -> %s",
+                    year, month, previous["_previous_osb_unit_price_try"], osb_unit_price_try,
+                )
+            else:
+                row.excess_sale_rate_try = excess_sale_rate_try
+                # Neden: Değer artık billing_rate'teki kayıttan gelmiyor; eski id'yi
+                # bırakmak "bu ay şu tarifeden faturalandı" iddiasını yanlış kılardı.
+                # Eski id audit kaydında saklanır.
+                row.excess_sale_rate_id = None
+                logger.warning(
+                    "%04d-%02d fazla satış katsayısı OVERRIDE edildi: %s -> %s "
+                    "(excess_sale_rate_id NULL'a çekildi, eski: %s)",
+                    year, month, previous["_previous_excess_sale_rate_try"],
+                    excess_sale_rate_try, previous["_previous_excess_sale_rate_id"],
+                )
+
+            session.commit()
+            session.refresh(row)
+            result = _monthly_to_dict(row)
+            result.update(previous)
+            return result
         except Exception:
             session.rollback()
             raise

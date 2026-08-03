@@ -52,6 +52,7 @@ class _FakeHandler:
     _send_billing_error = DashboardRequestHandler._send_billing_error
     _handle_billing_set_rate = DashboardRequestHandler._handle_billing_set_rate
     _handle_billing_set_osb_rate = DashboardRequestHandler._handle_billing_set_osb_rate
+    _handle_billing_override = DashboardRequestHandler._handle_billing_override
     _handle_settlement_trigger_monthly_date = (
         DashboardRequestHandler._handle_settlement_trigger_monthly_date
     )
@@ -196,9 +197,13 @@ def test_billing_error_status_mapping(exc, expected_status):
 
 def test_locked_error_mentions_override_flow():
     # Neden: Kullanıcı "neden değiştiremiyorum" sorusunun cevabını mesajda görmeli.
+    # Override akışı eklenmeden önce mesaj "henüz mevcut değil" diyordu; artık somut
+    # bir eyleme yönlendiriyor — asıl iddia "çıkış yolu gösteriliyor mu".
     h = _FakeHandler()
     h._send_billing_error(BillingLockedError("2026-07 ayı kilitli."))
-    assert "override" in h.sent["error"].lower()
+    mesaj = h.sent["error"].lower()
+    assert "düzelt" in mesaj, "kilit mesajı kullanıcıya çıkış yolunu göstermeli"
+    assert "henüz mevcut değil" not in mesaj, "override artık mevcut"
 
 
 def test_unexpected_error_does_not_leak_details():
@@ -474,3 +479,111 @@ def test_force_does_not_bypass_month_validation(existing_report):
 
     assert h.sent["error"] is not None
     assert existing_report.calls == []
+
+
+# ----------------------------------------------------------------------
+# 5. Kilitli ay override (ADR-0002 kapsam dışıydı, ROADMAP açık maddesi)
+# ----------------------------------------------------------------------
+class _FakeOverrideService:
+    """Neden: Endpoint sözleşmesini DB'siz sınamak; iş kuralı ayrı test ediliyor."""
+
+    def __init__(self):
+        self.calls = []
+
+    def override_billing_month(self, **kw):
+        self.calls.append(kw)
+        return {
+            "kind": "osb_unit_price_try",
+            "old_value": "1.452381", "new_value": "1.380000",
+            "previous_rate_id": 5,
+            "old_invoice_try": "10748030.54", "new_invoice_try": "10748030.54",
+            "old_deduction_try": "5162245.86", "new_deduction_try": "4904979.68",
+            "reason": kw["reason"],
+            "month_after": {"year": 2026, "month": 6, "status": STATUS_LOCKED},
+        }
+
+
+GECERLI_GEREKCE = "OSB Nisan faturasi revize edildi, birim fiyat dustu"
+
+
+def _override_handler(body):
+    h = _FakeHandler(body)
+    h.service = _FakeOverrideService()
+    return h
+
+
+def test_override_yanlis_sifrede_401_dondurmez():
+    """Yanlış yönetici şifresi oturum hatası değildir; kullanıcı formda kalmalı."""
+    h = _override_handler({
+        "admin_password": "yanlis", "osb_unit_price_try": "1.38",
+        "reason": GECERLI_GEREKCE,
+    })
+    h._handle_billing_override("murat", "2026-06")
+
+    assert h.sent["status"] != 401
+    assert h.sent["error"] and "şifre" in h.sent["error"].lower()
+    assert h.service.calls == [], "şifre geçmeden iş kuralına ulaşılmamalı"
+    assert h.auth.actions[0]["action"] == "billing_override"
+    assert h.auth.actions[0]["success"] is False
+
+
+@pytest.mark.parametrize("osb,rate", [
+    (None, None),           # hiçbiri
+    ("1.38", "3.10"),       # ikisi birden
+    ("", ""),               # boş string de "verilmemiş" sayılmalı
+])
+def test_override_tam_olarak_bir_katsayi_ister(osb, rate):
+    h = _override_handler({
+        "admin_password": ADMIN_PW, "osb_unit_price_try": osb,
+        "excess_sale_rate_try": rate, "reason": GECERLI_GEREKCE,
+    })
+    h._handle_billing_override("murat", "2026-06")
+
+    assert h.sent["status"] == 400
+    assert "tam olarak bir" in h.sent["error"].lower()
+    assert h.service.calls == []
+
+
+def test_override_gecersiz_ay_formati_reddedilir():
+    h = _override_handler({"admin_password": ADMIN_PW, "osb_unit_price_try": "1.38",
+                           "reason": GECERLI_GEREKCE})
+    h._handle_billing_override("murat", "2026/06")
+
+    assert h.sent["status"] == 400
+    assert h.service.calls == []
+
+
+def test_override_basarili_akis_audit_json_yazar():
+    """Rozet ve geçmiş bu JSON'dan türetiliyor; alan adları sabit kalmalı."""
+    h = _override_handler({
+        "admin_password": ADMIN_PW, "osb_unit_price_try": "1.380000",
+        "reason": GECERLI_GEREKCE,
+    })
+    h._handle_billing_override("murat", "2026-06")
+
+    assert h.sent["error"] is None
+    assert h.sent["data"]["new_value"] == "1.380000"
+    assert h.service.calls[0]["reason"] == GECERLI_GEREKCE
+    assert h.service.calls[0]["changed_by"] == "murat"
+
+    kayit = [a for a in h.auth.actions if a["action"] == "billing_override"]
+    assert len(kayit) == 1 and kayit[0]["success"] is True
+    detay = json.loads(kayit[0]["details"])
+    for alan in ("year", "month", "kind", "old_value", "new_value", "reason"):
+        assert alan in detay, f"audit JSON'unda {alan} yok — rozet bunu okuyor"
+    assert detay["year"] == 2026 and detay["month"] == 6
+
+
+def test_override_domain_hatasi_audit_ve_http_koduna_donusur():
+    class _Exploding(_FakeOverrideService):
+        def override_billing_month(self, **kw):
+            raise BillingValidationError("Düzeltme gerekçesi en az 15 karakter olmalıdır")
+
+    h = _FakeHandler({"admin_password": ADMIN_PW, "osb_unit_price_try": "1.38",
+                      "reason": "kisa"})
+    h.service = _Exploding()
+    h._handle_billing_override("murat", "2026-06")
+
+    assert h.sent["status"] == 400
+    basarisiz = [a for a in h.auth.actions if a["success"] is False]
+    assert basarisiz, "reddedilen override denetim izine yazılmalı"

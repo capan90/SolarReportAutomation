@@ -821,6 +821,36 @@
         <button class="btn" onclick="openBillingModal()" data-tip="Bekleyen ay için OSB birim fiyatını girer ve ayı kilitler.">Birim Fiyatı Gir</button>
     </div>
 
+    <!-- ================= KİLİTLİ AY DÜZELTME (OVERRIDE) MODALI =================
+         Neden: Kilit KALKMADI — bu, şifre + zorunlu gerekçe + audit kaydıyla korunan
+         tek kaçış kapısı (ADR-0002'de kapsam dışıydı, ROADMAP açık maddesi).
+         İki alan var, "tip" seçici YOK: doldurulan alan seçimin kendisidir. -->
+    <div id="override-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeOverrideModal()">&#10005;</button>
+            <h3 id="ov-title">Kilitli Ay Düzeltmesi</h3>
+            <input id="ov-month" type="hidden">
+            <div style="text-align:left; line-height:1.6; margin-bottom:16px;">
+                <div style="border:1px solid rgba(239,68,68,0.45); background:rgba(239,68,68,0.10); border-radius:8px; padding:10px 14px; font-size:0.8rem;">
+                    ⚠️ <b>Dikkat:</b> Bu ay kilitli. Düzeltme <b>audit_log'a</b> eski/yeni değer,
+                    gerekçe ve kullanıcı adıyla yazılır. Tutarlar yeniden hesaplanır;
+                    o ayın Excel raporu <b>yeniden üretilmelidir</b>.
+                </div>
+                <p class="muted small" style="margin-top:10px;">
+                    Yalnızca <b>düzeltmek istediğiniz</b> katsayıyı doldurun; diğerini boş bırakın.
+                </p>
+            </div>
+            <div class="form-grid" style="grid-template-columns:1fr;">
+                <div class="field"><label>OSB Birim Fiyatı (TL/kWh)</label><input id="ov-osb" type="number" step="0.000001"></div>
+                <div class="field"><label>Enerjisa Fazla Satış Katsayısı (TL/kWh)</label><input id="ov-rate" type="number" step="0.000001"></div>
+                <div class="field"><label>Düzeltme Gerekçesi * (en az 15 karakter)</label><input id="ov-reason" type="text" placeholder="Örn. OSB Nisan faturası revize edildi, birim fiyat düştü"></div>
+                <div class="field"><label>Yönetici Şifresi *</label><input id="ov-admin" type="password" placeholder="Zorunlu"></div>
+            </div>
+            <button id="btn-override-save" class="btn blue" style="margin-top:14px;" onclick="saveOverride()">Düzeltmeyi Kaydet</button>
+            <div id="ov-msg" class="msg"></div>
+        </div>
+    </div>
+
     <!-- ================= OSB BİRİM FİYAT MODALI ================= -->
     <div id="billing-modal" class="modal-overlay">
         <div class="modal">
@@ -1302,6 +1332,13 @@
                             <table class="table"><thead><tr><th>Geçerlilik</th><th>Katsayı (TL/kWh)</th><th>Ekleyen</th><th>Açıklama</th></tr></thead>
                             <tbody id="br-history"><tr><td colspan="4" class="muted" style="text-align:center;">Henüz katsayı tanımlanmamış.</td></tr></tbody></table>
                         </div>
+                        <!-- Neden: Kilitli ay düzeltmesi AY bazlıdır; bu tablo tarife
+                             KAYITLARINI listeler, ayları değil. Kullanıcı düzeltmeyi
+                             burada arayabileceği için yönlendirme bırakılıyor. -->
+                        <p class="muted small" style="margin-top:10px;">
+                            Kilitli bir <b>ayın</b> katsayısını düzeltmek için → <b>OSB Katsayısı</b> sekmesindeki
+                            "Aylık Kayıtlar ve Düzeltme" tablosu.
+                        </p>
                         </div><!-- /tab-enerjisa -->
 
                         <div id="tab-osb" class="tab-panel" style="display:none;">
@@ -1317,10 +1354,11 @@
                             <div style="margin-top:16px;">
                                 <button class="btn green" onclick="openBillingModal()">Birim Fiyatı Gir ve Ayı Kilitle</button>
                             </div>
-                            <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Aylık Giriş Geçmişi</div>
+                            <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Aylık Kayıtlar ve Düzeltme</div>
+                            <p class="muted small" style="margin-bottom:8px;">Kilitli bir ayın <b>her iki katsayısı da</b> (OSB veya Enerjisa) buradan düzeltilebilir — yönetici şifresi ve gerekçe zorunludur.</p>
                             <div style="overflow-x:auto;">
-                                <table class="table"><thead><tr><th>Ay</th><th>Birim Fiyat (TL/kWh)</th><th>Giren</th><th>Giriş Zamanı</th><th>Durum</th></tr></thead>
-                                <tbody id="osb-history"><tr><td colspan="5" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
+                                <table class="table"><thead><tr><th>Ay</th><th>Birim Fiyat (TL/kWh)</th><th>Giren</th><th>Giriş Zamanı</th><th>Durum</th><th></th></tr></thead>
+                                <tbody id="osb-history"><tr><td colspan="6" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
                             </div>
                         </div><!-- /tab-osb -->
                     </div>
@@ -2994,6 +3032,94 @@
             if (isOsb) loadOsbHistory();
         }
 
+        let _osbMonths = [];
+
+        // Neden: Düzeltme gerekçesi kullanıcı metnidir ve title="" içine giriyor;
+        // kaçırılmazsa kendi denetim kaydımız XSS taşıyıcısına dönüşür.
+        function escapeHtml(s) {
+            return String(s == null ? "" : s)
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+
+        function openOverrideModal(month) {
+            const m = _osbMonths.find(x =>
+                `${x.year}-${String(x.month).padStart(2, "0")}` === month);
+            if (!m) return;
+            document.getElementById("ov-month").value = month;
+            document.getElementById("ov-title").innerText = `${fmtAy(m.year, m.month)} — Kilitli Ay Düzeltmesi`;
+            // Neden: Mevcut değerler placeholder'da gösterilir; kullanıcı neyi
+            // değiştirdiğini görerek yazar. Ayrı bir "tip" seçici YOK — doldurduğu
+            // alan seçimin kendisidir (mod hatası riski alınmadı).
+            document.getElementById("ov-osb").value = "";
+            document.getElementById("ov-osb").placeholder =
+                m.osb_unit_price_try ? `Mevcut: ${m.osb_unit_price_try}` : "Tanımsız";
+            document.getElementById("ov-rate").value = "";
+            document.getElementById("ov-rate").placeholder =
+                m.excess_sale_rate_try ? `Mevcut: ${m.excess_sale_rate_try}` : "Tanımsız";
+            document.getElementById("ov-reason").value = "";
+            document.getElementById("ov-admin").value = "";
+            document.getElementById("ov-msg").style.display = "none";
+            document.getElementById("override-modal").classList.add("visible");
+        }
+
+        function closeOverrideModal() {
+            document.getElementById("override-modal").classList.remove("visible");
+        }
+
+        async function saveOverride() {
+            const btn = document.getElementById("btn-override-save");
+            const msg = document.getElementById("ov-msg");
+            const month = document.getElementById("ov-month").value;
+            const osb = document.getElementById("ov-osb").value.trim();
+            const rate = document.getElementById("ov-rate").value.trim();
+            const reason = document.getElementById("ov-reason").value.trim();
+            const adminPass = document.getElementById("ov-admin").value;
+
+            const fail = (t) => { msg.className = "msg bad"; msg.innerText = t; msg.style.display = "block"; };
+            if (!!osb === !!rate) return fail("Tam olarak bir katsayı girin (ikisi birden veya hiçbiri olmaz).");
+            if (reason.length < 15) return fail(`Gerekçe en az 15 karakter olmalı (şu an ${reason.length}).`);
+            if (!adminPass) return fail("Yönetici şifresi zorunludur.");
+
+            btn.disabled = true;
+            btn.innerText = "Kaydediliyor...";
+            try {
+                const res = await fetch(`/api/billing/monthly/${month}/override`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        osb_unit_price_try: osb || null,
+                        excess_sale_rate_try: rate || null,
+                        reason: reason,
+                        admin_password: adminPass,
+                    }),
+                });
+                const body = await res.json();
+                if (body.success) {
+                    const d = body.data;
+                    msg.className = "msg ok";
+                    msg.innerText =
+                        `✓ ${month} düzeltildi. ${d.kind === "osb_unit_price_try" ? "OSB" : "Enerjisa"}: `
+                        + `${d.old_value} → ${d.new_value}. `
+                        + `Fatura: ${fmtTL(d.old_invoice_try)} → ${fmtTL(d.new_invoice_try)}, `
+                        + `Kesinti: ${fmtTL(d.old_deduction_try)} → ${fmtTL(d.new_deduction_try)}`;
+                    document.getElementById("ov-admin").value = "";
+                    // Neden: Tutarlar değişti; o ayın Excel raporu artık bayat —
+                    // kullanıcı Raporlar sayfasından yeniden üretmeli (modaldeki uyarı).
+                    msg.innerText += "  ⚠ Bu ayın Excel raporunu yeniden üretin.";
+                    loadOsbHistory();
+                    loadSettlements();
+                } else {
+                    fail(body.error || "Düzeltme kaydedilemedi.");
+                }
+            } catch (e) {
+                fail("Sunucu bağlantı hatası.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Düzeltmeyi Kaydet";
+            }
+        }
+
         async function loadOsbHistory() {
             const tbody = document.getElementById("osb-history");
             const info = await api("/api/billing/months");
@@ -3006,24 +3132,41 @@
                 pending ? `${pending} ay bekliyor` : "Bekleyen ay yok";
 
             if (!info.months.length) {
-                tbody.innerHTML = '<tr><td colspan="5" class="muted" style="text-align:center;">Henüz faturalama ayı yok.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;">Henüz faturalama ayı yok.</td></tr>';
                 return;
             }
+            _osbMonths = info.months;
             tbody.innerHTML = info.months.map(m => {
                 const locked = m.status === "LOCKED";
                 // Neden: Fiyat girilmemiş ay "0" değil "Bekleniyor" gösterilir (ADR-0002 §6).
                 const price = m.osb_unit_price_try
                     ? Number(m.osb_unit_price_try).toLocaleString("tr-TR", { minimumFractionDigits: 6 })
                     : '<span class="muted">Bekleniyor</span>';
-                const badge = locked
+                let badge = locked
                     ? '<span class="badge ok sm">Kilitli</span>'
                     : '<span class="badge warn sm">Bekliyor</span>';
+                // Neden: Düzeltilmiş ay görünür olmalı; rozet audit_log'dan türetiliyor
+                // (monthly_billing'e kolon eklenmedi). Tooltip kaç kez/kim/neden söyler.
+                const ov = m.overrides || [];
+                if (ov.length) {
+                    const tip = ov.map(o =>
+                        `${(o.timestamp || "").slice(0, 16).replace("T", " ")} ${o.username || ""}: `
+                        + `${o.kind === "osb_unit_price_try" ? "OSB" : "Enerjisa"} `
+                        + `${o.old_value} → ${o.new_value} (${o.reason || "-"})`
+                    ).join("\n");
+                    badge += ` <span class="badge warn sm" title="${escapeHtml(tip)}">Düzeltildi (${ov.length})</span>`;
+                }
+                const action = locked
+                    ? `<button class="btn outline" style="padding:4px 10px; font-size:0.74rem;"
+                               onclick="openOverrideModal('${m.year}-${String(m.month).padStart(2, "0")}')">Düzelt</button>`
+                    : "";
                 return `<tr class="${locked ? '' : 'rate-superseded'}">
                         <td>${fmtAy(m.year, m.month)}</td>
                         <td>${price}</td>
                         <td>${m.osb_price_entered_by || "-"}</td>
                         <td>${m.osb_price_entered_at ? m.osb_price_entered_at.replace("T", " ").slice(0, 16) : "-"}</td>
                         <td>${badge}</td>
+                        <td>${action}</td>
                     </tr>`;
             }).join("");
         }

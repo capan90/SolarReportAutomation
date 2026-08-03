@@ -272,6 +272,88 @@ class BillingService:
         )
         return self._to_result(row)
 
+    # Neden: Gerekçe zorunlu VE anlamlı olmalı. Yalnızca "boş olamaz" denseydi "x" veya
+    # "düzeltme" gibi kayıtlar denetim izini doldurur ama hiçbir soruyu cevaplamazdı;
+    # override'ın tek koruması bu metin.
+    MIN_OVERRIDE_REASON_LENGTH = 15
+
+    def override_locked_month(
+        self,
+        year: int,
+        month: int,
+        reason: str,
+        changed_by: str,
+        osb_unit_price_try: Any = None,
+        excess_sale_rate_try: Any = None,
+    ) -> Dict[str, Any]:
+        """
+        Neden: Kilitli bir ayın katsayısını düzeltir (ADR-0002'de kapsam dışıydı).
+        Kilidin kendisi kalkmaz — bu, gerekçesi ve deneticisi olan tek kaçış kapısıdır.
+
+        Akış: kilidi delerek yaz -> MEVCUT compute() ile tutarları yeniden türet.
+        compute() snapshot doluyken gelen katsayıyı yok saydığı için, override'ı ÖNCE
+        yazmak yeni değeri korur ve tutarlar ondan hesaplanır; ikinci bir matematik
+        yolu doğmaz.
+
+        Dönüş: eski/yeni değerleri ve yeniden hesaplanmış tutarları içeren sözlük
+        (çağıran taraf audit kaydını bundan üretir).
+        """
+        reason = str(reason or "").strip()
+        if len(reason) < self.MIN_OVERRIDE_REASON_LENGTH:
+            raise BillingValidationError(
+                f"Düzeltme gerekçesi en az {self.MIN_OVERRIDE_REASON_LENGTH} karakter "
+                f"olmalıdır (verilen: {len(reason)}). Gerekçe, denetimde 'neden "
+                f"değiştirildi' sorusunun tek cevabıdır."
+            )
+        if not str(changed_by).strip():
+            raise BillingValidationError("changed_by boş olamaz (denetim izi zorunlu).")
+
+        osb = _to_decimal(osb_unit_price_try, "osb_unit_price_try") \
+            if osb_unit_price_try is not None else None
+        rate = _to_decimal(excess_sale_rate_try, "excess_sale_rate_try") \
+            if excess_sale_rate_try is not None else None
+        for label, value in (("osb_unit_price_try", osb), ("excess_sale_rate_try", rate)):
+            if value is not None and value <= 0:
+                raise BillingValidationError(f"{label} pozitif olmalıdır: {value}")
+
+        before = self.repo.override_locked_month(
+            year=year, month=month,
+            osb_unit_price_try=osb, excess_sale_rate_try=rate,
+        )
+
+        # Neden: kWh snapshot'ları değişmiyor; tutarlar yeni katsayıyla yeniden türetilsin
+        # diye compute() aynı girdilerle çağrılır. Snapshot yoksa (tutarsız veri) compute
+        # zaten tutar üretmez ve ayı olduğu gibi bırakır (ADR-0002 §7).
+        production = before.get("production_kwh_snapshot") or Decimal("0")
+        excess = before.get("excess_sale_kwh_snapshot") or Decimal("0")
+        after = self.compute(year=year, month=month,
+                             production_kwh=production, excess_sale_kwh=excess)
+
+        kind = "osb_unit_price_try" if osb is not None else "excess_sale_rate_try"
+        logger.warning(
+            "%04d-%02d OVERRIDE (%s) uygulandı — gerekçe: %s (yapan: %s)",
+            year, month, kind, reason, changed_by,
+        )
+        return {
+            "year": year,
+            "month": month,
+            "kind": kind,
+            "reason": reason,
+            "changed_by": changed_by,
+            "old_value": str(before[f"_previous_{kind}"]) if before[f"_previous_{kind}"] is not None else None,
+            "new_value": str(osb if osb is not None else rate),
+            "previous_rate_id": before["_previous_excess_sale_rate_id"],
+            "old_invoice_try": str(before["_previous_excess_sale_invoice_try"])
+            if before["_previous_excess_sale_invoice_try"] is not None else None,
+            "new_invoice_try": str(after.excess_sale_invoice_try)
+            if after.excess_sale_invoice_try is not None else None,
+            "old_deduction_try": str(before["_previous_osb_deduction_try"])
+            if before["_previous_osb_deduction_try"] is not None else None,
+            "new_deduction_try": str(after.osb_deduction_try)
+            if after.osb_deduction_try is not None else None,
+            "result": after,
+        }
+
     def get_monthly(self, year: int, month: int) -> Optional[MonthlyBillingResult]:
         row = self.repo.get_monthly(year, month)
         return self._to_result(row) if row else None

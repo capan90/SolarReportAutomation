@@ -222,9 +222,70 @@ class DashboardService:
         geçmişi hiçbir yerde görünmüyordu; girildikten sonra "hangi aya ne girildi"
         izlenemiyordu. Salt-okunur — yazma yolları değişmedi.
         """
-        return {
-            "months": [m.to_dict() for m in self._billing().list_months(limit=limit)],
-        }
+        months = [m.to_dict() for m in self._billing().list_months(limit=limit)]
+        # Neden: "Düzeltildi" işareti için monthly_billing'e kolon EKLENMEDİ — mevcut
+        # tabloya kolon eklemek prod'da ayrı bir migration gerektirirdi (create_all
+        # var olan tabloya kolon eklemez). audit_log zaten override'ın tam kaydını
+        # tutuyor; oradan türetmek şema değişikliği istemiyor ve rozete "kaç kez, ne
+        # zaman, neden" bilgisini de taşıyor.
+        overrides = self._overrides_by_month()
+        for m in months:
+            m["overrides"] = overrides.get((m["year"], m["month"]), [])
+        return {"months": months}
+
+    def _overrides_by_month(self) -> dict:
+        """audit_log'daki billing_override kayıtlarını (yıl, ay) anahtarıyla gruplar."""
+        from app.database.db_session import SessionLocal
+        from app.database.models import AuditLog
+
+        result: dict = {}
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(AuditLog)
+                .filter(AuditLog.action == "billing_override", AuditLog.success.is_(True))
+                .order_by(AuditLog.id.desc())
+                .limit(200)
+                .all()
+            )
+        except Exception as e:
+            # Neden: Rozet bir süstür; okunamazsa tablo yine de gösterilmeli.
+            logger.warning("Override geçmişi okunamadı (best-effort): %s", e)
+            return result
+        finally:
+            session.close()
+
+        for row in rows:
+            try:
+                data = json.loads(row.details or "{}")
+                key = (int(data["year"]), int(data["month"]))
+            except Exception:
+                continue
+            result.setdefault(key, []).append({
+                "kind": data.get("kind"),
+                "old_value": data.get("old_value"),
+                "new_value": data.get("new_value"),
+                "reason": data.get("reason"),
+                "username": row.username,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+            })
+        return result
+
+    def override_billing_month(self, year: int, month: int, reason: str, changed_by: str,
+                               osb_unit_price_try=None, excess_sale_rate_try=None) -> dict:
+        """
+        Neden: Kilitli ay düzeltmesinin dashboard girişi. Şifre doğrulaması ve audit
+        kaydı web katmanında yapılır (mevcut billing_rate_change kalıbı); burada
+        yalnızca iş kuralı çağrılır.
+        """
+        outcome = self._billing().override_locked_month(
+            year=year, month=month, reason=reason, changed_by=changed_by,
+            osb_unit_price_try=osb_unit_price_try,
+            excess_sale_rate_try=excess_sale_rate_try,
+        )
+        result = outcome.pop("result")
+        outcome["month_after"] = result.to_dict()
+        return outcome
 
     def get_monthly_billing(self, year: int, month: int) -> Optional[dict]:
         result = self._billing().get_monthly(year, month)
