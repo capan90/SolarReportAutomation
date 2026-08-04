@@ -56,6 +56,7 @@ class _FakeHandler:
     _handle_settlement_trigger_monthly_date = (
         DashboardRequestHandler._handle_settlement_trigger_monthly_date
     )
+    _monthly_report_is_stale = DashboardRequestHandler._monthly_report_is_stale
 
     def _read_json_body(self):
         return self._body
@@ -440,14 +441,46 @@ def test_force_regenerates_even_when_report_exists(existing_report):
 
 
 def test_without_force_cache_behaviour_is_preserved(existing_report):
-    # Neden: "Geçmiş ay raporu üret" formu aynı ucu kullanıyor; oradaki cache
-    # davranışı bilinçli ve korunmalı.
+    # Neden: "Geçmiş ay raporu üret" formu aynı ucu kullanıyor; rapor GÜNCELSE cache
+    # davranışı bilinçli ve korunmalı (aynı raporu dakikalarca yeniden üretmek anlamsız).
     month = _prev_month_str()
     h = _FakeHandler({"month": month})
+    h._monthly_report_is_stale = lambda m, p: False   # rapor guncel
     h._handle_settlement_trigger_monthly_date()
 
-    assert existing_report.calls == [], "force yokken job koşmamalıydı"
+    assert existing_report.calls == [], "force yokken tam job koşmamalıydı"
     assert h.sent["data"]["status"] == "cached"
+
+
+def test_bayat_rapor_scraping_yapmadan_yeniden_uretilir(existing_report, monkeypatch):
+    """
+    Neden: Cache eskiden VARLIK kontrolüydü — dosya diskte varsa DB'den eski olsa bile
+    "hazır" deyip servis ediliyordu (2026-08-04: Haziran raporu DB ile 2.283.061,89 TL
+    çelişiyordu). Bayat raporda artık yeniden üretilir, AMA tam job koşmaz: portala
+    gidilmez ve settlement verisi ezilmez.
+    """
+    import app.jobs.monthly_settlement_job as job_mod
+
+    yazilan = []
+
+    class _RewriteOnlyJob(_RecordingJob):
+        def rewrite_report_from_db(self, target_month):
+            yazilan.append(target_month)
+            return f"outputs/reports/{target_month}/mahsup_yeni.xlsx"
+
+    _RecordingJob.calls = []
+    monkeypatch.setattr(job_mod, "MonthlySettlementJob", _RewriteOnlyJob)
+
+    month = _prev_month_str()
+    h = _FakeHandler({"month": month})
+    h._monthly_report_is_stale = lambda m, p: True    # rapor bayat
+    h._handle_settlement_trigger_monthly_date()
+
+    assert yazilan == [month], "bayat rapor DB'den yeniden yazılmalıydı"
+    assert _RecordingJob.calls == [], "tam job (scraping + settlement yazımı) KOŞMAMALI"
+    assert h.sent["data"]["status"] == "regenerated", (
+        "'cached' denseydi kullanıcı bayat raporu güncel sanardı"
+    )
 
 
 def test_force_runs_job_when_nothing_cached(monkeypatch):

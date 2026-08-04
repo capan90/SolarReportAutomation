@@ -1127,6 +1127,49 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         self._send_json_contract(response_data, error_message)
 
+    @staticmethod
+    def _monthly_report_is_stale(month_str: str, report_path: str) -> bool:
+        """
+        Neden: Diskteki Excel, o ayın faturalama kaydından ESKİ ise bayattır — katsayı
+        override'ı monthly_billing.updated_at'i günceller ama dosyaya dokunmaz.
+
+        SAAT DİLİMİ TUZAĞI: updated_at `datetime.utcnow()` ile yazılıyor (naive UTC),
+        dosya mtime ise yerel saat. Doğrudan karşılaştırmak UTC+3'te 3 saatlik bir kör
+        nokta açardı (bayat dosya "taze" görünürdü); bu yüzden mtime UTC'ye çevrilir.
+
+        Karar veremezsek (kayıt yok, dosya okunamıyor) BAYAT DEĞİL sayılır — şüphede
+        gereksiz yeniden üretim yapmak yerine mevcut davranış korunur.
+        """
+        try:
+            p = Path(report_path)
+            if not p.is_absolute():
+                p = BASE_DIR / p
+            if not p.exists():
+                return False
+            file_utc = datetime.utcfromtimestamp(p.stat().st_mtime)
+
+            from app.billing import BillingService
+
+            year, month = int(month_str[:4]), int(month_str[5:7])
+            row = BillingService().repo.get_monthly(year, month)
+            if not row:
+                return False
+            updated = row.get("updated_at")
+            if updated is None:
+                return False
+            stale = file_utc < updated
+            if stale:
+                logger.info(
+                    "%s tazelik: dosya(UTC)=%s < faturalama updated_at=%s -> BAYAT",
+                    month_str, file_utc, updated,
+                )
+            return stale
+        except Exception as e:
+            # Neden: Tazelik kontrolü bir kolaylık; patlarsa indirmeyi engellememeli.
+            logger.warning("%s tazelik kontrolü yapılamadı (%s); cache korunuyor: %s",
+                           month_str, type(e).__name__, e)
+            return False
+
     def _handle_settlement_trigger_monthly_date(self) -> None:
         """
         Neden (force): Mevcut kayıt + dosya varsa job HİÇ koşmaz, "cached" dönülür —
@@ -1179,11 +1222,32 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             report_path = repo.get_monthly_report_path(year, month)
 
             if has_db and report_path and not force:
-                response_data = {
-                    "status": "cached",
-                    "report_path": report_path,
-                    "download_url": f"/api/settlement/download/monthly/{month_str}"
-                }
+                # Neden: Cache kontrolü eskiden yalnızca "dosya VAR mı" diye soruyordu;
+                # dosyanın DB'den ESKİ olup olmadığına bakmıyordu. Katsayı override'ı
+                # (veya rapor formatı değişikliği) yalnızca DB'yi/kodu günceller, diskteki
+                # Excel'e dokunmaz — 2026-08-04'te Haziran raporu DB ile 2.283.061,89 TL
+                # çelişiyordu ve kullanıcıya "rapor hazır" denip o dosya indiriliyordu.
+                if self._monthly_report_is_stale(month_str, report_path):
+                    logger.warning(
+                        "%s raporu bayat (DB daha yeni); scraping YAPILMADAN "
+                        "DB'den yeniden üretiliyor.", month_str,
+                    )
+                    from app.jobs.monthly_settlement_job import MonthlySettlementJob
+                    rewritten = _run_in_clean_thread(
+                        lambda: MonthlySettlementJob().rewrite_report_from_db(month_str)
+                    )
+                    response_data = {
+                        # Neden: "cached" DEĞİL — kullanıcı raporun tazelendiğini bilmeli.
+                        "status": "regenerated" if rewritten else "cached",
+                        "report_path": str(rewritten) if rewritten else report_path,
+                        "download_url": f"/api/settlement/download/monthly/{month_str}",
+                    }
+                else:
+                    response_data = {
+                        "status": "cached",
+                        "report_path": report_path,
+                        "download_url": f"/api/settlement/download/monthly/{month_str}"
+                    }
             else:
                 if force and has_db and report_path:
                     # Neden: Mevcut rapor üzerine yazılıyor; hangi tetiklemenin

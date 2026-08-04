@@ -79,6 +79,9 @@ def _monthly_to_dict(row: MonthlyBilling) -> Dict[str, Any]:
         "excess_sale_invoice_try": _dec(row.excess_sale_invoice_try),
         "osb_deduction_try": _dec(row.osb_deduction_try),
         "locked_at": row.locked_at,
+        # Neden: Excel raporunun bayat olup olmadığı buna göre belirleniyor — katsayı
+        # override'ı bu alanı günceller ama diskteki dosyaya dokunmaz (2026-08-04).
+        "updated_at": row.updated_at,
     }
 
 

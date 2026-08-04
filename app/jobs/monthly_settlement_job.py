@@ -581,6 +581,46 @@ class MonthlySettlementJob:
         logger.info(f"4 sayfalı aylık rapor kaydedildi: {output_path}")
         return output_path
 
+    def rewrite_report_from_db(self, target_month: str) -> Optional[Path]:
+        """
+        Neden: Excel raporu, veritabanındaki mahsuplaşma verisi değişmediği hâlde
+        BAYAT kalabiliyor — katsayı override'ı yalnızca monthly_billing'i günceller,
+        diskteki dosyaya dokunmaz. 2026-08-04'te Haziran raporu DB ile 2.283.061,89 TL
+        çelişiyordu ve "Geçmiş Rapor Sorgula" onu cache'ten servis ediyordu.
+
+        Bu metot raporu YALNIZCA DB'den yeniden yazar:
+        - Portala HİÇ gitmez, tarayıcı açmaz (run() ~100 sn sürer ve yeniden scraping yapar).
+        - settlement_hourly / settlement_daily / settlement_monthly'ye YAZMAZ — run()
+          bunları üzerine yazıyor (ADR-0003'te takip edilen teknik borç); geçmiş bir ayı
+          görüntülemek o veriyi riske atmamalı.
+        - Yalnızca outputs/reports/<ay>/mahsup_<ay>_aylik.xlsx dosyasını değiştirir.
+
+        Veri yoksa None döner (çağıran tam işe düşer).
+        """
+        from app.database.settlement_repository import SettlementRepository
+
+        dt = datetime.datetime.strptime(target_month, "%Y-%m")
+        repo = SettlementRepository()
+        settlements = repo.list_hourly_month(dt.year, dt.month)
+        if not settlements:
+            logger.warning(
+                "%s için settlement_hourly boş; rapor DB'den yeniden üretilemedi.",
+                target_month,
+            )
+            return None
+
+        prev_dt = dt.replace(day=1) - datetime.timedelta(days=1)
+        prev_totals = repo.get_monthly(prev_dt.year, prev_dt.month)
+
+        out = (PROJECT_ROOT / "outputs" / "reports" / target_month
+               / f"mahsup_{dt.strftime('%Y%m')}_aylik.xlsx")
+        self._write_monthly_report(settlements, out, dt, prev_totals)
+        logger.info(
+            "%s raporu DB'den yeniden üretildi (scraping YOK, %d saatlik kayıt): %s",
+            target_month, len(settlements), out,
+        )
+        return out
+
     def run(
         self,
         target_month: Optional[str] = None,

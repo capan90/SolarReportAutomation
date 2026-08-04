@@ -6,6 +6,19 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### "Geçmiş Rapor Sorgula" Bayat Excel Servis Ediyordu (2026-08-04)
+
+- **Bulgu**: Form (`index.html`, Ana Sayfa) `/api/settlement/trigger/monthly-date` ucunu **force parametresi olmadan** çağırıyordu; dünkü D2 düzeltmesi yalnızca Faturalama sekmesindeki "Raporu Yeniden Üret" butonuna uygulanmıştı. Ama asıl sorun eksik parametre değil: **cache tazelik değil VARLIK kontrolü yapıyordu** (`has_db and report_path`). Dosyanın veritabanından eski olup olmadığına hiç bakılmıyordu.
+- **Somut zarar**: Prod'daki üç raporu ölçtük — 2026-06 Excel'i 28 Temmuz'dan kalma, OSB katsayısı 1.452381 / kesinti 5.162.245,86 TL gösteriyor; oysa DB 3 Ağustos'taki override'dan sonra 0.810049 / 2.879.183,97 TL diyor. **2.283.061,89 TL fark.** Kullanıcıya "rapor hazır" denip o dosya indiriliyordu. 2026-05 raporu ise `Faturalama Özeti` sayfasını hiç içermiyor (faturalama katmanından eski).
+- **`force: true` eklenmedi — ölçümle elendi**: Bugün 08:56'daki force koşusunun logu, o yolun ne yaptığını gösteriyor: `settlement_daily upsert 2026-07-01 … 2026-07-31` (31 günün tamamı üzerine yazıldı) + iSolar/GAOSB'den yeniden çekim (~100 sn). Forma `force: true` konsaydı, geçmiş bir raporu **görüntülemek** her seferinde portala gidip o ayın mahsuplaşma verisini ezerdi — ADR-0003'te takip edilen teknik borcun ta kendisi; Mayıs'ı dün tam bu yüzden yeniden koşturmamıştık. Ayrıca portal eski veriyi vermezse sorgu düşerdi.
+- **Yapılan**: Cache artık **tazelik** kontrolü yapıyor. Dosya güncelse `cached` (mevcut davranış, hızlı). Bayatsa Excel **yalnızca veritabanından** yeniden yazılıyor ve `regenerated` dönüyor — portala gidilmez, `settlement_*` tablolarına yazılmaz. Yeni `MonthlySettlementJob.rewrite_report_from_db()` sadece `outputs/reports/<ay>/…xlsx` dosyasına dokunur.
+- **"cached" artık sessizce başarı değil**: Bayat dosya servis edilirken kullanıcıya "rapor hazır" deniyordu. Arayüz artık üç durumu ayırıyor: güncel → "rapor güncel, indiriliyor"; bayat → "**mevcut rapor güncel değildi** (katsayı/veri sonradan değişmiş), veritabanından yeniden üretildi".
+- **Saat dilimi tuzağı kapatıldı**: `monthly_billing.updated_at` naive **UTC** (`utcnow`), dosya mtime **yerel** saat. Doğrudan karşılaştırmak UTC+3'te 3 saatlik kör nokta açardı — bayat dosya "taze" görünürdü. mtime UTC'ye çevrilerek karşılaştırılıyor; ayrı bir testle sabitlendi.
+- **Karar verilemezse cache korunur**: Faturalama kaydı yok, `updated_at` boş, dosya okunamıyor veya kontrol patlıyorsa **bayat sayılmaz** — tazelik kontrolü bir kolaylıktır, indirmeyi engellememeli (best-effort).
+- **Faturalama sekmesindeki buton DEĞİŞMEDİ**: `force: true` ile tam iş koşmaya devam ediyor (OSB fiyatı girildikten sonra tutarların Excel'e yansıması için doğru davranış). Regresyon testiyle sabitlendi.
+- **Doğrulama — izole uçtan uca**: Geçici SQLite + geçici çıktı dizininde Haziran vakası birebir simüle edildi: rapor üretildi (OSB 1,452381, yeni satırlar mevcut) → tazelik **False** → katsayı 0.810049'a override edildi, dosyaya dokunulmadı → tazelik **True** ve eski Excel DB ile çelişiyor → scraping'siz yeniden üretim → Excel **0,810049** gösteriyor, tazelik **False** → `settlement_hourly` **720 satır, değişmedi**. Ne prod ne dev verisine dokunuldu.
+- **Testler**: 9 yeni test (tazelik yönü, saat dilimi tuzağı, karar verilemeyen dört durumda cache koruması, yeniden üretimin `upsert_*`/`compute`/extractor çağırmaması, Faturalama butonunun force davranışının korunması) + mevcut cache testi yeni sözleşmeye göre güncellendi ve hermetik hâle getirildi. Paket 379 → **389 test**.
+
 ### Aylık Excel Raporuna İki Açıklayıcı Satır + Başlık Düzeni (2026-08-03)
 
 - **Hesaplama mantığı DEĞİŞMEDİ**: `BillingService.compute()`, `monthly_billing`, `billing_repository` ve mahsuplaşma motoruna dokunulmadı. Değişiklik tek dosyada, yalnızca Excel yazım katmanında (`monthly_settlement_job.py`).

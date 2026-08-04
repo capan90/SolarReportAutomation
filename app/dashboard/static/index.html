@@ -3556,7 +3556,19 @@
                     const data = body.data;
                     if (data.status === "cached") {
                         msg.className = "msg ok";
-                        msg.innerText = "✓ Bu tarih daha önce hesaplandı. Rapor hazır, indiriliyor...";
+                        msg.innerText = "✓ Bu tarih daha önce hesaplandı ve rapor güncel. İndiriliyor...";
+                        dl.href = withToken(data.download_url);
+                        dl.innerText = "Raporu İndir";
+                        dl.style.display = "inline-flex";
+
+                        window.location.href = withToken(data.download_url);
+                    } else if (data.status === "regenerated") {
+                        // Neden: Rapor diskte vardı ama DB'den eskiydi (ör. katsayı
+                        // sonradan düzeltilmiş). Sessizce "hazır" demek yanlış bilgiydi;
+                        // kullanıcı dosyanın tazelendiğini bilmeli.
+                        msg.className = "msg ok";
+                        msg.innerText = "✓ Mevcut rapor güncel değildi (katsayı/veri sonradan değişmiş); "
+                            + "veritabanından yeniden üretildi. İndiriliyor...";
                         dl.href = withToken(data.download_url);
                         dl.innerText = "Raporu İndir";
                         dl.style.display = "inline-flex";

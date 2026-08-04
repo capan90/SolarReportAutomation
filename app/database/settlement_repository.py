@@ -222,6 +222,40 @@ class SettlementRepository:
         finally:
             session.close()
 
+    def list_hourly_month(self, year: int, month: int) -> List[HourlySettlement]:
+        """
+        Neden: Aylık Excel raporu, portala HİÇ gitmeden yalnızca DB'den yeniden
+        üretilebilsin diye ayın saatlik kayıtlarını döndürür (2026-08-04 bayat rapor
+        olayı). Aynı veri MonthlySettlementJob'ın rapor yazıcısına beslenir.
+
+        SALT OKUMA — bu metot hiçbir tabloya yazmaz.
+        """
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(SettlementHourly)
+                .filter(
+                    SettlementHourly.date >= date(year, month, 1),
+                    SettlementHourly.date < (date(year + 1, 1, 1) if month == 12
+                                             else date(year, month + 1, 1)),
+                )
+                .order_by(SettlementHourly.timestamp)
+                .all()
+            )
+            return [
+                HourlySettlement(
+                    timestamp=str(r.timestamp),
+                    production_kwh=float(r.production_kwh or 0.0),
+                    consumption_kwh=float(r.consumption_kwh or 0.0),
+                    settled_kwh=float(r.settled_kwh or 0.0),
+                    grid_export_kwh=float(r.grid_export_kwh or 0.0),
+                    grid_import_kwh=float(r.grid_import_kwh or 0.0),
+                )
+                for r in rows
+            ]
+        finally:
+            session.close()
+
     def has_daily_data(self, date: str) -> bool:
         """settlement_daily tablosunda o tarih var mı?"""
         try:
