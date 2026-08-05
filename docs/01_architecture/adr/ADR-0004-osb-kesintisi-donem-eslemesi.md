@@ -10,10 +10,19 @@ gerçekleştirdi: M ayının faturasından okunan fiyat, M+1 ayının katsayıs�
 2026-08-05'te iki gerçek GAOSB faturası bu kuralı sınadı. Her ikisinde de
 "EPYS Bedelli Üretim Miktarı" kalemi şunu gösterdi:
 
-| Belge | Faturadaki kWh | Sistemdeki karşılığı | Fark | Fiyat |
-|---|---|---|---|---|
-| Haziran 2026 | 2.334.046,2750 | kWh(**Mayıs**) 2.335.232,7 | %0,05 | 0,810049 |
-| Temmuz 2026  | 3.570.216,493  | kWh(**Haziran**) 3.554.333,1 | %0,45 | 1,452381 |
+| Belge | Faturadaki kWh | Bir ÖNCEKİ ayın kWh'i | Fark | Belgenin KENDİ ayının kWh'i | Fark | Fiyat |
+|---|---|---|---|---|---|---|
+| Haziran 2026 | 2.334.046,2750 | Mayıs **2.335.232,700** | **%0,05** | Haziran 3.554.333,100 | %34,3 | 0,810049 |
+| Temmuz 2026  | 3.570.216,493  | Haziran **3.554.333,100** | **%0,45** | Temmuz 3.657.244,200 | %2,38 | 1,452381 |
+
+Her iki belgede de EPYS miktarı, belgenin kendi ayına değil BİR ÖNCEKİ aya
+oturuyor. Kalan %0,05–0,45'lik sapma ölçüm farkıdır (OSB'nin EPYS'e kayıtlı
+miktarı ile santral tarafı ölçümü aynı sınırdan okunmaz).
+
+> Sayıların kaynağı: fatura kWh'leri belgelerden; sistem kWh'leri prod
+> `monthly_billing` sorgusundan (2026-08-05 doğrulaması). Mayıs ve Temmuz
+> değerleri o sorguyla teyit edildi; Haziran'ın değeri kayıtlı kesintiden
+> türetilebiliyor (2.879.183,97 ÷ 0,810049 = 3.554.333,100, tam bölünüyor).
 
 Yani bir fatura İKİ DÖNEMİ birlikte taşıyor: Aktif Enerji kalemi cari ayın
 tüketimi, EPYS kalemi ise BİR ÖNCEKİ ayın üretimidir. Kesinti kaleminde miktar
@@ -128,9 +137,31 @@ Etkilenen kilitli aylar ve düzeltme yönü (dry-run ile kesinleşir):
 
 | Ay | Katsayı | Kesinti | İşlem |
 |---|---|---|---|
-| Mayıs 2026 | 0,810049 → 0,810049 | ≈1.891.653 → aynı | dokunulmaz (fiyat sabitti) |
+| Mayıs 2026 | 0,810049 → 0,810049 | 1.891.652,91 → aynı | dokunulmaz (fiyat sabitti) |
 | Haziran 2026 | 0,810049 → 1,452381 | 2.879.183,97 → 5.162.245,86 | override yolundan yaz |
 | Temmuz 2026 | 1,452381 → (bilinmiyor) | 5.311.711,99 → Bekleniyor | PENDING_RATE'e döndür |
+
+### Faz 0 bulgusu (2026-08-05): Temmuz'un kaynağı "yok" değil, YANLIŞ
+
+Yukarıdaki tablo hazırlanırken prod kütüğü okunmamıştı ve Temmuz için "kaynak
+yok" varsayılmıştı. Kuru koşu bunu çürüttü: `source = 2026-07` kaydı **var**
+(id=4, **2,972196**, durum BEKLIYOR). Ancak bu değer faturanın **Aktif Enerji**
+satırından okunmuş; katsayı ise **EPYS Bedelli Üretim Miktarı** satırından
+okunur. Aynı belgeden iki satır girilmiş: id=3 doğru satırı (EPYS, 1,452381),
+id=4 yanlış satırı taşıyor.
+
+Uygulansaydı Temmuz `3.657.244,200 × 2,972196 = 10.870.046,58 TL` ile
+kilitlenirdi — hiçbir fatura dayanağı olmayan bir tutar; düzeltmekte olduğumuz
+Haziran hatasından (2.283.061,89 TL) daha büyük.
+
+Karar: id=4 **silinmez, durumu değiştirilmez** (BEKLIYOR kalır); yalnızca hedefi
+Temmuz'a çevrilmez (`KUTUK_HARIC`). Çevrilseydi `compute(2026,7)` içindeki
+`apply_pending_electricity_price` kancasının iki koşulu da sağlanır ve Temmuz
+sessizce kilitlenirdi. Ağustos belgesi `source = Temmuz` olarak girildiğinde
+`UNIQUE(source_year, source_month)` sayesinde id=4'ün değeri üzerine yazılacak.
+
+Bu bulgu, girdi doğrulamasının form metnine taşınmasını da tetikledi: elektrik
+fiyatı formu artık hangi fatura satırının okunacağını adıyla söylüyor.
 
 Takip işleri:
 - Commit 1'deki "Resmi / Önizleme" iki görünümü tek satıra iner — düzeltmeden

@@ -6,6 +6,21 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### ADR-0004 Kanıt Tablosu Prod Verisiyle Kesinleştirildi (2026-08-05)
+
+- **Prod doğrulaması**: `monthly_billing` sorgusu Temmuz 2026 için `üretim=7.612.731,200`, `fazla satış=3.955.487,000`, **OSB'ye kalan = 3.657.244,200 kWh** verdi. Analiz boyunca kullanılan değer bir test fixture'ından geliyordu ve doğrulanmamıştı — **doğru çıktı**.
+- **Kanıt tablosu genişletildi**: Artık her belge için hem *bir önceki ayın* hem *belgenin kendi ayının* kWh'i ve sapmaları yan yana. Reddedilen alternatif de kayda geçti, tablo kendi kendine yetiyor:
+
+  | Belge | Faturadaki kWh | Önceki ay | Fark | Kendi ayı | Fark |
+  |---|---|---|---|---|---|
+  | Haziran | 2.334.046,2750 | Mayıs 2.335.232,700 | **%0,05** | Haziran 3.554.333,100 | %34,3 |
+  | Temmuz | 3.570.216,493 | Haziran 3.554.333,100 | **%0,45** | Temmuz 3.657.244,200 | %2,38 |
+
+- **"Faz 0 bulgusu" bölümü eklendi**: ADR yazılırken prod kütüğü okunmamıştı ve Temmuz için *"kaynak yok"* varsayılmıştı. Kuru koşu bunu çürüttü — `source=2026-07` kaydı **var** (id=4, 2,972196, BEKLIYOR) ama değeri faturanın **Aktif Enerji** satırından okunmuş. Uygulansaydı Temmuz **10.870.046,58 TL** ile, hiçbir fatura dayanağı olmadan kilitlenirdi. `KUTUK_HARIC` kararının gerekçesi ve kanca tehlikesi artık ADR'de kayıtlı.
+- **Sayı düzeltmesi (bende)**: Bu tutarı bir ara `10.869.046,58` diye hesaplayıp kullanıcının rakamını yazım hatası sanmıştım; kesin Decimal hesabı **10.870.046,58**'i doğruluyor (elle çarpımda `3.657.244,2 × 0,07` yanlış alınmıştı). ADR doğru değerle yazıldı.
+- **Yazım hatası düzeltmesi gerekmedi**: Hatalı `10.869.046,58` rakamı ADR dosyasına hiç girmemişti (yalnızca sohbette geçti); ADR'deki `5.311.711,99` ise prod sorgusuyla teyit edildi (3.657.244,200 × 1,452381).
+- **Tüm ADR rakamları Decimal ile yeniden doğrulandı**: dört yüzde, dört tutar, üç kWh — hepsi tutuyor. Kod, şema ve veri değişmedi; bu commit yalnızca karar belgesini kesinleştiriyor.
+
 ### Dönem Eşlemesi Koda Uygulandı: Kaydırma Kaldırıldı (2026-08-05)
 
 - **Ne değişti**: `set_electricity_price` artık hedefi `next_month(source)` ile değil, **`target := source`** ile yazıyor (ADR-0004 Karar 1). Bir ayın OSB katsayısı, **o ayın kendi üretimini değerleyen** fiyattır. Bir ay geriden gelen tek şey **tahsilat zamanıdır** — M ayının kesintisi M+1 faturasından düşülür; bu bir gösterim bilgisidir, hesaba girmez.
