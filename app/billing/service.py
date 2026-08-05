@@ -304,6 +304,16 @@ class BillingService:
         """
         return (year + 1, 1) if month == 12 else (year, month + 1)
 
+    @staticmethod
+    def previous_month(year: int, month: int) -> tuple:
+        """
+        Neden: next_month'un simetriği — Net Ay Sonucu, bu ayın faturasında ZATEN
+        düşülmüş olan bir önceki ayın kesintisini geri ekler. Ay kaydırması bu işin
+        en tehlikeli hata sınıfı; geriye doğru aritmetik de tek noktada tutulur ve
+        Ocak→Aralık yıl dönümü tek yerde doğrulanır.
+        """
+        return (year - 1, 12) if month == 1 else (year, month - 1)
+
     def set_electricity_price(self, source_year: int, source_month: int,
                               unit_price_try: Any, created_by: str,
                               note: Optional[str] = None) -> Dict[str, Any]:
@@ -559,6 +569,130 @@ class BillingService:
             "new_deduction_try": str(after.osb_deduction_try)
             if after.osb_deduction_try is not None else None,
             "result": after,
+        }
+
+    # ------------------------------------------------------------------
+    # Gerçek OSB fatura tutarı + Net Ay Sonucu
+    # ------------------------------------------------------------------
+    def set_actual_invoice(self, year: int, month: int, amount_try: Any,
+                           entered_by: str, note: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Neden: OSB'nin o ay için kestiği GERÇEK fatura tutarını kaydeder. Hesaplanmış
+        bir değer değildir — kullanıcı elindeki faturadan okur. Net Ay Sonucu'nun tek
+        dış girdisi budur.
+
+        KİLİT YOK: bu değer hesaplanmış hiçbir tutarı geçmişe dönük değiştirmiyor;
+        düzeltme aynı ayı yeniden kaydetmektir. Denetim izi (kim/ne zaman/eski->yeni)
+        çağıran katmanda audit_log'a yazılır — dönüşteki "_previous_amount_try" bunun
+        içindir.
+
+        Tutar KDV HARİÇ (net) TL beklenir; sistemdeki tüm tutarlar öyle.
+        """
+        amount = _to_decimal(amount_try, "amount_try")
+        # Neden: Negatif reddedilir (yazım hatası, Net Sonucu sessizce kaydırırdı);
+        # SIFIR kabul edilir — üretimin faturayı tamamen karşıladığı bir ay gerçek
+        # bir vakadır ve "0 fatura geldi" ile "henüz girilmedi" ayrı şeylerdir.
+        if amount < 0:
+            raise BillingValidationError(
+                f"Fatura tutarı negatif olamaz: {amount}. Alacak dekontu için sistem "
+                f"yöneticinizle görüşün."
+            )
+        if not 1 <= int(month) <= 12:
+            raise BillingValidationError(f"Geçersiz ay: {month}")
+        if not str(entered_by).strip():
+            raise BillingValidationError("entered_by boş olamaz (denetim izi zorunlu).")
+
+        saved = self.repo.upsert_actual_invoice(
+            year=int(year), month=int(month), amount_try=amount,
+            entered_by=str(entered_by).strip(), note=note,
+        )
+        logger.warning(
+            "%04d-%02d gerçek OSB fatura tutarı %s: %s TL (giren: %s)",
+            int(year), int(month),
+            "DÜZELTİLDİ" if saved.get("_previous_amount_try") is not None else "girildi",
+            amount, entered_by,
+        )
+        return saved
+
+    def get_actual_invoice(self, year: int, month: int) -> Optional[Dict[str, Any]]:
+        return self.repo.get_actual_invoice(int(year), int(month))
+
+    def list_actual_invoices(self, limit: int = 24) -> List[Dict[str, Any]]:
+        return self.repo.list_actual_invoices(limit=limit)
+
+    def get_net_result(self, year: int, month: int) -> Dict[str, Any]:
+        """
+        Neden: "Bu ay gerçekte kârda mıyım, zararda mıyım" sorusunun cevabı.
+
+            Net = Gerçek Fatura[M] − (Enerjisa Faturası[M] + OSB Kesintisi[M])
+                                   + OSB Kesintisi[M−1]
+
+        Son terim BİR ÖNCEKİ ayın kesintisidir: bu ayın faturasında zaten düşülmüş
+        olan tutar odur (bir ayın kesintisi bir sonraki ayın faturasından düşülür).
+        Geri eklenince fatura "brüt"e döner ve ayın kendi üretim alacaklarıyla
+        karşılaştırılabilir hale gelir.
+
+        İŞARET: pozitif = hâlâ ÖDENECEK tutar, negatif/sıfır = alacak (kâr tarafı).
+
+        KAYDEDİLMEZ, her çağrıda türetilir. Girdilerin hepsi zaten kalıcı; türetilmiş
+        değeri saklamak ikinci bir doğruluk kaynağı yaratırdı ve osb_deduction_try
+        override ile değiştiğinde sessizce bayatlardı (2026-08-04'teki bayat Excel
+        olayının aynı sınıfı).
+
+        Bağımlılıklardan biri eksikse net_try None döner ve "missing" listesi NEYİN
+        beklendiğini söyler — çağıran taraf "Bekleniyor" gösterir, 0 değil.
+        """
+        year, month = int(year), int(month)
+        prev_year, prev_month = self.previous_month(year, month)
+
+        invoice_row = self.repo.get_actual_invoice(year, month)
+        actual = (_to_decimal(invoice_row["amount_try"], "amount_try")
+                  if invoice_row and invoice_row.get("amount_try") is not None else None)
+
+        cur = self.repo.get_monthly(year, month)
+        prev = self.repo.get_monthly(prev_year, prev_month)
+        enerjisa = cur.get("excess_sale_invoice_try") if cur else None
+        deduction = cur.get("osb_deduction_try") if cur else None
+        prev_deduction = prev.get("osb_deduction_try") if prev else None
+
+        # Neden: Eksik olanı ADIYLA söylemek şart. "Bekleniyor" tek başına kullanıcıyı
+        # hangi ekrana gideceğini bilmeden bırakıyordu.
+        missing: List[str] = []
+        if actual is None:
+            missing.append("gerçek OSB fatura tutarı")
+        if enerjisa is None:
+            missing.append("fazla satış faturası")
+        if deduction is None:
+            missing.append("bu ayın OSB kesintisi")
+        if prev_deduction is None:
+            missing.append(f"{prev_year}-{prev_month:02d} OSB kesintisi")
+
+        net = None
+        if not missing:
+            net = _money(actual - (enerjisa + deduction) + prev_deduction)
+            logger.info(
+                "%04d-%02d Net Ay Sonucu türetildi: %s TL (%s)",
+                year, month, net, "ödenecek" if net > 0 else "alacak",
+            )
+        else:
+            logger.info(
+                "%04d-%02d Net Ay Sonucu hesaplanamadı; bekleyen girdiler: %s",
+                year, month, ", ".join(missing),
+            )
+
+        return {
+            "year": year, "month": month,
+            "previous_year": prev_year, "previous_month": prev_month,
+            "actual_invoice_try": actual,
+            "excess_sale_invoice_try": enerjisa,
+            "osb_deduction_try": deduction,
+            "previous_osb_deduction_try": prev_deduction,
+            "net_try": net,
+            "missing": missing,
+            # Neden: Girişin denetim izi geçmiş tablosunda görünsün.
+            "entered_by": invoice_row.get("entered_by") if invoice_row else None,
+            "entered_at": invoice_row.get("entered_at") if invoice_row else None,
+            "note": invoice_row.get("note") if invoice_row else None,
         }
 
     def get_monthly(self, year: int, month: int) -> Optional[MonthlyBillingResult]:

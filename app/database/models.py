@@ -412,6 +412,50 @@ class MonthlyBilling(Base):
     )
 
 
+class MonthlyActualInvoice(Base):
+    """
+    Neden: OSB'nin bir ay için kestiği GERÇEK fatura tutarı. Hesaplanmış bir değer
+    değildir — kullanıcı elindeki faturadan okuyup girer. "Net Ay Sonucu" hesabının
+    tek dış girdisi budur.
+
+    Neden ayrı tablo (monthly_billing'e kolon DEĞİL):
+    - `create_all` yeni TABLO oluşturur, var olan tabloya yeni KOLON oluşturmaz;
+      kolon eklemek prod'da migration isterdi. Yeni tablo kendiliğinden doğar
+      (MonthlyElectricityPrice'ta verilen kararın aynısı).
+    - Yaşam döngüsü farklı: monthly_billing hesaplanmış ve KİLİTLENMİŞ finansal
+      kayıttır; burası dışarıdan girilen ham veridir ve DÜZELTİLEBİLİR olmak
+      zorundadır (kullanıcı faturayı yanlış okuyabilir).
+    - Fatura, o ayın mahsuplaşması hesaplanmadan önce gelebilir; satırı olmayan
+      bir aya da girilebilmeli.
+
+    LOCKED YOK, append-only DEĞİL: Bu alan hiçbir hesaplanmış tutarı geçmişe dönük
+    değiştirmiyor — yalnızca Net Ay Sonucu'nu besliyor. Kilit kavramı (ve override
+    akışının 15 karakterlik zorunlu gerekçesi) bir KİLİDİ delmenin bedelidir;
+    burada delinecek kilit yok. Düzeltme, aynı ayı yeniden kaydetmektir.
+    "Kim, ne zaman, hangi değeri neyle değiştirdi" audit_log'a yazılır
+    (billing_actual_invoice) — para ile ilgili her yazım denetlenir.
+
+    amount_try KDV HARİÇ (net) TL'dir. Sistemdeki tüm tutarlar öyle; gerçek fatura
+    genelde KDV dahil geldiği için arayüz ve Excel bunu AÇIKÇA yazar — karıştırılırsa
+    Net Ay Sonucu sessizce ~%20 yanlış çıkardı.
+    """
+    __tablename__ = "monthly_actual_invoice"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+    # Neden: Para Float tutulmaz (ADR-0002 §8). Fatura toplamı kuruş hassasiyetinde.
+    amount_try = Column(Numeric(18, 2), nullable=False)
+    entered_by = Column(String(100), nullable=False)
+    entered_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    note = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_monthly_actual_invoice_year_month"),
+    )
+
+
 
 
 

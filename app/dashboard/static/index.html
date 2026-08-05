@@ -1199,6 +1199,11 @@
                     <div class="status-row"><span class="name">Fazla Satış Faturası</span><strong id="ms-fatura">-</strong></div>
                     <div class="status-row"><span class="name">OSB Kesintisi</span><strong id="ms-osb">-</strong></div>
                     <div class="status-row"><span class="name">Durum</span><strong id="ms-billing-durum">-</strong></div>
+                    <!-- Neden: Net Ay Sonucu, kullanıcının asıl sorusunun ("bu ay kârda
+                         mıyım") cevabı; kWh ve kalem tutarlarının hemen yanında dursun.
+                         Girdisi eksikse "Bekleniyor" yazar, 0 DEĞİL. -->
+                    <div class="status-row" data-tip="Gerçek OSB fatura tutarı, Faturalama Katsayıları → Gerçek Fatura & Net Sonuç sekmesinden KDV hariç girilir."><span class="name">Gerçek OSB Faturası (girilen)</span><strong id="ms-gercek">-</strong></div>
+                    <div class="status-row" data-tip="Net = Gerçek Fatura − (Enerjisa Faturası + Bu Ayın OSB Kesintisi) + Önceki Ayın OSB Kesintisi. Pozitif: ödenecek tutar kaldı. Negatif/sıfır: üretim faturayı karşıladı."><span class="name">Net Ay Sonucu (Ödenecek)</span><strong id="ms-net">-</strong></div>
                 </div>
                 <div class="card">
                     <div class="card-title" data-tip="Son 30 günün günlük üretim ve tüketim çubukları — değerleri görmek için grafiğin üzerine gelin.">Son 30 Gün: Üretim ve Tüketim</div>
@@ -1306,6 +1311,8 @@
                                     onclick="switchBillingTab('osb')">OSB Katsayısı</button>
                             <button class="tab" role="tab" id="tab-btn-fatura"
                                     onclick="switchBillingTab('fatura')">Fatura Elektrik Fiyatı</button>
+                            <button class="tab" role="tab" id="tab-btn-net"
+                                    onclick="switchBillingTab('net')">Gerçek Fatura &amp; Net Sonuç</button>
                         </div>
 
                         <div id="tab-enerjisa" class="tab-panel">
@@ -1394,6 +1401,44 @@
                                 <tbody id="ep-history"><tr><td colspan="5" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
                             </div>
                         </div><!-- /tab-fatura -->
+
+                        <!-- Neden: Diğer üç sekme KATSAYI girer (hesabın girdisi);
+                             bu sekme OSB'nin kestiği GERÇEK fatura tutarını girer —
+                             hesaplanmış bir değer değil, dışarıdan gelen bilgi. Ayrı
+                             sekmede durması bu farkı görünür kılıyor. Ay KİLİTLEMEZ:
+                             burada yazılan hiçbir hesaplanmış tutarı geçmişe dönük
+                             değiştirmiyor, düzeltme aynı ayı yeniden kaydetmektir. -->
+                        <div id="tab-net" class="tab-panel" style="display:none;">
+                            <p class="muted small" style="margin-bottom:10px;">OSB'nin o ay için kestiği <b>gerçek fatura tutarını</b> girin. Bu, <b>Net Ay Sonucu</b> hesabının tek dış girdisidir — sistem bu tutarı hesaplayamaz, faturadan okunur.</p>
+                            <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                                ⚠️ <b>Dikkat — tutar KDV HARİÇ (net) girilmelidir.</b>
+                                Sistemdeki tüm tutarlar KDV hariçtir; fatura genelde <b>KDV dahil</b> gelir.
+                                Karıştırılırsa Net Ay Sonucu <b>sessizce ~%20 yanlış</b> çıkar.
+                                Ayrıca <b>yalnızca elektrik kalemini</b> girin — su, doğalgaz, aidat gibi kalemler dahil edilirse sonuç onları da içerir.
+                            </div>
+                            <div style="border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                                ℹ️ <b>Net Ay Sonucu</b> = Gerçek Fatura − (Enerjisa Faturası + Bu Ayın OSB Kesintisi) + <b>Önceki Ayın</b> OSB Kesintisi.<br>
+                                Son terim geri eklenir: bu ayın faturasında zaten <b>önceki ayın</b> kesintisi düşülmüştür.<br>
+                                Sonuç <b>pozitif</b>ise ödenecek tutar kalmış, <b>negatif/sıfır</b>sa üretim faturayı karşılamış demektir.
+                            </div>
+                            <div class="form-grid">
+                                <div class="field"><label>Fatura Ayı</label><input id="ai-month" type="month"></div>
+                                <div class="field"><label>Gerçek Fatura Tutarı (TL, KDV hariç)</label><input id="ai-amount" type="number" step="0.01" placeholder="Örn. 1250000.00"></div>
+                                <div class="field"><label>Açıklama (opsiyonel)</label><input id="ai-note" type="text" placeholder="Örn. GAOSB Temmuz elektrik kalemi"></div>
+                                <div class="field"><label>Yönetici Şifresi *</label><input id="ai-admin" type="password" placeholder="Zorunlu"></div>
+                            </div>
+                            <div style="margin-top:14px;"><button id="btn-ai-save" class="btn blue" onclick="saveActualInvoice()">Kaydet</button></div>
+                            <div id="ai-msg" class="msg"></div>
+                            <p class="muted small" style="margin-top:10px;">
+                                Yanlış girdiyseniz <b>aynı ayı yeniden kaydetmeniz</b> yeterlidir — bu alan ayı kilitlemez.
+                                Her giriş ve düzeltme (eski → yeni değer) <b>denetim günlüğüne</b> yazılır.
+                            </p>
+                            <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Girilen Faturalar ve Net Sonuçlar</div>
+                            <div style="overflow-x:auto;">
+                                <table class="table"><thead><tr><th>Ay</th><th>Gerçek Fatura (KDV hariç)</th><th>Net Ay Sonucu (Ödenecek)</th><th>Giren</th></tr></thead>
+                                <tbody id="ai-history"><tr><td colspan="4" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
+                            </div>
+                        </div><!-- /tab-net -->
                     </div>
 
                     <div class="card">
@@ -2337,6 +2382,23 @@
                     document.getElementById("ms-osb").innerText = b ? fmtTL(b.osb_deduction_try) : "-";
                     document.getElementById("ms-billing-durum").innerText =
                         !b ? "Kayıt yok" : (b.status === "LOCKED" ? "Kilitli" : "Birim fiyat bekleniyor");
+
+                    // Neden: Net Ay Sonucu KAYDEDİLMEZ, her okumada türetilir —
+                    // bir ayın kesintisi düzeltildiğinde bu satır kendiliğinden
+                    // doğrulanır, bayat bir değer gösterme riski yok.
+                    const net = await api(`/api/billing/net/${donem}`);
+                    document.getElementById("ms-gercek").innerText =
+                        net ? fmtTL(net.actual_invoice_try) : "-";
+                    const netEl = document.getElementById("ms-net");
+                    if (net && net.net_try !== null && net.net_try !== undefined) {
+                        const n = Number(net.net_try);
+                        netEl.innerText = `${fmtTL(Math.abs(n))} ${n > 0 ? "ödenecek" : "alacak"}`;
+                        // Renk tek başına anlam taşımıyor; yanındaki kelime de söylüyor.
+                        netEl.style.color = n > 0 ? "var(--bad, #ef4444)" : "var(--ok, #22c55e)";
+                    } else {
+                        netEl.innerText = "Bekleniyor";
+                        netEl.style.color = "";
+                    }
                 }
             }
 
@@ -3055,7 +3117,7 @@
         }
 
         function switchBillingTab(which) {
-            const tabs = ["enerjisa", "osb", "fatura"];
+            const tabs = ["enerjisa", "osb", "fatura", "net"];
             tabs.forEach(t => {
                 document.getElementById("tab-" + t).style.display = (t === which) ? "" : "none";
                 document.getElementById("tab-btn-" + t).classList.toggle("active", t === which);
@@ -3064,6 +3126,96 @@
             // her açılışta gereksiz sorgu yapmasın.
             if (which === "osb") loadOsbHistory();
             if (which === "fatura") loadElectricityPrices();
+            if (which === "net") loadActualInvoices();
+        }
+
+        // Neden: İşaret yönü tek yerde yorumlanır — pozitif ÖDENECEK (kırmızımsı),
+        // negatif/sıfır ALACAK (yeşilimsi), hesaplanamadıysa "Bekleniyor" (0 DEĞİL).
+        // Renk tek başına bırakılmıyor; rozet metni de aynı şeyi söylüyor (renk
+        // körlüğü). Excel'deki renk kuralıyla birebir aynı.
+        function netBadge(net) {
+            if (!net || net.net_try === null || net.net_try === undefined) {
+                const eksik = (net && net.missing && net.missing.length)
+                    ? ` — bekleyen: ${net.missing.join(", ")}` : "";
+                return `<span class="badge warn sm">Bekleniyor</span><div class="muted" style="font-size:0.72rem;">${escapeHtml(eksik.replace(/^ — /, ""))}</div>`;
+            }
+            const n = Number(net.net_try);
+            const sinif = n > 0 ? "bad" : "ok";
+            const etiket = n > 0 ? "Ödenecek" : "Alacak";
+            return `<span class="badge ${sinif} sm">${fmtTL(Math.abs(n))}</span>
+                    <div class="muted" style="font-size:0.72rem;">${etiket}</div>`;
+        }
+
+        async function loadActualInvoices() {
+            const tbody = document.getElementById("ai-history");
+            const info = await api("/api/billing/actual-invoice");
+            if (!info || !info.invoices) {
+                tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;">Liste okunamadı.</td></tr>';
+                return;
+            }
+            if (!info.invoices.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="muted" style="text-align:center;">Henüz gerçek fatura tutarı girilmemiş.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = info.invoices.map(r => `<tr>
+                    <td>${fmtAy(r.year, r.month)}</td>
+                    <td>${fmtTL(r.amount_try)}</td>
+                    <td>${netBadge(r.net)}</td>
+                    <td>${escapeHtml(r.entered_by || "-")}</td>
+                </tr>`).join("");
+        }
+
+        async function saveActualInvoice() {
+            const btn = document.getElementById("btn-ai-save");
+            const msg = document.getElementById("ai-msg");
+            const month = document.getElementById("ai-month").value;
+            const amount = document.getElementById("ai-amount").value;
+            const note = document.getElementById("ai-note").value;
+            const adminPass = document.getElementById("ai-admin").value;
+
+            const fail = (t) => { msg.className = "msg bad"; msg.innerText = t; msg.style.display = "block"; };
+            if (!month) return fail("Fatura ayı zorunludur.");
+            if (amount === "") return fail("Fatura tutarı zorunludur.");
+            if (!adminPass) return fail("Yönetici şifresi zorunludur.");
+
+            btn.disabled = true;
+            btn.innerText = "Kaydediliyor...";
+            try {
+                const res = await fetch("/api/billing/actual-invoice", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ month, amount, note, admin_password: adminPass }),
+                });
+                const body = await res.json();
+                if (body.success) {
+                    const d = body.data;
+                    // Neden: Düzeltme mi ilk giriş mi, kullanıcı yaptığı şeyi geri okusun.
+                    const nasil = (d.previous_amount_try !== null && d.previous_amount_try !== undefined)
+                        ? `Düzeltildi (${fmtTL(d.previous_amount_try)} → ${fmtTL(d.invoice.amount_try)}).`
+                        : "Kaydedildi.";
+                    const net = d.net;
+                    let sonuc;
+                    if (net && net.net_try !== null && net.net_try !== undefined) {
+                        const n = Number(net.net_try);
+                        sonuc = n > 0
+                            ? `Net Ay Sonucu: ${fmtTL(n)} ödenecek.`
+                            : `Net Ay Sonucu: ${fmtTL(Math.abs(n))} alacak.`;
+                    } else {
+                        sonuc = `Net Ay Sonucu hesaplanamadı — bekleyen: ${(net && net.missing || []).join(", ")}.`;
+                    }
+                    msg.className = "msg ok";
+                    msg.innerText = `✓ ${nasil} ${sonuc}`;
+                    document.getElementById("ai-admin").value = "";
+                    loadActualInvoices();
+                } else {
+                    fail(body.error || "Kaydedilemedi.");
+                }
+            } catch (e) {
+                fail("Sunucu bağlantı hatası.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Kaydet";
+            }
         }
 
         // Neden: Ay kaydırması bu özelliğin en tehlikeli hata sınıfı. Kullanıcı

@@ -35,6 +35,11 @@ AY_ADLARI = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
 FILL_TOTAL = "DDEBF7"     # toplam satırı (açık mavi)
 FILL_OFFICIAL = "FFF2CC"  # resmi kesinti (açık amber) — faturayla eşleşen sayı
 FILL_PREVIEW = "F2F2F2"   # önizleme (açık gri) — kayıt DIŞI, yalnızca öngörü
+# Neden: Yeşil/kırmızı YALNIZCA Net Ay Sonucu'nun işareti için. Excel'in kendi
+# "İyi/Kötü" stillerinin renkleri — kullanıcıya tanıdık ve göz yormuyor.
+FILL_NET_PROFIT = "C6EFCE"  # net <= 0 -> alacak
+FILL_NET_LOSS = "FFC7CE"    # net > 0  -> ödenecek
+FILL_NET_PENDING = "EAEAEA"  # hesaplanamadı -> nötr
 
 
 def _style_note(ws, row_idx: int, n_cols: int = 1) -> None:
@@ -466,6 +471,7 @@ class MonthlySettlementJob:
         _style_accent(ws, ws.max_row, 3, FILL_TOTAL)
 
         self._write_deduction_views(ws, service, cur, month_dt, ay_str, kalan_kwh, style_header)
+        self._write_net_result_block(ws, service, month_dt, ay_str, style_header)
 
         ws.append([])
         # Neden: OSB katsayısı buradan KALDIRILDI — o değer ayın kendi fiyatı değil,
@@ -579,6 +585,84 @@ class MonthlySettlementJob:
                 f"öngörüdür: kaydedilmez ve yukarıdaki resmi kesintiyi DEĞİŞTİRMEZ."
             )
         ws.append([onizleme_not])
+        _style_note(ws, ws.max_row)
+
+    def _write_net_result_block(self, ws, service, month_dt, ay_str, style_header):
+        """
+        Neden: "Bu ay gerçekte kârda mıyım, zararda mıyım" sorusunun raporda cevabı.
+
+            Net = Gerçek Fatura − (Enerjisa Faturası + OSB Kesintisi) + Önceki Ay Kesintisi
+
+        Son terim geri EKLENİR çünkü bu ayın faturasında zaten düşülmüştür (bir ayın
+        kesintisi bir sonraki ayın faturasından düşülür). Hesap BillingService'te;
+        burada yalnızca yazım — formül ikinci kez uygulanmıyor.
+
+        Kalemler tek tek yazılır: teknik olmayan okuyucu tek bir net rakama
+        güvenmeden önce nereden geldiğini görebilmeli.
+        """
+        net = self._safe_billing_read(
+            lambda y, m: service.get_net_result(y, m),
+            month_dt.year, month_dt.month, "net ay sonucu",
+        )
+        if not net:
+            return
+
+        onceki_str = f"{AY_ADLARI[net['previous_month'] - 1]} {net['previous_year']}"
+
+        ws.append([])
+        ws.append(["NET AY SONUCU (KDV HARİÇ)", "", ""])
+        ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=3)
+        style_header(ws, ws.max_row, 3)
+
+        ws.append(["Gerçek OSB Fatura Tutarı (elle girilen)", "—",
+                   self._fmt_try(net["actual_invoice_try"])])
+        # Neden: KDV ve kalem kapsamı burada AÇIKÇA yazılı. Sistemdeki tüm tutarlar
+        # KDV hariç; gerçek fatura genelde KDV dahil gelir. Karıştırılırsa net sonuç
+        # sessizce ~%20 yanlış çıkardı — sessiz hata yok kuralı.
+        ws.append([
+            "Bu tutar KDV HARİÇ (net) ve yalnızca ELEKTRİK kalemi olarak girilir. "
+            "Giriş: Dashboard → Faturalama Katsayıları → Gerçek Fatura & Net Sonuç."
+        ])
+        _style_note(ws, ws.max_row)
+
+        ws.append(["(−) Fazla Satış Faturası (Enerjisa)", "—",
+                   self._fmt_try(net["excess_sale_invoice_try"])])
+        ws.append(["(−) OSB Kesintisi — Resmi (bu ay)", "—",
+                   self._fmt_try(net["osb_deduction_try"])])
+        ws.append([f"(+) {onceki_str} OSB Kesintisi", "—",
+                   self._fmt_try(net["previous_osb_deduction_try"])])
+        ws.append([
+            f"{onceki_str} kesintisi geri eklenir: {ay_str} faturasında o tutar zaten "
+            f"düşülmüştü, dolayısıyla faturayı brüte çevirir."
+        ])
+        _style_note(ws, ws.max_row)
+
+        # Neden: İşaret yönü etikette. Pozitif = hâlâ ödenecek para (kırmızımsı),
+        # negatif/sıfır = alacak (yeşilimsi). Renk tek başına bırakılmadı; renk
+        # körlüğü ve siyah-beyaz çıktı için etiket ve açıklama da taşıyor.
+        net_try = net["net_try"]
+        if net_try is None:
+            dolgu = FILL_NET_PENDING
+        else:
+            dolgu = FILL_NET_LOSS if net_try > 0 else FILL_NET_PROFIT
+        ws.append(["NET AY SONUCU (ÖDENECEK)", "—", self._fmt_try(net_try)])
+        _style_accent(ws, ws.max_row, 3, dolgu)
+
+        if net_try is None:
+            aciklama = (
+                "Hesaplanamadı — bekleyen girdiler: " + ", ".join(net["missing"]) + "."
+            )
+        elif net_try > 0:
+            aciklama = (
+                f"Pozitif: {ay_str} için {self._fmt_try(net_try)} TL ödenecek tutar kaldı "
+                f"(üretim faturayı tamamen karşılamadı)."
+            )
+        else:
+            aciklama = (
+                f"Sıfır veya negatif: {ay_str} üretimi faturayı karşıladı; "
+                f"{self._fmt_try(abs(net_try))} TL alacak tarafında."
+            )
+        ws.append([aciklama])
         _style_note(ws, ws.max_row)
 
     def _write_monthly_report(

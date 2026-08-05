@@ -268,6 +268,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._handle_billing_set_osb_rate(username, month_str)
             elif path == "/api/billing/electricity-price":
                 self._handle_billing_electricity_price(username)
+            elif path == "/api/billing/actual-invoice":
+                self._handle_billing_actual_invoice(username)
             elif path.startswith("/api/billing/monthly/") and path.endswith("/override"):
                 month_str = path.replace("/api/billing/monthly/", "").replace("/override", "").strip()
                 self._handle_billing_override(username, month_str)
@@ -470,6 +472,21 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 response_data = self.service.get_billing_months()
             elif path == "/api/billing/electricity-price":
                 response_data = self.service.get_electricity_prices()
+            # Neden: Gerçek OSB fatura tutarları + her ayın Net Ay Sonucu. Tam
+            # eşleşme; "/api/billing/monthly/" ön ek kuralıyla çakışmaz.
+            elif path == "/api/billing/actual-invoice":
+                response_data = self.service.get_actual_invoices()
+            # Neden: Tek ayın Net Ay Sonucu (ana sayfadaki özet kartı). Liste ucu
+            # yalnızca fatura GİRİLMİŞ ayları döndürür; özet kartı girilmemiş ayda da
+            # "neyin beklendiğini" göstermeli, bu yüzden ayrı uç.
+            elif path.startswith("/api/billing/net/"):
+                month_str = path.replace("/api/billing/net/", "").strip()
+                if re.match(r"^\d{4}-\d{2}$", month_str):
+                    response_data = self.service.get_net_result(
+                        int(month_str[:4]), int(month_str[5:7])
+                    )
+                else:
+                    error_message = "Geçersiz ay formatı. Beklenen: YYYY-MM"
             elif path.startswith("/api/billing/monthly/"):
                 month_str = path.replace("/api/billing/monthly/", "").strip()
                 if re.match(r"^\d{4}-\d{2}$", month_str):
@@ -1476,6 +1493,65 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         # Neden: Decimal/datetime alanlarını _json_default zaten serileştiriyor
         # (contract testleriyle sabitlenmiş); ayrıca dönüştürmeye gerek yok.
         self._send_json_contract({"price": saved, "target_month": hedef}, None)
+
+    def _handle_billing_actual_invoice(self, username: str) -> None:
+        """
+        Neden: OSB'nin o ay için kestiği GERÇEK fatura tutarını kaydeder/düzeltir.
+        Net Ay Sonucu'nun tek dış girdisi budur.
+
+        Neden override akışı DEĞİL: override'ın üç koruması (şifre, 15 karakterlik
+        zorunlu gerekçe, denetim kaydı) bir KİLİDİ delmenin bedelidir. Bu alan
+        kilitli değil ve hesaplanmış hiçbir tutarı geçmişe dönük değiştirmiyor —
+        düzeltme, aynı ayı yeniden kaydetmektir. Ama para ile ilgili her yazım
+        denetlenir: yönetici şifresi zorunlu, eski -> yeni değer audit_log'a yazılır.
+        """
+        body = self._read_json_body()
+        if not self._verify_admin_password(body, username, "billing_actual_invoice"):
+            return
+
+        month_str = str(body.get("month", "")).strip()
+        if not re.match(r"^\d{4}-\d{2}$", month_str):
+            self._send_json_contract(None, "Geçersiz ay formatı. Beklenen: YYYY-MM", status_code=400)
+            return
+
+        year, month = int(month_str[:4]), int(month_str[5:7])
+        try:
+            saved = self.service.set_actual_invoice(
+                year=year, month=month,
+                amount_try=body.get("amount"),
+                entered_by=username,
+                note=(str(body.get("note")).strip() or None) if body.get("note") else None,
+            )
+        except Exception as e:
+            self.auth.log_action(
+                username, self._get_client_ip(), "billing_actual_invoice",
+                details=f"{month_str} reddedildi: {e}", success=False,
+            )
+            self._send_billing_error(e)
+            return
+
+        # Neden: Denetim izinde düzeltme ile ilk giriş ayırt edilebilmeli ve eski
+        # değer görünmeli — tutar sonradan sorgulandığında "ne vardı, ne oldu"
+        # sorusunun tek cevabı bu satır.
+        onceki = saved.get("_previous_amount_try")
+        self.auth.log_action(
+            username, self._get_client_ip(), "billing_actual_invoice",
+            details=(
+                f"{month_str} gerçek OSB fatura tutarı (KDV hariç): "
+                f"{onceki if onceki is not None else 'yok'} -> {saved['amount_try']} TL"
+            ),
+        )
+
+        # Neden: Net Ay Sonucu KAYDEDİLMEZ; yazımdan hemen sonra türetilip dönülür ki
+        # arayüz ikinci bir istek atmadan sonucu gösterebilsin.
+        net = self.service.get_net_result(year, month)
+        self._send_json_contract(
+            {"invoice": {k: v for k, v in saved.items() if not k.startswith("_")},
+             "previous_amount_try": onceki,
+             "net": net,
+             "month": month_str},
+            None,
+        )
 
     def _handle_billing_override(self, username: str, month_str: str) -> None:
         """

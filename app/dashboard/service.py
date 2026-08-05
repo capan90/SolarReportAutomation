@@ -286,6 +286,36 @@ class DashboardService:
             unit_price_try=unit_price_try, created_by=created_by, note=note,
         )
 
+    # ------------------------------------------------------------------
+    # Gerçek OSB fatura tutarı + Net Ay Sonucu
+    # ------------------------------------------------------------------
+    def get_actual_invoices(self, limit: int = 24) -> dict:
+        """
+        Neden: "Gerçek Fatura & Net Sonuç" sekmesinin tablosu. Her satır kendi Net Ay
+        Sonucu'nu taşır — net KAYDEDİLMEZ, her okumada türetilir; böylece bir ayın
+        kesintisi override ile düzeltildiğinde tablo kendiliğinden doğrulanır.
+        """
+        service = self._billing()
+        rows = []
+        for row in service.list_actual_invoices(limit=limit):
+            rows.append({**row, "net": service.get_net_result(row["year"], row["month"])})
+        return {"invoices": rows}
+
+    def get_net_result(self, year: int, month: int) -> dict:
+        return self._billing().get_net_result(year, month)
+
+    def set_actual_invoice(self, year: int, month: int, amount_try,
+                           entered_by: str, note=None) -> dict:
+        """
+        Neden: Yazma yolu. Şifre doğrulaması ve audit kaydı web katmanında yapılır
+        (mevcut billing_rate_change / billing_electricity_price kalıbı); burada
+        yalnızca iş kuralı çağrılır.
+        """
+        return self._billing().set_actual_invoice(
+            year=year, month=month, amount_try=amount_try,
+            entered_by=entered_by, note=note,
+        )
+
     def override_billing_month(self, year: int, month: int, reason: str, changed_by: str,
                                osb_unit_price_try=None, excess_sale_rate_try=None) -> dict:
         """

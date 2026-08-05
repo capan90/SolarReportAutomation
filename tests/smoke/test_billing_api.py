@@ -53,6 +53,7 @@ class _FakeHandler:
     _handle_billing_set_rate = DashboardRequestHandler._handle_billing_set_rate
     _handle_billing_set_osb_rate = DashboardRequestHandler._handle_billing_set_osb_rate
     _handle_billing_override = DashboardRequestHandler._handle_billing_override
+    _handle_billing_actual_invoice = DashboardRequestHandler._handle_billing_actual_invoice
     _handle_settlement_trigger_monthly_date = (
         DashboardRequestHandler._handle_settlement_trigger_monthly_date
     )
@@ -620,3 +621,108 @@ def test_override_domain_hatasi_audit_ve_http_koduna_donusur():
     assert h.sent["status"] == 400
     basarisiz = [a for a in h.auth.actions if a["success"] is False]
     assert basarisiz, "reddedilen override denetim izine yazılmalı"
+
+
+# ----------------------------------------------------------------------
+# 8. Gerçek OSB fatura tutarı (Net Ay Sonucu'nun dış girdisi)
+# ----------------------------------------------------------------------
+class _FakeInvoiceService:
+    """Neden: Yazma yolunu DB'siz izlemek; net TÜRETİLİR, kaydedilmez."""
+
+    def __init__(self, previous=None):
+        self.calls = []
+        self._previous = previous
+
+    def set_actual_invoice(self, year, month, amount_try, entered_by, note=None):
+        self.calls.append({"year": year, "month": month, "amount_try": amount_try,
+                           "entered_by": entered_by, "note": note})
+        return {"year": year, "month": month, "amount_try": Decimal(str(amount_try)),
+                "entered_by": entered_by, "note": note,
+                "_previous_amount_try": self._previous}
+
+    def get_net_result(self, year, month):
+        return {"year": year, "month": month, "previous_year": year, "previous_month": month - 1,
+                "actual_invoice_try": Decimal("8000000.00"),
+                "excess_sale_invoice_try": Decimal("11509229.10"),
+                "osb_deduction_try": Decimal("5311711.99"),
+                "previous_osb_deduction_try": Decimal("2879183.97"),
+                "net_try": Decimal("-5941757.12"), "missing": []}
+
+
+def _invoice_handler(body, previous=None):
+    h = _FakeHandler(body)
+    h.service = _FakeInvoiceService(previous=previous)
+    return h
+
+
+def test_actual_invoice_yanlis_sifrede_401_dondurmez():
+    # Neden: 401, arayüzdeki sarmalayıcıda "oturum düştü" sayılıp login'e atıyor.
+    h = _invoice_handler({"admin_password": "yanlis", "month": "2026-07", "amount": "100"})
+    h._handle_billing_actual_invoice("murat")
+
+    assert h.sent["status"] == 200 and h.sent["error"] == "Yönetici şifresi hatalı."
+    assert not h.service.calls, "şifre yanlışken yazma denenmemeli"
+    assert [a for a in h.auth.actions if a["success"] is False]
+
+
+@pytest.mark.parametrize("month_str", ["2026-7", "202607", "", "2026-13-01"])
+def test_actual_invoice_gecersiz_ay_formati_reddedilir(month_str):
+    h = _invoice_handler({"admin_password": ADMIN_PW, "month": month_str, "amount": "100"})
+    h._handle_billing_actual_invoice("murat")
+
+    assert h.sent["status"] == 400
+    assert not h.service.calls
+
+
+def test_actual_invoice_basarili_akis_audit_eski_yeni_yazar():
+    """
+    Neden: LOCKED yok ama para ile ilgili her giriş/düzeltme denetlenir. Denetim
+    satırı "ne vardı, ne oldu" sorusunun tek cevabı.
+    """
+    h = _invoice_handler({"admin_password": ADMIN_PW, "month": "2026-07",
+                          "amount": "8000000.00", "note": " Temmuz elektrik "},
+                         previous=Decimal("7500000.00"))
+    h._handle_billing_actual_invoice("murat")
+
+    assert h.sent["error"] is None
+    assert h.service.calls[0]["year"] == 2026 and h.service.calls[0]["month"] == 7
+    assert h.service.calls[0]["entered_by"] == "murat"
+    assert h.service.calls[0]["note"] == "Temmuz elektrik"      # kırpılıyor
+
+    kayit = [a for a in h.auth.actions if a["action"] == "billing_actual_invoice"]
+    assert len(kayit) == 1 and kayit[0]["success"] is True
+    assert "7500000.00 -> 8000000.00" in kayit[0]["details"]
+    assert "KDV hariç" in kayit[0]["details"]
+
+
+def test_actual_invoice_ilk_giris_audit_yok_yazar():
+    h = _invoice_handler({"admin_password": ADMIN_PW, "month": "2026-07", "amount": "8000000.00"})
+    h._handle_billing_actual_invoice("murat")
+
+    detay = [a for a in h.auth.actions if a["action"] == "billing_actual_invoice"][0]["details"]
+    assert "yok -> 8000000.00" in detay
+
+
+def test_actual_invoice_yanitinda_net_turetilmis_gelir():
+    # Neden: Arayüz ikinci istek atmadan sonucu gösterebilmeli; net KAYDEDİLMİYOR.
+    h = _invoice_handler({"admin_password": ADMIN_PW, "month": "2026-07", "amount": "8000000.00"})
+    h._handle_billing_actual_invoice("murat")
+
+    assert h.sent["data"]["net"]["net_try"] == Decimal("-5941757.12")
+    assert h.sent["data"]["month"] == "2026-07"
+    # İç kullanım alanı sözleşmeye sızmamalı
+    assert not any(k.startswith("_") for k in h.sent["data"]["invoice"])
+    assert h.sent["data"]["previous_amount_try"] is None
+
+
+def test_actual_invoice_domain_hatasi_audit_ve_http_koduna_donusur():
+    class _Exploding(_FakeInvoiceService):
+        def set_actual_invoice(self, **kw):
+            raise BillingValidationError("Fatura tutarı negatif olamaz: -100")
+
+    h = _FakeHandler({"admin_password": ADMIN_PW, "month": "2026-07", "amount": "-100"})
+    h.service = _Exploding()
+    h._handle_billing_actual_invoice("murat")
+
+    assert h.sent["status"] == 400
+    assert [a for a in h.auth.actions if a["success"] is False]

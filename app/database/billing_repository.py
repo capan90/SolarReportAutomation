@@ -22,7 +22,12 @@ from app.billing.models import (
 )
 from app.core.logger import setup_logger
 from app.database.db_session import SessionLocal, create_tables
-from app.database.models import BillingRate, MonthlyBilling, MonthlyElectricityPrice
+from app.database.models import (
+    BillingRate,
+    MonthlyActualInvoice,
+    MonthlyBilling,
+    MonthlyElectricityPrice,
+)
 
 logger = setup_logger("BillingRepository")
 
@@ -57,6 +62,18 @@ def _price_to_dict(row: "MonthlyElectricityPrice") -> Dict[str, Any]:
         "applied_by": row.applied_by,
         "created_by": row.created_by,
         "created_at": row.created_at,
+        "note": row.note,
+    }
+
+
+def _actual_invoice_to_dict(row: "MonthlyActualInvoice") -> Dict[str, Any]:
+    return {
+        "year": row.year,
+        "month": row.month,
+        "amount_try": _dec_or_none(row.amount_try),
+        "entered_by": row.entered_by,
+        "entered_at": row.entered_at,
+        "updated_at": row.updated_at,
         "note": row.note,
     }
 
@@ -413,6 +430,86 @@ class BillingRepository:
             session.commit()
             session.refresh(row)
             return _price_to_dict(row)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    # ------------------------------------------------------------------
+    # monthly_actual_invoice — OSB'nin gerçek fatura tutarı (dış girdi)
+    # ------------------------------------------------------------------
+    def get_actual_invoice(self, year: int, month: int) -> Optional[Dict[str, Any]]:
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyActualInvoice)
+                .filter(MonthlyActualInvoice.year == year,
+                        MonthlyActualInvoice.month == month)
+                .first()
+            )
+            return _actual_invoice_to_dict(row) if row else None
+        finally:
+            session.close()
+
+    def list_actual_invoices(self, limit: int = 24) -> List[Dict[str, Any]]:
+        """Ekrandaki geçmiş tablosu; en yeni ay başta."""
+        session = SessionLocal()
+        try:
+            rows = (
+                session.query(MonthlyActualInvoice)
+                .order_by(MonthlyActualInvoice.year.desc(),
+                          MonthlyActualInvoice.month.desc())
+                .limit(limit)
+                .all()
+            )
+            return [_actual_invoice_to_dict(r) for r in rows]
+        finally:
+            session.close()
+
+    def upsert_actual_invoice(
+        self,
+        year: int,
+        month: int,
+        amount_try: Decimal,
+        entered_by: str,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Neden: Gerçek fatura tutarını yazar/düzeltir. KİLİT YOK — bu alan hesaplanmış
+        hiçbir tutarı geçmişe dönük değiştirmiyor, yalnızca Net Ay Sonucu'nu besliyor;
+        kullanıcı faturayı yanlış okuduğunda düzeltebilmeli.
+
+        Dönüş sözlüğünde "_previous_amount_try" bulunur (None ise yeni kayıt).
+        Çağıran taraf audit kaydını bundan üretir — düzeltme mi ilk giriş mi,
+        eski değer neydi, denetimde görünmeli.
+        """
+        session = SessionLocal()
+        try:
+            row = (
+                session.query(MonthlyActualInvoice)
+                .filter(MonthlyActualInvoice.year == year,
+                        MonthlyActualInvoice.month == month)
+                .first()
+            )
+            previous = _dec_or_none(row.amount_try) if row else None
+            if row is None:
+                row = MonthlyActualInvoice(year=year, month=month, entered_by=entered_by)
+                session.add(row)
+            row.amount_try = amount_try
+            row.entered_by = entered_by
+            row.note = note
+
+            session.commit()
+            session.refresh(row)
+            logger.info(
+                "%04d-%02d gerçek OSB fatura tutarı kaydedildi: %s -> %s TL (giren: %s)",
+                year, month, previous if previous is not None else "yok",
+                amount_try, entered_by,
+            )
+            out = _actual_invoice_to_dict(row)
+            out["_previous_amount_try"] = previous
+            return out
         except Exception:
             session.rollback()
             raise
