@@ -28,6 +28,37 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 AY_ADLARI = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
              "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 
+# Neden: Raporu teknik olmayan bir kullanıcı okuyor; renk ANLAM taşımalı ve az
+# sayıda olmalı. Yeşil/kırmızı BİLEREK kullanılmadı — onlar Net Ay Sonucu'nun
+# kâr/zarar işareti için ayrıldı; burada kullanılsaydı renk "iyi/kötü" anlamını
+# kaybederdi.
+FILL_TOTAL = "DDEBF7"     # toplam satırı (açık mavi)
+FILL_OFFICIAL = "FFF2CC"  # resmi kesinti (açık amber) — faturayla eşleşen sayı
+FILL_PREVIEW = "F2F2F2"   # önizleme (açık gri) — kayıt DIŞI, yalnızca öngörü
+
+
+def _style_note(ws, row_idx: int, n_cols: int = 1) -> None:
+    """
+    Neden: Açıklama metinleri (italik + gri) tutar satırlarından ayırt edilebilsin
+    ama onları bastırmasın. Modül seviyesinde tutuluyor: hem "Ay Özeti" hem
+    "Faturalama Özeti" aynı stili kullanır, ikinci bir tanım ayrışmaz.
+    """
+    from openpyxl.styles import Font
+
+    for col in range(1, n_cols + 1):
+        ws.cell(row=row_idx, column=col).font = Font(italic=True, color="808080")
+
+
+def _style_accent(ws, row_idx: int, n_cols: int, fill_rgb: str) -> None:
+    """Neden: Önemli tutar satırı — bold + belirgin ama soluk arka plan."""
+    from openpyxl.styles import Font, PatternFill
+
+    fill = PatternFill(start_color=fill_rgb, end_color=fill_rgb, fill_type="solid")
+    for col in range(1, n_cols + 1):
+        cell = ws.cell(row=row_idx, column=col)
+        cell.font = Font(bold=True)
+        cell.fill = fill
+
 
 class MonthlySettlementJob:
     """
@@ -248,6 +279,32 @@ class MonthlySettlementJob:
             return "—"
         return f"{float(value):,.6f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
+    @staticmethod
+    def _fmt_kwh(value) -> str:
+        """
+        Neden: Açıklama satırlarındaki kWh, tutar hücreleriyle aynı Türkçe biçimde
+        okunsun (9.000,0). Hücre içi sayılar number_format ile biçimleniyor ama
+        metnin İÇİNE gömülen sayı bu yolu kullanamaz.
+        """
+        if value is None:
+            return "—"
+        return f"{float(value):,.1f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    # Neden: Önizleme ve "ayın kendi fiyatı" BillingService'te hesaplanır (para
+    # aritmetiği için ikinci bir yol açılmıyor). Burada yalnızca best-effort
+    # sarmalanır: yeni bir GÖSTERİM satırı, çalışan rapor üretimini ASLA
+    # düşürmemeli (mevcut faturalama bölümüyle aynı prensip).
+    @staticmethod
+    def _safe_billing_read(fn, year: int, month: int, ne_icin: str):
+        try:
+            return fn(year, month)
+        except Exception as e:
+            logger.warning(
+                "%04d-%02d için %s okunamadı (rapora devam ediliyor): %s: %s",
+                year, month, ne_icin, type(e).__name__, e,
+            )
+            return None
+
     def _append_billing_section(self, ws1, month_dt, prev_month_dt, ay_str, prev_ay_str, style_header):
         """
         Neden: Ay Özeti sayfasına "FATURALAMA (TL, KDV HARİÇ)" bölümünü eklemek.
@@ -296,17 +353,54 @@ class MonthlySettlementJob:
 
         _row("Fazla Satış Faturası", cur.excess_sale_invoice_try,
              prev.excess_sale_invoice_try if prev else None)
-        _row("OSB Kesintisi", cur.osb_deduction_try,
+        # Neden: Etiket artık ZAMANLAMAYI da söylüyor. Bir ayın resmi kesintisi o ayın
+        # faturasından değil, BİR SONRAKİ ayın faturasından düşülür; çıplak "OSB
+        # Kesintisi" adı bunu söylemediği için tutar elindeki faturayla eşleşmeyen
+        # okuyucu her ay aynı soruyu soruyordu. Hesap DEĞİŞMEDİ — aynı osb_deduction_try.
+        _row("OSB Kesintisi — Resmi (gelecek ay düşülecek)", cur.osb_deduction_try,
              prev.osb_deduction_try if prev else None)
+        # Neden: Önizleme SALT GÖSTERİM — hiçbir yere yazılmaz, resmi tutarı
+        # değiştirmez. Aynı kWh'in ayın KENDİ elektrik fiyatıyla karşılığı; fiyat
+        # gecikmesinin tutarı ne yönde kaydırdığı önceden görünsün diye.
+        _row(
+            "OSB Kesintisi — Önizleme (ayın kendi fiyatıyla)",
+            self._safe_billing_read(lambda y, m: service.get_preview_deduction(y, m),
+                                    month_dt.year, month_dt.month, "önizleme kesintisi"),
+            self._safe_billing_read(lambda y, m: service.get_preview_deduction(y, m),
+                                    prev_month_dt.year, prev_month_dt.month,
+                                    "önizleme kesintisi") if prev is not None else None,
+        )
 
-        # Neden: Teyit raporunun asıl amacı — tutar hangi TL/kWh ile çıktı?
+        # Neden: Eski "Kullanılan Katsayılar (Fazla Satış / OSB)" satırı İKİYE ayrıldı.
+        # Oradaki OSB katsayısı ayın kendi fiyatı DEĞİL, bir önceki ayın fiyatıydı;
+        # aynı sayı "Önceki Ay" sütununda zaten görünüyor. İki kez, üstelik farklı
+        # adlarla gösterilmesi hangi fiyatın hangi aya ait olduğunu bulanıklaştırıyordu.
         ws1.append([
-            "Kullanılan Katsayılar (Fazla Satış / OSB)",
-            f"{self._fmt_rate(cur.excess_sale_rate_try)} / {self._fmt_rate(cur.osb_unit_price_try)}",
-            (f"{self._fmt_rate(prev.excess_sale_rate_try)} / {self._fmt_rate(prev.osb_unit_price_try)}"
-             if prev else "-"),
+            "Fazla Satış Katsayısı (TL/kWh)",
+            self._fmt_rate(cur.excess_sale_rate_try),
+            self._fmt_rate(prev.excess_sale_rate_try) if prev else "-",
             "-",
         ])
+        ws1.append([
+            "Elektrik Birim Fiyatı — Ayın Kendi Faturası (TL/kWh)",
+            self._fmt_rate(self._safe_billing_read(
+                lambda y, m: service.get_own_electricity_price(y, m),
+                month_dt.year, month_dt.month, "ayın kendi elektrik fiyatı")),
+            self._fmt_rate(self._safe_billing_read(
+                lambda y, m: service.get_own_electricity_price(y, m),
+                prev_month_dt.year, prev_month_dt.month, "ayın kendi elektrik fiyatı"))
+            if prev is not None else "-",
+            "-",
+        ])
+        # Neden: Katsayının sütununu değiştirmek tek başına anlaşılmaz; okuyucu
+        # "bu ayın kesintisi hangi fiyatla çıktı" sorusunun cevabını tabloda
+        # bulabilmeli. Cevap: yandaki sütun.
+        ws1.append([
+            f"Not: {ay_str} kesintisinde kullanılan katsayı, "
+            f"'Önceki Ay ({prev_ay_str})' sütunundaki elektrik birim fiyatıdır."
+        ])
+        _style_note(ws1, ws1.max_row)
+
         durum = "Kilitli" if cur.is_locked else "OSB birim fiyatı bekleniyor"
         ws1.append(["Durum", durum, ("Kilitli" if prev and prev.is_locked else "-"), "-"])
         logger.info("Excel faturalama bölümü yazıldı (%s, durum=%s).", ay_str, cur.status)
@@ -327,7 +421,8 @@ class MonthlySettlementJob:
         try:
             from app.billing import BillingService
 
-            cur = BillingService().get_monthly(month_dt.year, month_dt.month)
+            service = BillingService()
+            cur = service.get_monthly(month_dt.year, month_dt.month)
         except Exception as e:
             logger.error(f"Faturalama Özeti sayfası yazılamadı (rapora devam ediliyor): {e}")
             return
@@ -368,39 +463,27 @@ class MonthlySettlementJob:
         ws.append(["Fazla Satış (Enerjisa'ya)", _kwh(excess), _tl(cur.excess_sale_invoice_try)])
         ws.append(["OSB'ye Kalan (Üretim − Fazla Satış)", _kwh(kalan_kwh), _tl(cur.osb_deduction_try)])
         ws.append(["TOPLAM (Enerjisa + OSB Kesintisi)", "—", _tl(toplam)])
-        style_header(ws, ws.max_row, 3)
+        _style_accent(ws, ws.max_row, 3, FILL_TOTAL)
+
+        self._write_deduction_views(ws, service, cur, month_dt, ay_str, kalan_kwh, style_header)
 
         ws.append([])
-        # Neden: Raporu okuyan kişi "bu kesinti ne zaman tahsil edilecek" sorusunu
-        # sormaya devam ediyordu; cevap raporun kendisinde olmalı. YENİ HESAPLAMA YOK —
-        # tutar yukarıdaki osb_deduction_try'ın aynısı. Ay adı BillingService.next_month
-        # ile bulunuyor; ay aritmetiği için ikinci bir yol açılmıyor (Aralık→Ocak yıl
-        # dönümü orada testle sabitlenmiş).
-        try:
-            from app.billing import BillingService as _BS
-
-            sonraki_yil, sonraki_ay = _BS.next_month(month_dt.year, month_dt.month)
-            sonraki_str = f"{AY_ADLARI[sonraki_ay - 1]} {sonraki_yil}"
-            ws.append([
-                f"Bu Ayki OSB Kesintisi, {sonraki_str} Faturasından Düşülecektir",
-                "—",
-                _tl(cur.osb_deduction_try),
-            ])
-        except Exception as e:
-            # Neden: Açıklayıcı bir satır raporu düşürmemeli (best-effort).
-            logger.warning("OSB kesinti açıklama satırı yazılamadı: %s", e)
-
+        # Neden: OSB katsayısı buradan KALDIRILDI — o değer ayın kendi fiyatı değil,
+        # bir önceki ayın fiyatıdır ve yukarıdaki "Resmi Kesinti" açıklama satırında
+        # hangi aya ait olduğu yazılı olarak zaten görünüyor. Sabit olan Enerjisa
+        # katsayısında böyle bir ay kayması yok; o burada kalıyor.
         ws.append([
-            "Kullanılan Katsayılar (Fazla Satış / OSB)",
-            "—",
-            f"{self._fmt_rate(cur.excess_sale_rate_try)} / {self._fmt_rate(cur.osb_unit_price_try)}",
+            "Fazla Satış Katsayısı (TL/kWh)", "—",
+            self._fmt_rate(cur.excess_sale_rate_try),
         ])
         ws.append([
             "Durum", "—",
             "Kilitli" if cur.is_locked else "OSB birim fiyatı bekleniyor",
         ])
 
-        ws.column_dimensions["A"].width = 40
+        # Neden: Açıklama satırları A sütununda duruyor ve B/C boş olduğu için
+        # yatay taşarak okunuyor; A'nın 46'dan geniş olması tabloyu gereksiz ayırırdı.
+        ws.column_dimensions["A"].width = 46
         ws.column_dimensions["B"].width = 20
         ws.column_dimensions["C"].width = 24
         for row in ws.iter_rows(min_row=3, min_col=2, max_col=3):
@@ -408,6 +491,95 @@ class MonthlySettlementJob:
                 if isinstance(cell.value, float):
                     cell.number_format = '#,##0.0'
         logger.info("Faturalama Özeti sayfası yazıldı (%s, durum=%s).", ay_str, cur.status)
+
+    def _write_deduction_views(self, ws, service, cur, month_dt, ay_str, kalan_kwh, style_header):
+        """
+        Neden: OSB kesintisinin İKİ görünümü. Aynı kWh, iki farklı elektrik fiyatı:
+
+        - RESMİ: bir önceki ayın fiyatıyla hesaplanmış, kaydedilmiş tutar
+          (osb_deduction_try). Faturayla eşleşen sayı budur; DEĞİŞMEDİ.
+        - ÖNİZLEME: ayın KENDİ fiyatıyla aynı hesap. Kaydedilmez, resmi tutarı
+          etkilemez; fiyat gecikmesinin tutarı ne yönde kaydırdığını gösterir.
+
+        İkisi yan yana durmazsa okuyucu tek sayıya bakıp "fiyat arttı ama kesinti
+        artmamış" diye düşünüyor; fark aslında bir ay sonra geliyor.
+
+        Best-effort: bu blok bir GÖSTERİM katmanıdır, rapor üretimini düşürmemeli.
+        """
+        # Neden: Ay adı BillingService.next_month'tan gelir — Aralık→Ocak yıl dönümü
+        # testle sabitlenmiş TEK ay aritmetiği orası. Sınıf, paket yeniden
+        # ihracından (app.billing) DEĞİL tanımlandığı modülden alınıyor: testler
+        # veri için app.billing.BillingService'i taklit ettiğinde ay adı mantığı da
+        # sessizce devre dışı kalmasın.
+        try:
+            from app.billing.service import BillingService as _RealBillingService
+
+            sonraki_yil, sonraki_ay = _RealBillingService.next_month(
+                month_dt.year, month_dt.month
+            )
+            sonraki_str = f"{AY_ADLARI[sonraki_ay - 1]} {sonraki_yil}"
+        except Exception as e:
+            logger.warning("OSB kesinti görünümleri yazılamadı (rapora devam ediliyor): %s", e)
+            return
+
+        onceki_dt = month_dt.replace(day=1) - datetime.timedelta(days=1)
+        onceki_str = f"{AY_ADLARI[onceki_dt.month - 1]} {onceki_dt.year}"
+
+        ws.append([])
+        ws.append(["OSB KESİNTİSİ — İKİ GÖRÜNÜM (AYNI kWh, İKİ FARKLI FİYAT)", "", ""])
+        ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=3)
+        style_header(ws, ws.max_row, 3)
+
+        # ---- Resmi kesinti (mevcut hesap, dokunulmadı) ----
+        ws.append([
+            f"Resmi Kesinti — {sonraki_str} Faturasından Düşülecek",
+            "—",
+            self._fmt_try(cur.osb_deduction_try),
+        ])
+        _style_accent(ws, ws.max_row, 3, FILL_OFFICIAL)
+        if cur.osb_unit_price_try is None:
+            resmi_not = (
+                f"Kesinti henüz hesaplanamadı — {onceki_str} faturasının elektrik birim "
+                f"fiyatı girilmedi. Girildiğinde bu satır kendiliğinden dolar."
+            )
+        else:
+            resmi_not = (
+                f"Hesap: {self._fmt_kwh(kalan_kwh)} kWh × "
+                f"{self._fmt_rate(cur.osb_unit_price_try)} TL/kWh — katsayı, {onceki_str} "
+                f"faturasının elektrik birim fiyatıdır. Bu tutar {ay_str} faturasında "
+                f"DEĞİL, {sonraki_str} faturasında düşülür."
+            )
+        ws.append([resmi_not])
+        _style_note(ws, ws.max_row)
+
+        # ---- Önizleme (yeni, salt gösterim) ----
+        onizleme = self._safe_billing_read(
+            lambda y, m: service.get_preview_deduction(y, m),
+            month_dt.year, month_dt.month, "önizleme kesintisi",
+        )
+        kendi_fiyat = self._safe_billing_read(
+            lambda y, m: service.get_own_electricity_price(y, m),
+            month_dt.year, month_dt.month, "ayın kendi elektrik fiyatı",
+        )
+        ws.append([
+            "Önizleme — Ayın Kendi Fiyatıyla (kayıt dışı)",
+            "—",
+            self._fmt_try(onizleme),
+        ])
+        _style_accent(ws, ws.max_row, 3, FILL_PREVIEW)
+        if kendi_fiyat is None:
+            onizleme_not = (
+                f"Önizleme hesaplanamadı — {ay_str} faturasının elektrik birim fiyatı "
+                f"henüz girilmedi (Dashboard → Faturalama Katsayıları → Fatura Elektrik Fiyatı)."
+            )
+        else:
+            onizleme_not = (
+                f"Hesap: {self._fmt_kwh(kalan_kwh)} kWh × {self._fmt_rate(kendi_fiyat)} "
+                f"TL/kWh — {ay_str} faturasının kendi elektrik birim fiyatı. Yalnızca "
+                f"öngörüdür: kaydedilmez ve yukarıdaki resmi kesintiyi DEĞİŞTİRMEZ."
+            )
+        ws.append([onizleme_not])
+        _style_note(ws, ws.max_row)
 
     def _write_monthly_report(
         self,

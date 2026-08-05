@@ -398,6 +398,69 @@ class BillingService:
     def list_electricity_prices(self, limit: int = 24) -> List[Dict[str, Any]]:
         return self.repo.list_electricity_prices(limit=limit)
 
+    def get_own_electricity_price(self, year: int, month: int) -> Optional[Decimal]:
+        """
+        Neden: Bir ayın KENDİ faturasındaki elektrik birim fiyatı — o ayın OSB
+        katsayısı (osb_unit_price_try) DEĞİLDİR. Katsayı bir ÖNCEKİ ayın fiyatıdır;
+        ayın kendi fiyatı ise bir SONRAKİ aya beslenen değerdir. İki kavram bugüne
+        kadar Excel'de aynı satırda gösteriliyordu ve hangi fiyatın hangi aya ait
+        olduğu bulanıktı.
+
+        Okuma önceliği:
+        1. monthly_billing[M+1].osb_unit_price_try — GERÇEKTE uygulanan değer.
+           Kilitli ay override ile düzeltilmişse doğru olan budur; kaynak kütüğü
+           düzeltmeyi taşımayabilir (DUZELTME_BEKLIYOR akışı).
+        2. monthly_electricity_price(kaynak=M) — hedef ayın satırı henüz yoksa
+           (mahsuplaşma hesaplanmadıysa) girilmiş kaynak değer.
+        Hiçbiri yoksa None; çağıran taraf bunu "Bekleniyor" gösterir, 0 değil.
+
+        Ay aritmetiği next_month() ile — ikinci bir "+1 ay" yolu açılmaz.
+        """
+        target_year, target_month = self.next_month(int(year), int(month))
+
+        applied = self.repo.get_monthly(target_year, target_month)
+        if applied is not None and applied.get("osb_unit_price_try") is not None:
+            return _to_decimal(applied["osb_unit_price_try"], "osb_unit_price_try")
+
+        source = self.repo.get_electricity_price_for_target(target_year, target_month)
+        if source is not None and source.get("unit_price_try") is not None:
+            return _to_decimal(source["unit_price_try"], "unit_price_try")
+
+        logger.info(
+            "%04d-%02d ayının kendi elektrik birim fiyatı henüz bilinmiyor "
+            "(hedef ay %04d-%02d); önizleme hesaplanamayacak.",
+            year, month, target_year, target_month,
+        )
+        return None
+
+    def get_preview_deduction(self, year: int, month: int) -> Optional[Decimal]:
+        """
+        Neden: "Gelecek ay için önizleme" — ayın OSB'ye kalan kWh'i, ayın KENDİ
+        elektrik fiyatıyla çarpılmış hali. SALT GÖSTERİMDİR:
+
+        - Veritabanına YAZILMAZ, monthly_billing'e dokunmaz.
+        - Resmi kesintiyi (osb_deduction_try) DEĞİŞTİRMEZ; resmi tutar bir önceki
+          ayın fiyatıyla hesaplanır ve doğru olan odur (ADR-0002 §4).
+
+        Amaç, fiyat gecikmesinin tutarı ne kadar kaydırdığını raporu okuyan kişinin
+        önceden görmesi. kWh snapshot'ı veya ayın kendi fiyatı yoksa None döner —
+        uydurulmuş bir sayı ile "önizleme yok" birbirine karışmamalı.
+        """
+        row = self.repo.get_monthly(int(year), int(month))
+        if row is None:
+            return None
+
+        production = row.get("production_kwh_snapshot")
+        excess = row.get("excess_sale_kwh_snapshot")
+        price = self.get_own_electricity_price(year, month)
+        if production is None or excess is None or price is None:
+            return None
+
+        # Neden: Resmi kesintiyle AYNI formül ve aynı yuvarlama; yalnızca fiyat
+        # farklı. İki tutarın karşılaştırılabilir olması bu satıra bağlı.
+        return _money((_to_decimal(production, "production_kwh_snapshot")
+                       - _to_decimal(excess, "excess_sale_kwh_snapshot")) * price)
+
     # Neden: Gerekçe zorunlu VE anlamlı olmalı. Yalnızca "boş olamaz" denseydi "x" veya
     # "düzeltme" gibi kayıtlar denetim izini doldurur ama hiçbir soruyu cevaplamazdı;
     # override'ın tek koruması bu metin.

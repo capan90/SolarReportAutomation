@@ -293,3 +293,101 @@ def test_kanca_patlarsa_mahsuplasma_yazimi_etkilenmez():
 
     assert sonuc.year == 2026 and sonuc.month == 7
     assert (2026, 7) in s.repo.months, "mahsuplaşma satırı yazılmış olmalı"
+
+
+# ------------------------------------------------- ayın KENDİ fiyatı / önizleme
+# Neden: Bir ayın OSB katsayısı (osb_unit_price_try) ile o ayın KENDİ elektrik
+# fiyatı iki ayrı şeydir; katsayı bir önceki ayın fiyatıdır. Excel'de aynı satırda
+# gösterildikleri için karışıyorlardı. Bu testler ayrımı sabitler.
+def test_ayin_kendi_fiyati_hedef_aydan_okunur():
+    """Uygulanmış değer varsa (M+1'in katsayısı) ayın kendi fiyatı odur."""
+    s = svc_with(months={
+        (2026, 7): hazir_ay(2026, 7, osb=Decimal("0.810049")),
+        (2026, 8): hazir_ay(2026, 8, osb=Decimal("1.452381")),
+    })
+    # Temmuz'un KENDİ fiyatı = Ağustos'un katsayısı
+    assert s.get_own_electricity_price(2026, 7) == Decimal("1.452381")
+    # Temmuz'un katsayısı (0.810049) ayın kendi fiyatı DEĞİL — karışmamalı
+    assert s.get_own_electricity_price(2026, 7) != Decimal("0.810049")
+
+
+def test_ayin_kendi_fiyati_hedef_ay_yoksa_kaynak_kutugunden_okunur():
+    """
+    Neden: Fatura, hedef ayın mahsuplaşması hesaplanmadan önce girilebilir.
+    O durumda değer kaynak kütüğünde bekliyordur ve önizleme yine üretilmeli.
+    """
+    s = svc_with(months={(2026, 7): hazir_ay(2026, 7)})
+    s.set_electricity_price(2026, 7, "1.452381", created_by="murat")
+    assert s.get_own_electricity_price(2026, 7) == Decimal("1.452381")
+
+
+def test_ayin_kendi_fiyati_hedef_ay_override_edilmisse_uygulanani_verir():
+    """
+    Neden: Kilitli ay override ile düzeltilmişse GERÇEKTE uygulanan değer
+    monthly_billing'dedir; kaynak kütüğü düzeltmeyi taşımayabilir
+    (DUZELTME_BEKLIYOR). Önizleme, faturaya girecek değeri göstermeli.
+    """
+    s = svc_with(months={
+        (2026, 7): hazir_ay(2026, 7),
+        (2026, 8): hazir_ay(2026, 8, osb=Decimal("1.600000")),   # override sonrası
+    })
+    s.set_electricity_price(2026, 7, "1.452381", created_by="murat")  # kaynaktaki eski
+    assert s.get_own_electricity_price(2026, 7) == Decimal("1.600000")
+
+
+def test_ayin_kendi_fiyati_hic_yoksa_none():
+    s = svc_with(months={(2026, 7): hazir_ay(2026, 7)})
+    assert s.get_own_electricity_price(2026, 7) is None
+
+
+def test_onizleme_ayin_kendi_fiyatiyla_hesaplanir():
+    s = svc_with(months={
+        (2026, 7): hazir_ay(2026, 7, osb=Decimal("0.810049")),
+        (2026, 8): hazir_ay(2026, 8, osb=Decimal("1.452381")),
+    })
+    kalan = Decimal("7248211.700") - Decimal("3693878.600")   # 3.554.333,100 kWh
+    assert s.get_preview_deduction(2026, 7) == (kalan * Decimal("1.452381")).quantize(Decimal("0.01"))
+
+
+def test_onizleme_resmi_kesintiyi_degistirmez():
+    """
+    Neden: Önizleme SALT GÖSTERİM. Çağrılması monthly_billing'e dokunmamalı —
+    resmi tutar bir önceki ayın fiyatıyla hesaplanır ve doğru olan odur.
+    """
+    s = svc_with(months={
+        (2026, 7): hazir_ay(2026, 7, osb=Decimal("0.810049")),
+        (2026, 8): hazir_ay(2026, 8, osb=Decimal("1.452381")),
+    })
+    s.repo.months[(2026, 7)]["osb_deduction_try"] = Decimal("2879174.62")
+    once = dict(s.repo.months[(2026, 7)])
+
+    s.get_preview_deduction(2026, 7)
+
+    assert s.repo.months[(2026, 7)] == once, "önizleme kaydı değiştirmiş"
+    assert not s.repo.set_osb_calls, "önizleme fiyat yazmış"
+
+
+def test_onizleme_fiyat_yoksa_none():
+    # Neden: Uydurulmuş sayı ile "önizleme yok" karışmamalı; çağıran "Bekleniyor" yazar.
+    s = svc_with(months={(2026, 7): hazir_ay(2026, 7, osb=Decimal("0.810049"))})
+    assert s.get_preview_deduction(2026, 7) is None
+
+
+def test_onizleme_kwh_snapshot_yoksa_none():
+    ay = hazir_ay(2026, 7, osb=Decimal("0.810049"))
+    ay["production_kwh_snapshot"] = None
+    s = svc_with(months={(2026, 7): ay, (2026, 8): hazir_ay(2026, 8, osb=Decimal("1.452381"))})
+    assert s.get_preview_deduction(2026, 7) is None
+
+
+def test_onizleme_kaydi_olmayan_ay_icin_none():
+    assert svc_with().get_preview_deduction(2026, 7) is None
+
+
+def test_ayin_kendi_fiyati_yil_donumunu_dogru_gecer():
+    """Aralık'ın kendi fiyatı = Ocak'ın katsayısı (next_month tek yol)."""
+    s = svc_with(months={
+        (2026, 12): hazir_ay(2026, 12),
+        (2027, 1): hazir_ay(2027, 1, osb=Decimal("1.900000")),
+    })
+    assert s.get_own_electricity_price(2026, 12) == Decimal("1.900000")

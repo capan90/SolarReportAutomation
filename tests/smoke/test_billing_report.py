@@ -97,12 +97,34 @@ def _real_style_header(ws, row_idx, n_cols):
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
 
-def _build_sheet(monkeypatch, cur, prev, style_header=None):
+# Neden: Sahte servis artık üç okuma sunuyor — ayın kendi elektrik fiyatı ve
+# önizleme kesintisi, resmi kesintiden AYRI kaynaklardan gelir. Varsayılanlar
+# gerçek Temmuz/Haziran 2026 ilişkisini taklit eder: Temmuz'un katsayısı
+# (1,500000) Haziran faturasının fiyatıdır; Temmuz'un KENDİ fiyatı 1,800000.
+_OWN_PRICES = {(2026, 7): Decimal("1.800000"), (2026, 6): Decimal("1.500000")}
+_PREVIEWS = {(2026, 7): Decimal("16200.00"), (2026, 6): Decimal("13500.00")}
+
+
+def _fake_service_cls(cur, prev, own_prices=None, previews=None):
+    own = _OWN_PRICES if own_prices is None else own_prices
+    prv = _PREVIEWS if previews is None else previews
+
     class _FakeService:
         def get_monthly(self, year, month):
             return cur if (year, month) == (2026, 7) else prev
 
-    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+        def get_own_electricity_price(self, year, month):
+            return own.get((year, month))
+
+        def get_preview_deduction(self, year, month):
+            return prv.get((year, month))
+
+    return _FakeService
+
+
+def _build_sheet(monkeypatch, cur, prev, style_header=None, own_prices=None, previews=None):
+    cls = _fake_service_cls(cur, prev, own_prices, previews)
+    monkeypatch.setattr("app.billing.BillingService", lambda: cls())
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -122,21 +144,79 @@ def test_excel_billing_section_locked(monkeypatch):
 
     assert "FATURALAMA (TL, KDV HARİÇ)" in flat
     assert flat["Fazla Satış Faturası"][1] == "2.909,69"
-    assert flat["OSB Kesintisi"][1] == "13.500,00"
+    # Resmi kesinti DEĞİŞMEDİ — yalnızca etiketi zamanlamayı da söylüyor.
+    assert flat["OSB Kesintisi — Resmi (gelecek ay düşülecek)"][1] == "13.500,00"
     assert flat["Durum"][1] == "Kilitli"
-    # Denetim satırı: hangi katsayılarla hesaplandı
-    assert flat["Kullanılan Katsayılar (Fazla Satış / OSB)"][1] == "2,909687 / 1,500000"
+    # Sabit Enerjisa katsayısı kendi satırında
+    assert flat["Fazla Satış Katsayısı (TL/kWh)"][1] == "2,909687"
+
+
+def test_excel_section_shows_each_months_own_price_not_the_coefficient(monkeypatch):
+    """
+    Neden (A maddesi): Eski "Kullanılan Katsayılar (Fazla Satış / OSB)" satırındaki
+    OSB değeri ayın kendi fiyatı DEĞİL, bir önceki ayın fiyatıydı — aynı sayı önceki
+    ay sütununda zaten görünüyordu. Artık her sütun KENDİ ayının fiyatını gösteriyor.
+    """
+    rows = _build_sheet(monkeypatch, _locked(), _locked(2026, 6))
+    flat = {r[0]: r for r in rows if r and r[0]}
+
+    satir = flat["Elektrik Birim Fiyatı — Ayın Kendi Faturası (TL/kWh)"]
+    assert satir[1] == "1,800000"       # Temmuz'un kendi fiyatı
+    assert satir[2] == "1,500000"       # Haziran'ın kendi fiyatı
+
+    # Bu ayın kesintisinde kullanılan katsayı (1,500000) = önceki ay sütunundaki
+    # fiyat. Aynı sayı ikinci kez, "bu ayın katsayısı" adıyla gösterilmiyor.
+    assert "Kullanılan Katsayılar (Fazla Satış / OSB)" not in flat
+    assert all("Kullanılan Katsayılar" not in (r[0] or "") for r in rows if r and r[0])
+
+
+def test_excel_section_has_preview_row_next_to_official(monkeypatch):
+    """B maddesi: iki tutar yan yana — resmi kesinti ve ayın kendi fiyatıyla önizleme."""
+    rows = _build_sheet(monkeypatch, _locked(), _locked(2026, 6))
+    labels = [r[0] for r in rows if r and r[0]]
+    flat = {r[0]: r for r in rows if r and r[0]}
+
+    resmi = "OSB Kesintisi — Resmi (gelecek ay düşülecek)"
+    onizleme = "OSB Kesintisi — Önizleme (ayın kendi fiyatıyla)"
+    assert labels.index(onizleme) == labels.index(resmi) + 1, "önizleme resmi tutarın hemen altında olmalı"
+    assert flat[onizleme][1] == "16.200,00"
+    assert flat[onizleme][2] == "13.500,00"
+    # Resmi tutar önizlemeden ETKİLENMEDİ
+    assert flat[resmi][1] == "13.500,00"
 
 
 def test_excel_billing_section_pending_shows_bekleniyor(monkeypatch):
-    rows = _build_sheet(monkeypatch, _pending(), None)
+    rows = _build_sheet(monkeypatch, _pending(), None, own_prices={}, previews={})
     flat = {r[0]: r for r in rows if r and r[0]}
 
     # Neden: 0,00 YAZILMAMALI — "kesinti yok" ile "henüz hesaplanmadı" farklıdır.
-    assert flat["OSB Kesintisi"][1] == "Bekleniyor"
+    assert flat["OSB Kesintisi — Resmi (gelecek ay düşülecek)"][1] == "Bekleniyor"
+    assert flat["OSB Kesintisi — Önizleme (ayın kendi fiyatıyla)"][1] == "Bekleniyor"
     assert flat["Durum"][1] == "OSB birim fiyatı bekleniyor"
-    # OSB katsayısı girilmediği için tire
-    assert flat["Kullanılan Katsayılar (Fazla Satış / OSB)"][1] == "2,909687 / —"
+    # Fiyat girilmediği için tire
+    assert flat["Elektrik Birim Fiyatı — Ayın Kendi Faturası (TL/kWh)"][1] == "—"
+    assert flat["Fazla Satış Katsayısı (TL/kWh)"][1] == "2,909687"
+
+
+def test_excel_section_note_row_is_italic_gray(monkeypatch):
+    """F maddesi: açıklama metni ayırt edilebilir ama tutarları bastırmayan katman."""
+    cls = _fake_service_cls(_locked(), _locked(2026, 6))
+    monkeypatch.setattr("app.billing.BillingService", lambda: cls())
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._append_billing_section(
+        ws, datetime(2026, 7, 1), datetime(2026, 6, 1),
+        "Temmuz 2026", "Haziran 2026", _real_style_header,
+    )
+
+    not_cell = next(c for c in (row[0] for row in ws.iter_rows())
+                    if str(c.value or "").startswith("Not:"))
+    assert "Önceki Ay (Haziran 2026)" in not_cell.value
+    assert not_cell.font.italic
+    assert not_cell.font.color.rgb.endswith("808080")
+    assert not not_cell.font.bold
 
 
 def test_excel_change_percent_only_when_both_months_computed(monkeypatch):
@@ -158,11 +238,8 @@ def test_billing_header_row_is_actually_styled(monkeypatch):
     gerçek FATURALAMA başlığı çıplak kalıyordu. METRİK başlığı bold+gri iken
     FATURALAMA'nın olmamasının sebebi buydu.
     """
-    class _FakeService:
-        def get_monthly(self, year, month):
-            return _locked() if (year, month) == (2026, 7) else None
-
-    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+    cls = _fake_service_cls(_locked(), None)
+    monkeypatch.setattr("app.billing.BillingService", lambda: cls())
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -212,12 +289,9 @@ def test_excel_section_survives_billing_failure(monkeypatch):
 # ----------------------------------------------------------------------
 # 2b. "Faturalama Özeti" sayfası
 # ----------------------------------------------------------------------
-def _build_summary(monkeypatch, cur):
-    class _FakeService:
-        def get_monthly(self, year, month):
-            return cur
-
-    monkeypatch.setattr("app.billing.BillingService", lambda: _FakeService())
+def _build_summary(monkeypatch, cur, own_prices=None, previews=None):
+    cls = _fake_service_cls(cur, cur, own_prices, previews)
+    monkeypatch.setattr("app.billing.BillingService", lambda: cls())
     wb = openpyxl.Workbook()
     wb.active.title = "Ay Özeti"
     wb.create_sheet("Haftalık Kırılım")
@@ -245,20 +319,153 @@ def test_summary_sheet_rows_locked(monkeypatch):
     assert rows["OSB'ye Kalan (Üretim − Fazla Satış)"][2] == "13.500,00"
     # TOPLAM = fatura + kesinti
     assert rows["TOPLAM (Enerjisa + OSB Kesintisi)"][2] == "16.409,69"
-    assert rows["Kullanılan Katsayılar (Fazla Satış / OSB)"][2] == "2,909687 / 1,500000"
+    assert rows["Fazla Satış Katsayısı (TL/kWh)"][2] == "2,909687"
     assert rows["Durum"][2] == "Kilitli"
 
 
 def test_summary_sheet_pending_shows_bekleniyor(monkeypatch):
-    wb = _build_summary(monkeypatch, _pending())
+    wb = _build_summary(monkeypatch, _pending(), own_prices={}, previews={})
     rows = {r[0]: r for r in ([c.value for c in row] for row in wb["Faturalama Özeti"].iter_rows()) if r[0]}
 
     # Neden: OSB fiyatı girilmemişse kesinti de TOPLAM da 0 DEĞİL, "Bekleniyor".
     assert rows["OSB'ye Kalan (Üretim − Fazla Satış)"][2] == "Bekleniyor"
     assert rows["TOPLAM (Enerjisa + OSB Kesintisi)"][2] == "Bekleniyor"
     assert rows["Fazla Satış (Enerjisa'ya)"][2] == "2.909,69"   # bu hesaplanmıştı
-    assert rows["Kullanılan Katsayılar (Fazla Satış / OSB)"][2] == "2,909687 / —"
+    assert rows["Fazla Satış Katsayısı (TL/kWh)"][2] == "2,909687"
     assert rows["Durum"][2] == "OSB birim fiyatı bekleniyor"
+
+
+# ----------------------------------------------------------------------
+# 2c. "OSB Kesintisi — İki Görünüm" bloğu (B + F maddeleri)
+# ----------------------------------------------------------------------
+def _summary_rows(wb):
+    return [[c.value for c in row] for row in wb["Faturalama Özeti"].iter_rows()]
+
+
+def test_deduction_views_show_both_amounts(monkeypatch):
+    wb = _build_summary(monkeypatch, _locked())
+    rows = {r[0]: r for r in _summary_rows(wb) if r[0]}
+
+    resmi = "Resmi Kesinti — Ağustos 2026 Faturasından Düşülecek"
+    onizleme = "Önizleme — Ayın Kendi Fiyatıyla (kayıt dışı)"
+    # Resmi tutar = mevcut osb_deduction_try, DEĞİŞMEDİ
+    assert rows[resmi][2] == "13.500,00"
+    # Önizleme = aynı kWh, ayın kendi fiyatıyla
+    assert rows[onizleme][2] == "16.200,00"
+
+
+def test_deduction_view_notes_explain_which_price_was_used(monkeypatch):
+    """
+    Neden (A maddesi karşılığı): Katsayı satırdan kaldırıldı ama "bu tutar hangi
+    fiyatla çıktı" sorusunun cevabı raporda KALMALI — tek sayfalık bu görünümde
+    yandaki sütun yok. Cevap açıklama satırında, ait olduğu ay adıyla birlikte.
+    """
+    wb = _build_summary(monkeypatch, _locked())
+    notlar = [r[0] for r in _summary_rows(wb) if r[0] and str(r[0]).startswith("Hesap:")]
+    assert len(notlar) == 2
+
+    resmi_not, onizleme_not = notlar
+    assert "9.000,0 kWh × 1,500000 TL/kWh" in resmi_not
+    assert "Haziran 2026 faturasının elektrik birim fiyatıdır" in resmi_not
+    # Zamanlama açıkça yazılı — okuyucu tutarı elindeki faturayla eşleştirmeye çalışmasın
+    assert "Temmuz 2026 faturasında DEĞİL, Ağustos 2026 faturasında düşülür" in resmi_not
+
+    assert "9.000,0 kWh × 1,800000 TL/kWh" in onizleme_not
+    assert "kaydedilmez" in onizleme_not
+    assert "DEĞİŞTİRMEZ" in onizleme_not
+
+
+def test_preview_row_says_bekleniyor_when_own_price_missing(monkeypatch):
+    # Neden: Fiyat girilmemişse 0,00 değil "Bekleniyor"; sebebi de yazılı olmalı.
+    wb = _build_summary(monkeypatch, _locked(), own_prices={}, previews={})
+    rows = {r[0]: r for r in _summary_rows(wb) if r[0]}
+    assert rows["Önizleme — Ayın Kendi Fiyatıyla (kayıt dışı)"][2] == "Bekleniyor"
+
+    uyari = next(r[0] for r in _summary_rows(wb)
+                 if r[0] and str(r[0]).startswith("Önizleme hesaplanamadı"))
+    assert "Temmuz 2026 faturasının elektrik birim fiyatı" in uyari
+
+
+def test_official_row_note_when_osb_price_missing(monkeypatch):
+    wb = _build_summary(monkeypatch, _pending(), own_prices={}, previews={})
+    notlar = [r[0] for r in _summary_rows(wb)
+              if r[0] and str(r[0]).startswith("Kesinti henüz hesaplanamadı")]
+    assert len(notlar) == 1
+    assert "Haziran 2026 faturasının elektrik birim fiyatı" in notlar[0]
+
+
+def test_important_amount_rows_are_bold_and_filled(monkeypatch):
+    """F maddesi: toplam ve iki kesinti satırı bold + belirgin (ama ayrı) dolgu."""
+    wb = _build_summary(monkeypatch, _locked())
+    ws = wb["Faturalama Özeti"]
+    beklenen = {
+        "TOPLAM (Enerjisa + OSB Kesintisi)": "DDEBF7",
+        "Resmi Kesinti — Ağustos 2026 Faturasından Düşülecek": "FFF2CC",
+        "Önizleme — Ayın Kendi Fiyatıyla (kayıt dışı)": "F2F2F2",
+    }
+    for label, renk in beklenen.items():
+        row_idx = next(r[0].row for r in ws.iter_rows() if r[0].value == label)
+        for col in range(1, 4):
+            cell = ws.cell(row=row_idx, column=col)
+            assert cell.font.bold, f"{label} sütun {col} bold değil"
+            assert cell.fill.start_color.rgb.endswith(renk), f"{label} dolgusu {renk} değil"
+
+    # Neden: Yeşil/kırmızı BİLEREK kullanılmadı — Net Ay Sonucu'nun kâr/zarar
+    # işareti için ayrıldı. Burada kullanılsalardı renk anlamını kaybederdi.
+    assert len(set(beklenen.values())) == 3, "üç satır üç ayrı renk kullanmalı"
+
+
+def test_deduction_view_notes_are_italic_gray(monkeypatch):
+    wb = _build_summary(monkeypatch, _locked())
+    ws = wb["Faturalama Özeti"]
+    not_cells = [row[0] for row in ws.iter_rows()
+                 if str(row[0].value or "").startswith("Hesap:")]
+    assert len(not_cells) == 2
+    for cell in not_cells:
+        assert cell.font.italic
+        assert cell.font.color.rgb.endswith("808080")
+        assert not cell.font.bold
+
+
+def test_deduction_views_survive_service_failure(monkeypatch):
+    """
+    Neden: Önizleme bir GÖSTERİM katmanı — servis patlasa bile sayfa yazılmalı ve
+    resmi tutar görünmeye devam etmeli (best-effort).
+    """
+    class _BrokenService:
+        def get_monthly(self, year, month):
+            return _locked()
+
+        def get_own_electricity_price(self, year, month):
+            raise RuntimeError("DB down")
+
+        def get_preview_deduction(self, year, month):
+            raise RuntimeError("DB down")
+
+    monkeypatch.setattr("app.billing.BillingService", lambda: _BrokenService())
+    wb = openpyxl.Workbook()
+    wb.active.title = "Ay Özeti"
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._write_billing_summary_sheet(wb, datetime(2026, 7, 1), "Temmuz 2026", _real_style_header)
+
+    rows = {r[0]: r for r in _summary_rows(wb) if r[0]}
+    assert rows["Resmi Kesinti — Ağustos 2026 Faturasından Düşülecek"][2] == "13.500,00"
+    assert rows["Önizleme — Ayın Kendi Fiyatıyla (kayıt dışı)"][2] == "Bekleniyor"
+
+
+def test_december_deduction_view_crosses_year_boundary(monkeypatch):
+    """Aralık kesintisi Ocak faturasından düşülür — ay aritmetiği tek yerden."""
+    wb = openpyxl.Workbook()
+    wb.active.title = "Ay Özeti"
+    cls = _fake_service_cls(_locked(2026, 12), _locked(2026, 12),
+                            own_prices={}, previews={})
+    monkeypatch.setattr("app.billing.BillingService", lambda: cls())
+    job = MonthlySettlementJob.__new__(MonthlySettlementJob)
+    job._write_billing_summary_sheet(wb, datetime(2026, 12, 1), "Aralık 2026", _real_style_header)
+
+    labels = [r[0] for r in _summary_rows(wb) if r[0]]
+    assert "Resmi Kesinti — Ocak 2027 Faturasından Düşülecek" in labels
+    assert any("Kasım 2026 faturasının elektrik birim fiyatı" in str(label) for label in labels)
 
 
 def test_summary_sheet_header_is_styled(monkeypatch):
