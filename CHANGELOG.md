@@ -6,6 +6,19 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### Dönem Eşlemesi Koda Uygulandı: Kaydırma Kaldırıldı (2026-08-05)
+
+- **Ne değişti**: `set_electricity_price` artık hedefi `next_month(source)` ile değil, **`target := source`** ile yazıyor (ADR-0004 Karar 1). Bir ayın OSB katsayısı, **o ayın kendi üretimini değerleyen** fiyattır. Bir ay geriden gelen tek şey **tahsilat zamanıdır** — M ayının kesintisi M+1 faturasından düşülür; bu bir gösterim bilgisidir, hesaba girmez.
+- **Neden şimdi ve migration'dan ÖNCE**: Veri migration'ı tek başına yetmiyordu. Kod eski modelde kaldığı sürece, migration'dan sonra girilecek **ilk yeni fatura** eşlemeyi tekrar bozardı (değer yine bir sonraki aya giderdi).
+- **`get_own_electricity_price` sadeleşti**: Kaydırma kalkınca "ayın kendi fiyatı" ile "ayın katsayısı" **aynı şey** oldu; metot bir ay ileri bakmayı bıraktı. Metot yine de duruyor: ay henüz `PENDING_RATE` iken kütükteki değeri gösterebiliyor. Okuma önceliği korundu — önce `monthly_billing` (override edilmiş gerçek değer), sonra kütük.
+- **`next_month()` silinmedi, görevi daraldı**: Katsayı hedeflemesinde artık kullanılmıyor; yalnızca Excel'deki *"bu tutar {N+1} faturasından düşülecek"* etiketinde ve `previous_month()`'un simetrisinde. Aralık→Ocak dönümü testi korundu.
+- **Arayüz artık doğruyu söylüyor**: Alan adı `Fatura Ayı` → **`Üretim Dönemi`**; canlı ipucu *"Bu değer {ay} ayının OSB katsayısı olacak"* + *"Bu ayın kesintisi {ay+1} faturasından düşülecek"* diyor (eskiden yalnızca "bir sonraki ayın katsayısı olacak" diyordu — yanlıştı). Tablo başlıkları da güncellendi.
+- **id=4 hatasının kaynağı da kapatıldı**: Form artık **"EPYS Bedelli Üretim Miktarı satırının birim fiyatı — Aktif Enerji satırının fiyatı DEĞİL"** uyarısını taşıyor ve bir faturanın neden iki dönem taşıdığını örnekle anlatıyor. Prod'daki id=4 (2,972196 = Aktif Enerji fiyatı) tam bu boşluktan doğmuştu.
+- **`compute()` ve mahsuplaşma motoru DEĞİŞMEDİ**: `osb_deduction_try[M] = kWh(M) × osb_unit_price_try[M]` formülü zaten doğruydu; yanlış olan katsayıya hangi değerin yazıldığıydı.
+- **Doğrulama (geçici SQLite, dev/prod DB'ye dokunulmadan)**: Haziran'ın mahsuplaşması hesaplandı → `PENDING_RATE` (fatura yok); Temmuz etiketli belgenin EPYS fiyatı **üretim dönemi = Haziran** olarak girildi → kayıt `kaynak 2026-06 → hedef 2026-06`, ay anında `LOCKED`, kesinti **5.162.245,86 TL**. Bu, gerçek Temmuz faturasındaki 5.185.313,17 TL ile **%0,45** (ölçüm farkı) uzaklıkta — modelin doğrulanması.
+- **Beklenen yan etki (takip commit'i)**: Artık `Resmi Kesinti == Önizleme`. Excel'deki "OSB KESİNTİSİ — İKİ GÖRÜNÜM" bloğu aynı sayıyı iki kez gösteriyor; ADR-0004'ün öngördüğü gibi tek satıra inecek.
+- **Testler**: Eski N+1 eşlemesini doğrulayan 13 test yeni modele göre yazıldı (hepsi tek dosyada — yayılım sınırlı kaldı). Kaymanın geri gelmediğini sabitleyen regresyon testleri eklendi (`test_hedef_kaynagin_kendisidir`, `test_aralik_katsayisi_ocaga_kaymaz`). Paket 452 → **454 test**.
+
 ### ADR-0004 Migration Script'i — HENÜZ ÇALIŞTIRILMADI (2026-08-05)
 
 - **Ne**: `scripts/migrate_adr0004_donem_eslemesi.py`. Kütükte `target := source` eşlemesini düzeltir, kilitli ayları mevcut override akışından geçirir, kaynağı olmayan ayı `PENDING_RATE`'e döndürür. Varsayılan **dry-run**; yazmak için `--apply` şart.

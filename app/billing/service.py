@@ -318,9 +318,20 @@ class BillingService:
                               unit_price_try: Any, created_by: str,
                               note: Optional[str] = None) -> Dict[str, Any]:
         """
-        Neden: Kullanıcı OSB katsayısını değil, elindeki faturadaki elektrik birim
-        fiyatını girer; hedef ayın katsayısı bundan türetilir (dönüşüm YOK, değer
-        aynen aktarılır).
+        Neden: Kullanıcı OSB katsayısını değil, elindeki faturanın "EPYS Bedelli
+        Üretim Miktarı" satırındaki elektrik birim fiyatını girer; ayın katsayısı
+        bundan türetilir (dönüşüm YOK, değer aynen aktarılır).
+
+        HEDEF = KAYNAK (ADR-0004). Eskiden hedef `next_month(source)` idi; iki
+        gerçek GAOSB faturası bunun yanlış olduğunu gösterdi. Bir ayın katsayısı,
+        O AYIN kendi üretimini değerleyen fiyattır. Bir ay geriden gelen tek şey
+        TAHSİLAT ZAMANIDIR: M ayının kesintisi M+1 faturasında düşülür — bu bir
+        gösterim bilgisidir, hesaba girmez (bkz. Excel'deki "gelecek ay düşülecek"
+        etiketi, `next_month()` orada kullanılmaya devam eder).
+
+        `source_year/source_month` = ÜRETİM DÖNEMİ. Kullanıcının elindeki belge
+        M+1 etiketli olabilir; girilen dönem, EPYS kalemindeki kWh'in ait olduğu
+        aydır (ADR-0004 Karar 4).
 
         Hedef ayın durumuna göre üç yol:
         - Hedef satır yok        -> BEKLIYOR (compute() kancası hazır olduğunda uygular)
@@ -338,7 +349,9 @@ class BillingService:
         if not str(created_by).strip():
             raise BillingValidationError("created_by boş olamaz (denetim izi zorunlu).")
 
-        target_year, target_month = self.next_month(int(source_year), int(source_month))
+        # Neden: Kaydırma YOK (ADR-0004 Karar 1). Hedef, kaynağın kendisidir.
+        # Hedef yine de AYRI kolonlarda SAKLANIR, okuyan taraf aritmetik yapmasın.
+        target_year, target_month = int(source_year), int(source_month)
         existing_target = self.repo.get_monthly(target_year, target_month)
 
         status = PRICE_STATUS_PENDING
@@ -410,36 +423,35 @@ class BillingService:
 
     def get_own_electricity_price(self, year: int, month: int) -> Optional[Decimal]:
         """
-        Neden: Bir ayın KENDİ faturasındaki elektrik birim fiyatı — o ayın OSB
-        katsayısı (osb_unit_price_try) DEĞİLDİR. Katsayı bir ÖNCEKİ ayın fiyatıdır;
-        ayın kendi fiyatı ise bir SONRAKİ aya beslenen değerdir. İki kavram bugüne
-        kadar Excel'de aynı satırda gösteriliyordu ve hangi fiyatın hangi aya ait
-        olduğu bulanıktı.
+        Neden: Bir ayın KENDİ üretimini değerleyen elektrik birim fiyatı.
+
+        ADR-0004 ÖNCESİ bu, o ayın katsayısından FARKLI bir şeydi (katsayı bir
+        önceki ayın fiyatıydı) ve burada bir ay ileri bakılıyordu. Kaydırma
+        kaldırıldıktan sonra ikisi AYNI şey: ayın katsayısı = ayın kendi fiyatı.
+        Metot yine de duruyor çünkü katsayı henüz monthly_billing'e uygulanmamışken
+        (ay PENDING_RATE iken) kütükteki değeri gösterebiliyor.
 
         Okuma önceliği:
-        1. monthly_billing[M+1].osb_unit_price_try — GERÇEKTE uygulanan değer.
+        1. monthly_billing[M].osb_unit_price_try — GERÇEKTE uygulanan değer.
            Kilitli ay override ile düzeltilmişse doğru olan budur; kaynak kütüğü
            düzeltmeyi taşımayabilir (DUZELTME_BEKLIYOR akışı).
-        2. monthly_electricity_price(kaynak=M) — hedef ayın satırı henüz yoksa
-           (mahsuplaşma hesaplanmadıysa) girilmiş kaynak değer.
+        2. monthly_electricity_price(hedef=M) — ay henüz kilitlenmemişse girilmiş
+           kaynak değer.
         Hiçbiri yoksa None; çağıran taraf bunu "Bekleniyor" gösterir, 0 değil.
-
-        Ay aritmetiği next_month() ile — ikinci bir "+1 ay" yolu açılmaz.
         """
-        target_year, target_month = self.next_month(int(year), int(month))
+        year, month = int(year), int(month)
 
-        applied = self.repo.get_monthly(target_year, target_month)
+        applied = self.repo.get_monthly(year, month)
         if applied is not None and applied.get("osb_unit_price_try") is not None:
             return _to_decimal(applied["osb_unit_price_try"], "osb_unit_price_try")
 
-        source = self.repo.get_electricity_price_for_target(target_year, target_month)
+        source = self.repo.get_electricity_price_for_target(year, month)
         if source is not None and source.get("unit_price_try") is not None:
             return _to_decimal(source["unit_price_try"], "unit_price_try")
 
         logger.info(
-            "%04d-%02d ayının kendi elektrik birim fiyatı henüz bilinmiyor "
-            "(hedef ay %04d-%02d); önizleme hesaplanamayacak.",
-            year, month, target_year, target_month,
+            "%04d-%02d ayının elektrik birim fiyatı henüz bilinmiyor; "
+            "katsayı ve önizleme hesaplanamayacak.", year, month,
         )
         return None
 

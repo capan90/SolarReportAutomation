@@ -1377,18 +1377,25 @@
                             </div>
                         </div><!-- /tab-osb -->
 
-                        <!-- Neden: OSB katsayısı aslında türetilmiş bir değer — bir ayın
-                             katsayısı BİR ÖNCEKİ ayın faturasındaki elektrik birim fiyatıdır.
-                             Kullanıcı katsayıyı değil kaynağı girer, sistem N+1 ayına uygular. -->
+                        <!-- Neden: OSB katsayısı aslında türetilmiş bir değer — kullanıcı
+                             katsayıyı değil faturadaki kaynağı girer. ADR-0004: kaydırma YOK,
+                             katsayı girilen ÜRETİM DÖNEMİNE uygulanır; bir ay geriden gelen
+                             tek şey tahsilat zamanıdır. -->
                         <div id="tab-fatura" class="tab-panel" style="display:none;">
-                            <p class="muted small" style="margin-bottom:10px;">Faturadaki <b>elektrik birim fiyatını</b> (TL/kWh, <b>KDV hariç</b>) girin. Bu değer <b>otomatik olarak bir sonraki ayın</b> OSB katsayısı olur — dönüşüm veya çarpan uygulanmaz.</p>
+                            <p class="muted small" style="margin-bottom:10px;">Faturanın <b>"EPYS Bedelli Üretim Miktarı"</b> satırındaki <b>birim fiyatı</b> (TL/kWh, <b>KDV hariç</b>) girin. Bu değer, girdiğiniz <b>üretim döneminin</b> OSB katsayısı olur — dönüşüm veya çarpan uygulanmaz.</p>
+                            <div style="border:1px solid rgba(239,68,68,0.45); background:rgba(239,68,68,0.10); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                                ⚠️ <b>Doğru satırı girin:</b> katsayı <b>"EPYS Bedelli Üretim Miktarı"</b> satırının birim fiyatıdır —
+                                <b>"Aktif Enerji" satırının fiyatı DEĞİL</b>. İkisi aynı faturada, farklı değerlerdedir.
+                            </div>
                             <div style="border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
-                                ℹ️ <b>Örnek:</b> <b>Haziran 2026</b> faturasını girerseniz → <b>Temmuz 2026</b> OSB katsayısı olur.<br>
-                                Hedef ayın mahsuplaşması henüz hesaplanmadıysa değer <b>bekletilir</b> ve ay hazır olduğunda otomatik uygulanır.
+                                ℹ️ <b>Üretim dönemi nedir?</b> Bir fatura iki dönemi taşır: <b>Aktif Enerji</b> cari ayın tüketimi,
+                                <b>EPYS</b> kalemi ise <b>bir önceki ayın üretimidir</b>. Buraya, EPYS kalemindeki kWh'in ait olduğu ayı girin.<br>
+                                <b>Örnek:</b> Temmuz etiketli faturadaki EPYS kalemi Haziran üretimini gösteriyorsa → üretim dönemi <b>Haziran 2026</b>'dır.<br>
+                                O ayın mahsuplaşması henüz hesaplanmadıysa değer <b>bekletilir</b> ve ay hazır olduğunda otomatik uygulanır.
                             </div>
                             <div class="form-grid">
-                                <div class="field"><label>Fatura Ayı</label><input id="ep-month" type="month" oninput="updateTargetHint()"></div>
-                                <div class="field"><label>Elektrik Birim Fiyatı (TL/kWh)</label><input id="ep-price" type="number" step="0.000001" placeholder="Örn. 1.452381"></div>
+                                <div class="field"><label>Üretim Dönemi</label><input id="ep-month" type="month" oninput="updateTargetHint()"></div>
+                                <div class="field"><label>EPYS Birim Fiyatı (TL/kWh)</label><input id="ep-price" type="number" step="0.000001" placeholder="Örn. 1.452381"></div>
                                 <div class="field"><label>Açıklama (opsiyonel)</label><input id="ep-note" type="text" placeholder="Örn. GAOSB Haziran faturası"></div>
                                 <div class="field"><label>Yönetici Şifresi *</label><input id="ep-admin" type="password" placeholder="Zorunlu"></div>
                             </div>
@@ -1397,7 +1404,7 @@
                             <div id="ep-msg" class="msg"></div>
                             <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Girilen Fatura Fiyatları</div>
                             <div style="overflow-x:auto;">
-                                <table class="table"><thead><tr><th>Fatura Ayı</th><th>Birim Fiyat (TL/kWh)</th><th>Beslediği Ay</th><th>Durum</th><th>Giren</th></tr></thead>
+                                <table class="table"><thead><tr><th>Üretim Dönemi</th><th>EPYS Birim Fiyatı (TL/kWh)</th><th>Katsayısı Olduğu Ay</th><th>Durum</th><th>Giren</th></tr></thead>
                                 <tbody id="ep-history"><tr><td colspan="5" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
                             </div>
                         </div><!-- /tab-fatura -->
@@ -3243,15 +3250,18 @@
             }
         }
 
-        // Neden: Ay kaydırması bu özelliğin en tehlikeli hata sınıfı. Kullanıcı
-        // kaydetmeden ÖNCE hangi aya gideceğini yazıyla görsün.
+        // Neden: Dönem eşlemesi bu özelliğin en tehlikeli hata sınıfı. Kullanıcı
+        // kaydetmeden ÖNCE değerin hangi aya gideceğini yazıyla görsün.
+        // ADR-0004: kaydırma YOK — girilen üretim dönemi neyse katsayı o ayındır.
+        // Bir ay geriden gelen tek şey tahsilat zamanı; onu da ayrıca söylüyoruz.
         function updateTargetHint() {
             const v = document.getElementById("ep-month").value;
             const hint = document.getElementById("ep-target-hint");
             if (!v) { hint.innerText = ""; return; }
             const y = parseInt(v.slice(0, 4), 10), m = parseInt(v.slice(5, 7), 10);
-            const ty = m === 12 ? y + 1 : y, tm = m === 12 ? 1 : m + 1;
-            hint.innerHTML = `→ Bu değer <b>${fmtAy(ty, tm)}</b> ayının OSB katsayısı olacak.`;
+            const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+            hint.innerHTML = `→ Bu değer <b>${fmtAy(y, m)}</b> ayının OSB katsayısı olacak.`
+                + `<br>→ Bu ayın kesintisi <b>${fmtAy(ny, nm)}</b> faturasından düşülecek.`;
         }
 
         async function loadElectricityPrices() {
