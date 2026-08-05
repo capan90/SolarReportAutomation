@@ -1537,7 +1537,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.auth.log_action(
             username, self._get_client_ip(), "billing_actual_invoice",
             details=(
-                f"{month_str} gerçek OSB fatura tutarı (KDV hariç): "
+                f"{month_str} gerçek OSB faturası (KDV matrahı): "
                 f"{onceki if onceki is not None else 'yok'} -> {saved['amount_try']} TL"
             ),
         )

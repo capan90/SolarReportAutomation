@@ -614,14 +614,25 @@ class MonthlySettlementJob:
         ws.merge_cells(start_row=ws.max_row, start_column=1, end_row=ws.max_row, end_column=3)
         style_header(ws, ws.max_row, 3)
 
-        ws.append(["Gerçek OSB Fatura Tutarı (elle girilen)", "—",
+        ws.append(["OSB Faturası — KDV Matrahı (elle girilen)", "—",
                    self._fmt_try(net["actual_invoice_try"])])
-        # Neden: KDV ve kalem kapsamı burada AÇIKÇA yazılı. Sistemdeki tüm tutarlar
-        # KDV hariç; gerçek fatura genelde KDV dahil gelir. Karıştırılırsa net sonuç
-        # sessizce ~%20 yanlış çıkardı — sessiz hata yok kuralı.
+        # Neden: Hangi SATIRIN girileceği artık adıyla yazılı. "KDV hariç" demek tek
+        # başına yetmiyordu: gerçek faturada KDV hariç birden fazla ara toplam var
+        # (Aktif Enerji, Aktif Enerji − EPYS, KDV Matrahı) ve yanlış olanı girmek
+        # sonucu %13 ile %20 arasında kaydırıyordu.
         ws.append([
-            "Bu tutar KDV HARİÇ (net) ve yalnızca ELEKTRİK kalemi olarak girilir. "
-            "Giriş: Dashboard → Faturalama Katsayıları → Gerçek Fatura & Net Sonuç."
+            "Faturanın KDV MATRAHI satırıdır — KDV dahil genel toplam DEĞİL. Dağıtım, "
+            "YEKDEM, iletim, reaktif ve belediye vergisi bu tutara DAHİLDİR; bunlar da "
+            "gerçek maliyettir. Giriş: Dashboard → Faturalama Katsayıları → "
+            "Gerçek Fatura & Net Sonuç."
+        ])
+        _style_note(ws, ws.max_row)
+        # Neden: Kullanıcı kesintiyi elle çıkarma eğilimindeydi — o kalem KDV
+        # matrahının İÇİNDE zaten düşülmüş durumda ve aşağıda geri ekleniyor.
+        # İki kez çıkarılırsa net sonuç kesinti kadar yanlış çıkar.
+        ws.append([
+            "Faturadaki \"EPYS Bedelli Üretim Miktarı\" satırı OSB kesintinizdir ve KDV "
+            "matrahının içinde ZATEN düşülmüştür — aşağıda geri eklenir, elle çıkarmayın."
         ])
         _style_note(ws, ws.max_row)
 

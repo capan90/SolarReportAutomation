@@ -692,7 +692,9 @@ def test_actual_invoice_basarili_akis_audit_eski_yeni_yazar():
     kayit = [a for a in h.auth.actions if a["action"] == "billing_actual_invoice"]
     assert len(kayit) == 1 and kayit[0]["success"] is True
     assert "7500000.00 -> 8000000.00" in kayit[0]["details"]
-    assert "KDV hariç" in kayit[0]["details"]
+    # Neden: Denetim satırı hangi fatura satırının girildiğini de söylemeli —
+    # sonradan "hangi tutardı bu" sorusu KDV matrahı/genel toplam ayrımına dayanıyor.
+    assert "KDV matrahı" in kayit[0]["details"]
 
 
 def test_actual_invoice_ilk_giris_audit_yok_yazar():

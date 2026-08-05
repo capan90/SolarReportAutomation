@@ -1409,12 +1409,19 @@
                              burada yazılan hiçbir hesaplanmış tutarı geçmişe dönük
                              değiştirmiyor, düzeltme aynı ayı yeniden kaydetmektir. -->
                         <div id="tab-net" class="tab-panel" style="display:none;">
-                            <p class="muted small" style="margin-bottom:10px;">OSB'nin o ay için kestiği <b>gerçek fatura tutarını</b> girin. Bu, <b>Net Ay Sonucu</b> hesabının tek dış girdisidir — sistem bu tutarı hesaplayamaz, faturadan okunur.</p>
+                            <p class="muted small" style="margin-bottom:10px;">OSB'nin o ay için kestiği <b>gerçek faturanın KDV matrahını</b> girin. Bu, <b>Net Ay Sonucu</b> hesabının tek dış girdisidir — sistem bu tutarı hesaplayamaz, faturadan okunur.</p>
+                            <!-- Neden: "KDV hariç" demek tek başına yetmiyor — gerçek faturada
+                                 KDV hariç BİRDEN FAZLA ara toplam var (Aktif Enerji; Aktif
+                                 Enerji − EPYS; KDV Matrahı). Yanlış olanı girmek sonucu %13 ile
+                                 %20 arasında kaydırıyor. Bu yüzden satır ADIYLA söyleniyor. -->
                             <div style="border:1px solid rgba(234,179,8,0.35); background:rgba(234,179,8,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
-                                ⚠️ <b>Dikkat — tutar KDV HARİÇ (net) girilmelidir.</b>
-                                Sistemdeki tüm tutarlar KDV hariçtir; fatura genelde <b>KDV dahil</b> gelir.
-                                Karıştırılırsa Net Ay Sonucu <b>sessizce ~%20 yanlış</b> çıkar.
-                                Ayrıca <b>yalnızca elektrik kalemini</b> girin — su, doğalgaz, aidat gibi kalemler dahil edilirse sonuç onları da içerir.
+                                ⚠️ <b>Faturanın "KDV Matrahı" satırını girin</b> — KDV dahil genel toplamı <b>değil</b>.
+                                Dağıtım, YEKDEM, iletim, reaktif ve belediye vergisi bu tutara <b>dahildir</b>; bunlar da gerçek maliyettir.
+                                Faturada elektrik dışı kalem (su, doğalgaz) varsa <b>yalnızca onları</b> çıkarın.
+                            </div>
+                            <div style="border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
+                                🧾 Faturadaki <b>"EPYS Bedelli Üretim Miktarı"</b> satırı sizin OSB kesintinizdir ve
+                                KDV matrahının içinde <b>zaten düşülmüştür</b> — hesap onu geri ekler, <b>siz elle çıkarmayın</b>.
                             </div>
                             <div style="border:1px solid rgba(59,130,246,0.35); background:rgba(59,130,246,0.08); border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:0.8rem; line-height:1.6;">
                                 ℹ️ <b>Net Ay Sonucu</b> = Gerçek Fatura − (Enerjisa Faturası + Bu Ayın OSB Kesintisi) + <b>Önceki Ayın</b> OSB Kesintisi.<br>
@@ -1423,10 +1430,14 @@
                             </div>
                             <div class="form-grid">
                                 <div class="field"><label>Fatura Ayı</label><input id="ai-month" type="month"></div>
-                                <div class="field"><label>Gerçek Fatura Tutarı (TL, KDV hariç)</label><input id="ai-amount" type="number" step="0.01" placeholder="Örn. 1250000.00"></div>
-                                <div class="field"><label>Açıklama (opsiyonel)</label><input id="ai-note" type="text" placeholder="Örn. GAOSB Temmuz elektrik kalemi"></div>
+                                <div class="field"><label>OSB Faturası — KDV Matrahı (TL)</label><input id="ai-amount" type="number" step="0.01" placeholder="Örn. 27131300.30" oninput="updateKdvHint()"></div>
+                                <div class="field"><label>Açıklama (opsiyonel)</label><input id="ai-note" type="text" placeholder="Örn. GAOSB Temmuz faturası"></div>
                                 <div class="field"><label>Yönetici Şifresi *</label><input id="ai-admin" type="password" placeholder="Zorunlu"></div>
                             </div>
+                            <!-- Neden: Yanlış satırı girmek bu işin en olası hata sınıfı ve
+                                 sessiz — sonuç makul görünür ama %20 sapar. Tek satırlık bir
+                                 teyit, kullanıcının elindeki faturayla karşılaştırmasını sağlıyor. -->
+                            <div id="ai-kdv-hint" class="muted small" style="margin-top:8px;"></div>
                             <div style="margin-top:14px;"><button id="btn-ai-save" class="btn blue" onclick="saveActualInvoice()">Kaydet</button></div>
                             <div id="ai-msg" class="msg"></div>
                             <p class="muted small" style="margin-top:10px;">
@@ -1435,7 +1446,7 @@
                             </p>
                             <div class="card-title" style="margin-top:18px; font-size:0.85rem;">Girilen Faturalar ve Net Sonuçlar</div>
                             <div style="overflow-x:auto;">
-                                <table class="table"><thead><tr><th>Ay</th><th>Gerçek Fatura (KDV hariç)</th><th>Net Ay Sonucu (Ödenecek)</th><th>Giren</th></tr></thead>
+                                <table class="table"><thead><tr><th>Ay</th><th>Fatura KDV Matrahı</th><th>Net Ay Sonucu (Ödenecek)</th><th>Giren</th></tr></thead>
                                 <tbody id="ai-history"><tr><td colspan="4" class="muted" style="text-align:center;">Yükleniyor...</td></tr></tbody></table>
                             </div>
                         </div><!-- /tab-net -->
@@ -3144,6 +3155,20 @@
             const etiket = n > 0 ? "Ödenecek" : "Alacak";
             return `<span class="badge ${sinif} sm">${fmtTL(Math.abs(n))}</span>
                     <div class="muted" style="font-size:0.72rem;">${etiket}</div>`;
+        }
+
+        // Neden: Ekrandaki bir TEYİT satırı; hesabın parçası DEĞİL. Oran burada
+        // sabit çünkü kullanıcının elindeki faturayla göz kararı karşılaştırma
+        // yapması için var — KDV oranı değişirse yanlış hesap değil, yanlış ipucu
+        // üretir ve kullanıcı faturasına bakıp fark eder.
+        const KDV_ORANI = 1.20;
+
+        function updateKdvHint() {
+            const el = document.getElementById("ai-kdv-hint");
+            const v = document.getElementById("ai-amount").value;
+            if (v === "" || isNaN(Number(v))) { el.innerHTML = ""; return; }
+            el.innerHTML = `Girdiğiniz tutar × 1,20 (KDV) = <b>${fmtTL(Number(v) * KDV_ORANI)}</b>
+                — faturanızın <b>KDV dahil genel toplamı</b> bu mu? Tutmuyorsa yanlış satırı girmiş olabilirsiniz.`;
         }
 
         async function loadActualInvoices() {

@@ -304,22 +304,37 @@ def test_excel_net_blogu_kalemleri_tek_tek_yazar(monkeypatch):
     ws = _build(monkeypatch, _net("-5941757.12"))
     rows = _satirlar(ws)
 
-    assert rows["Gerçek OSB Fatura Tutarı (elle girilen)"][2] == "8.000.000,00"
+    assert rows["OSB Faturası — KDV Matrahı (elle girilen)"][2] == "8.000.000,00"
     assert rows["(−) Fazla Satış Faturası (Enerjisa)"][2] == "11.509.229,10"
     assert rows["(−) OSB Kesintisi — Resmi (bu ay)"][2] == "5.311.711,99"
     assert rows["(+) Haziran 2026 OSB Kesintisi"][2] == "2.879.183,97"
     assert rows["NET AY SONUCU (ÖDENECEK)"][2] == "-5.941.757,12"
 
 
-def test_excel_kdv_ve_kalem_uyarisi_yazili(monkeypatch):
+def test_excel_hangi_fatura_satirinin_girilecegi_adiyla_yazili(monkeypatch):
     """
-    Neden: Fatura genelde KDV DAHİL gelir; sistemdeki her tutar KDV hariç.
-    Karıştırılırsa net sonuç sessizce ~%20 yanlış çıkar.
+    Neden: "KDV hariç" demek yetmiyor — gerçek faturada KDV hariç BİRDEN FAZLA ara
+    toplam var (Aktif Enerji; Aktif Enerji − EPYS; KDV Matrahı) ve yanlış olanı
+    girmek sonucu %13 ile %20 arasında kaydırıyor. Satır adıyla söylenmeli.
     """
     ws = _build(monkeypatch, _net("-5941757.12"))
     uyari = next(r[0] for r in _satirlar(ws).values()
-                 if str(r[0]).startswith("Bu tutar KDV HARİÇ"))
-    assert "yalnızca ELEKTRİK kalemi" in uyari
+                 if str(r[0]).startswith("Faturanın KDV MATRAHI"))
+    assert "KDV dahil genel toplam DEĞİL" in uyari
+    # Şebeke ve vergi kalemleri gerçek maliyettir; dışarıda bırakılmamalı
+    assert "DAHİLDİR" in uyari
+
+
+def test_excel_epys_satirinin_iki_kez_dusulmemesi_uyarisi(monkeypatch):
+    """
+    Neden: EPYS kalemi KDV matrahının İÇİNDE zaten düşülmüş; kullanıcı bir de elle
+    çıkarırsa net sonuç kesinti kadar yanlış çıkar.
+    """
+    ws = _build(monkeypatch, _net("-5941757.12"))
+    uyari = next(r[0] for r in _satirlar(ws).values()
+                 if "EPYS Bedelli Üretim Miktarı" in str(r[0]))
+    assert "ZATEN düşülmüştür" in uyari
+    assert "elle çıkarmayın" in uyari
 
 
 @pytest.mark.parametrize("net_try,renk", [
