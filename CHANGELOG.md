@@ -6,6 +6,18 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### ADR-0004 Migration Script'i — HENÜZ ÇALIŞTIRILMADI (2026-08-05)
+
+- **Ne**: `scripts/migrate_adr0004_donem_eslemesi.py`. Kütükte `target := source` eşlemesini düzeltir, kilitli ayları mevcut override akışından geçirir, kaynağı olmayan ayı `PENDING_RATE`'e döndürür. Varsayılan **dry-run**; yazmak için `--apply` şart.
+- **Veri hiç değişmedi**: Bu commit yalnızca aracı ekliyor. `--apply` çalıştırılmadı; prod ve dev veritabanlarına dokunulmadı.
+- **Plan veriden türetilir, ay adı gömülü değil**: Her ayın yeni katsayısı, kütükte `source == o ay` olan satırdan okunur; kaynağı olmayan ay PENDING'e döner. Dry-run ve `--apply` **aynı fonksiyonu** çağırır — "gördüğünden başkası uygulanamaz".
+- **`compute()` ve mahsuplaşma motoru çağrılmıyor değil, DEĞİŞTİRİLMİYOR**: Tutarlar mevcut `override_locked_month` + `compute()` yolundan yeniden türetilir; ikinci bir matematik yolu açılmaz.
+- **id=4 bilerek dışarıda (`KUTUK_HARIC`)**: `source=2026-07` satırındaki 2,972196 değeri faturanın **Aktif Enerji** satırından okunmuş; katsayı ise **EPYS Bedelli Üretim Miktarı** satırından okunur. Satır **silinmiyor, durumu değişmiyor** (BEKLIYOR kalıyor) — yalnızca hedefi Temmuz'a çevrilmiyor. Çevrilseydi `compute(2026,7)` → `apply_pending_electricity_price` kancası Temmuz'u 2,972196 ile **sessizce kilitlerdi** (kancanın iki koşulu da sağlanıyordu). Ağustos faturası `source = Temmuz` olarak girildiğinde `UNIQUE(source_year, source_month)` sayesinde bu satırın değeri üzerine yazılacak.
+- **PENDING'e döndürme yolu script'in İÇİNDE**: `override_locked_month` bir değer yazmak içindir, NULL'a çekemez. Bu yol production koduna **eklenmedi** (ADR-0004 Karar 7: "yalnızca migration script'i tarafından çağrılır ve arayüze bağlanmaz").
+- **Denetim**: Değişen her ay `audit_log`'a `billing_period_remap` eylemiyle eski→yeni değerleriyle yazılır — `billing_override`'dan bilerek ayrı, dashboard rozeti bunu kullanıcı hatası gibi göstermesin.
+- **Prova (prod değil)**: Prod'un bilinen durumunu birebir kuran geçici bir SQLite üzerinde dry-run koşuldu; Haziran 2.879.183,97 → 5.162.245,86 (+2.283.061,89), Temmuz PENDING'e, Mayıs dokunulmuyor. Koşu sonrası fixture bit bazında değişmedi (`audit_log` 0 satır). **Sunucudaki gerçek dry-run henüz görülmedi.**
+- **Açık madde — sıra**: Migration yalnızca veriyi taşıyor; `set_electricity_price` hâlâ `target = next_month(source)` yazıyor. Kod düzeltmesi migration'dan önce (ya da Ağustos faturası girilmeden önce) gitmeli, aksi hâlde ilk yeni giriş eşlemeyi tekrar bozar.
+
 ### ADR-0004: OSB Kesintisinin Dönem Eşlemesi Yanlışmış (2026-08-05)
 
 - **Bulgu**: İki gerçek GAOSB faturasının `EPYS Bedelli Üretim Miktarı` kalemi, bir faturanın **iki dönemi birlikte** taşıdığını gösterdi — Aktif Enerji kalemi cari ayın *tüketimi*, EPYS kalemi bir önceki ayın *üretimi*. Kesinti kaleminde miktar ve fiyat **aynı döneme** ait; sistem ise miktarı cari aydan, fiyatı bir önceki aydan alıyordu.
