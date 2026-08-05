@@ -2,6 +2,15 @@
 
 ## Durum
 
+> **⚠️ KISMEN GEÇERSİZ — bkz. [ADR-0004](ADR-0004-osb-kesintisi-donem-eslemesi.md) (2026-08-05).**
+> Aşağıdaki "değişken katsayı her ay OSB'nin **bir önceki aya** ait gerçek
+> faturasındaki birim fiyattır" ifadesi ve §Karar 3'ün buna dayanan
+> `source M → target M+1` eşlemesi, iki gerçek fatura ile çürütülmüştür.
+> Doğrusu: bir ayın katsayısı **o ayın kendi üretimini değerleyen** fiyattır;
+> bir ay geriden gelen tek şey tahsilat zamanıdır. Bu belgenin diğer kararları
+> (ayrı katman, append-only tarife, snapshot kilidi, para tipi, "katsayı eksikse
+> rapor beklemez") yürürlüktedir.
+
 Aylık mahsuplaşma raporuna iki finansal hesap eklenecektir:
 
 1. **Fazla Satış Faturası** (Enerjisa'ya kesilecek)
@@ -37,6 +46,9 @@ açısından salt-okunur olarak tasarlanmıştır.
    tutulur. Satır ilk oluşturulduğunda o ay için geçerli sabit katsayı
    (`valid_from <= ay sonu` olan en güncel kayıt) snapshot olarak yazılır ve bir daha
    değişmez. Değişken katsayı elle girildiğinde satır `LOCKED` durumuna geçer.
+
+   > Bu maddenin **eşleme** kısmı (hangi ayın faturasının hangi aya besleneceği)
+   > ADR-0004 ile değiştirilmiştir; snapshot ve kilit kuralları geçerlidir.
 
 4. **Kilitlenen katsayıdır, tutar değildir.** kWh verisi sonradan tamamlanır veya
    yeniden hesaplanırsa tutarlar kilitli katsayılarla yeniden türetilir. Katsayı

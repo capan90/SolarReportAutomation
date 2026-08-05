@@ -6,6 +6,18 @@ Tüm önemli değişiklikler bu dosyada belgelenecektir.
 
 ## [Unreleased]
 
+### ADR-0004: OSB Kesintisinin Dönem Eşlemesi Yanlışmış (2026-08-05)
+
+- **Bulgu**: İki gerçek GAOSB faturasının `EPYS Bedelli Üretim Miktarı` kalemi, bir faturanın **iki dönemi birlikte** taşıdığını gösterdi — Aktif Enerji kalemi cari ayın *tüketimi*, EPYS kalemi bir önceki ayın *üretimi*. Kesinti kaleminde miktar ve fiyat **aynı döneme** ait; sistem ise miktarı cari aydan, fiyatı bir önceki aydan alıyordu.
+- **Kanıt**: Haziran faturası 2.334.046,2750 kWh ↔ sistemdeki **Mayıs** (2.335.232,7) **%0,05**; Temmuz faturası 3.570.216,493 kWh ↔ sistemdeki **Haziran** (3.554.333,1) **%0,45**. İkisi de kendi aylarına değil, bir önceki aya oturuyor.
+- **Neden aylarca görünmedi**: `hata(M) = kWh(M) × (E(M−1) − E(M))`. Nisan ve Mayıs fiyatları eşitti (0,810049), hata tam **sıfır**dı. Fiyat sıçrayınca (→1,452381) Haziran'da **2.283.061,89 TL**'ye ulaştı.
+- **2026-08-03 Haziran override'ı yeniden değerlendirildi**: Override, ADR-0002'nin kuralını **doğru** uyguluyordu (1,452381 → 0,810049) ama kural yanlış olduğu için kayıtlı tutarı gerçekten **uzaklaştırdı**. Override'dan önceki elle girilmiş değer, Temmuz faturasıyla %0,45 farkla eşleşiyordu.
+- **Karar (ADR-0004)**: Kaydırma kaldırılıyor — `osb_unit_price_try[M] = E(M)`, kütük eşlemesi `source M → target M`. Bir ay geriden gelen tek şey **tahsilat zamanı**; bu bir gösterim bilgisi, hesaba girmiyor. **`compute()` ve mahsuplaşma motoru değişmiyor** — formül zaten doğruydu, yanlış olan katsayıya hangi değerin yazıldığıydı.
+- **Kütükteki değerler zaten doğru**: `source` alanı belgenin kendi etiketini değil, **değerlediği üretim dönemini** taşıyor (kullanıcı 1,452381'i "Temmuz" etiketli belgeden okuyup "Haziran" olarak kaydetmişti — EPYS kalemi Haziran üretimini değerlediği için bu doğru). Düzeltme mekanik: `target := source`. Hiçbir fatura yeniden okunmuyor.
+- **Beklenen düzeltme**: Mayıs **değişmiyor** (fiyat sabitti); Haziran 2.879.183,97 → **5.162.245,86**; Temmuz, katsayısı Ağustos faturasından geleceği için **PENDING_RATE'e** dönüyor — tahmini değerle doldurulmuyor.
+- **ADR-0002 yerinde düzeltilmedi**: §Durum'a ve §Karar 3'e "ADR-0004 ile geçersiz kılındı" notu düşüldü. Yanlış modelin neden benimsendiği ve neyin çürüttüğü bilginin kendisi; 3 Ağustos override'ı ancak iki belge yan yana okununca anlaşılıyor.
+- **Bu commit yalnızca KARAR belgesidir** — kod, şema ve veri değişmedi. Düzeltme ayrı çalışacak: önce salt-okunur dry-run, sonra yedek, sonra denetimli migration (`billing_period_remap` audit eylemiyle, mevcut tek kilit delme yolu üzerinden).
+
 ### Gerçek Fatura Girişi: Hangi Fatura Satırının Girileceği Adıyla Yazıldı (2026-08-05)
 
 - **Bulgu (gerçek GAOSB Temmuz 2026 faturasıyla)**: "KDV hariç tutarı girin" talimatı yetmiyormuş. Faturada **KDV hariç birden fazla ara toplam** var ve hepsi makul birer "fatura tutarı" gibi duruyor: Aktif Enerji **28.579.736,67**; Aktif Enerji − EPYS **23.394.423,50**; KDV Matrahı **27.131.300,30**. Yanlış olanı girmek Net Ay Sonucu'nu **%13 ile %20 arasında** kaydırıyor — üstelik sessizce, çünkü sonuç yine makul görünüyor.
